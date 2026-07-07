@@ -1,0 +1,5 @@
+.idea/
+*.exe
+node_modules/
+dist/
+prebuilt/
