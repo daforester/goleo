@@ -106,15 +106,24 @@ func (c *WSClient) readPump(bridge *Bridge) {
 				log.Printf("invalid invoke request: %v", err)
 				continue
 			}
-			resp := bridge.HandleRequest(req)
-			respData, _ := json.Marshal(map[string]any{
-				"type": "invokeResult",
-				"data": resp,
-			})
-			select {
-			case c.send <- respData:
-			default:
-			}
+			// Run each invoke on its own goroutine so a slow or
+			// long-running handler (e.g. one that sleeps, blocks on I/O,
+			// or shells out to a native command) can't stall this read
+			// loop and queue up every other request on the same
+			// connection behind it. Responses carry the request's own ID,
+			// so the frontend (bridge.ts's pending map) correlates them
+			// correctly regardless of completion order.
+			go func(req InvokeRequest) {
+				resp := bridge.HandleRequest(req)
+				respData, _ := json.Marshal(map[string]any{
+					"type": "invokeResult",
+					"data": resp,
+				})
+				select {
+				case c.send <- respData:
+				default:
+				}
+			}(req)
 
 		case "event":
 			var msg EventMessage
