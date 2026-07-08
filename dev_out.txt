@@ -1,0 +1,7 @@
+  Resolving Go dependencies...
+  Adding local replace directive: github.com/daforester/goleo => E:/Development/goleo
+  Starting Goleo development server...
+  Frontend: http://localhost:5173
+  Backend:  http://localhost:9842
+
+  Goleo app running on http://localhost:9842

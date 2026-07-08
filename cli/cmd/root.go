@@ -31,5 +31,6 @@ func init() {
 	rootCmd.AddCommand(newCmd)
 	rootCmd.AddCommand(devCmd)
 	rootCmd.AddCommand(buildCmd)
+	rootCmd.AddCommand(emulateCmd)
 	rootCmd.AddCommand(versionCmd)
 }

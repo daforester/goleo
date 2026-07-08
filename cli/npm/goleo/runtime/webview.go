@@ -1,0 +1,86 @@
+//go:build !mobilebuild
+
+package runtime
+
+import (
+	"fmt"
+	"runtime"
+
+	webview "github.com/webview/webview_go"
+)
+
+type WebviewWindow struct {
+	w   webview.WebView
+	cfg windowConfig
+	url string
+}
+
+func NewWebviewWindow(cfg windowConfig) WebviewWindow {
+	debug := cfg.DevTools
+
+	w := webview.New(debug)
+	w.SetTitle(cfg.Title)
+	w.SetSize(cfg.Width, cfg.Height, webview.HintNone)
+
+	if cfg.MinWidth > 0 && cfg.MinHeight > 0 {
+		w.SetSize(cfg.MinWidth, cfg.MinHeight, webview.HintMin)
+	}
+
+	if cfg.URL != "" {
+		w.Navigate(cfg.URL)
+	}
+
+	return WebviewWindow{w: w, cfg: cfg, url: cfg.URL}
+}
+
+func (win *WebviewWindow) Navigate(url string) {
+	if win.w != nil {
+		win.w.Navigate(url)
+		win.url = url
+	}
+}
+
+func (win *WebviewWindow) SetTitle(title string) {
+	if win.w != nil {
+		win.w.SetTitle(title)
+	}
+}
+
+func (win *WebviewWindow) SetSize(width, height int) {
+	if win.w != nil {
+		win.w.SetSize(width, height, webview.HintNone)
+	}
+}
+
+func (win *WebviewWindow) Eval(js string) {
+	if win.w != nil {
+		win.w.Eval(js)
+	}
+}
+
+func (win *WebviewWindow) Run() {
+	if win.w != nil {
+		win.w.Run()
+	}
+}
+
+func (win *WebviewWindow) Destroy() {
+	if win.w != nil {
+		win.w.Destroy()
+		win.w = nil
+	}
+}
+
+func (win *WebviewWindow) IsValid() bool {
+	return win.w != nil
+}
+
+func init() {
+	if runtime.GOOS == "windows" {
+		fmt.Println("Goleo webview: using WebView2 (Edge Chromium)")
+	} else if runtime.GOOS == "linux" {
+		fmt.Println("Goleo webview: using WebKitGTK")
+	} else if runtime.GOOS == "darwin" {
+		fmt.Println("Goleo webview: using WKWebView")
+	}
+}

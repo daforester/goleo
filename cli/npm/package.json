@@ -8,11 +8,14 @@
   },
   "scripts": {
     "postinstall": "node ./install.js",
-    "prepublishOnly": "node ./build-binaries.js"
+    "prepublishOnly": "node ./build-binaries.js && node ./copy-source.js",
+    "build": "node ./build-binaries.js && node ./copy-source.js"
   },
   "files": [
     "bin",
+    "goleo",
     "install.js",
+    "copy-source.js",
     "platform.json"
   ],
   "optionalDependencies": {

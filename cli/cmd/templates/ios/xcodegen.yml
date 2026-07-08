@@ -1,0 +1,21 @@
+name: GoleoApp
+options:
+  bundleIdPrefix: {{.PackageName}}
+  deploymentTarget:
+    iOS: "15.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+targets:
+  App:
+    type: application
+    platform: iOS
+    sources:
+      - App
+    dependencies:
+      - framework: App.xcframework
+        embed: true
+    settings:
+      base:
+        INFOPLIST_FILE: App/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: {{.PackageName}}

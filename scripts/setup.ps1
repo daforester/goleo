@@ -1,0 +1,102 @@
+# Goleo local dev setup — links all npm packages so you can test without publishing
+
+Write-Host "=== Goleo Local Setup ===" -ForegroundColor Cyan
+Write-Host ""
+
+# 1. Build the TypeScript packages
+Write-Host ">> Building TypeScript packages..." -ForegroundColor Yellow
+Push-Location "$PSScriptRoot\..\bridge"
+npm install
+npm run build
+if ($LASTEXITCODE -ne 0) { Write-Host "bridge build failed" -ForegroundColor Red; exit 1 }
+Write-Host "   @goleo/bridge built" -ForegroundColor Green
+Pop-Location
+
+Push-Location "$PSScriptRoot\..\create-goleo-app"
+npm install
+npm run build
+if ($LASTEXITCODE -ne 0) { Write-Host "create-goleo-app build failed" -ForegroundColor Red; exit 1 }
+Write-Host "   create-goleo-app built" -ForegroundColor Green
+Pop-Location
+
+# 2. Link packages globally
+Write-Host ""
+Write-Host ">> Linking packages globally..." -ForegroundColor Yellow
+
+Push-Location "$PSScriptRoot\..\bridge"
+npm link
+Write-Host "   @goleo/bridge -> global" -ForegroundColor Green
+Pop-Location
+
+Push-Location "$PSScriptRoot\..\create-goleo-app"
+npm link
+Write-Host "   create-goleo-app -> global" -ForegroundColor Green
+Pop-Location
+
+# 3. Build the Go CLI binary
+Write-Host ""
+Write-Host ">> Building Go CLI binary..." -ForegroundColor Yellow
+Push-Location "$PSScriptRoot\.."
+go build -o goleo.exe .\cli\
+if ($LASTEXITCODE -ne 0) { Write-Host "Go build failed" -ForegroundColor Red; exit 1 }
+Write-Host "   goleo.exe built" -ForegroundColor Green
+
+# Place it where @goleo/cli expects it
+$cliBinDir = "$PSScriptRoot\..\cli\npm\bin"
+if (-not (Test-Path $cliBinDir)) { New-Item -ItemType Directory -Path $cliBinDir -Force }
+Copy-Item "$PSScriptRoot\..\goleo.exe" "$cliBinDir\goleo.exe" -Force
+Write-Host "   goleo.exe copied to cli/npm/bin/" -ForegroundColor Green
+Pop-Location
+
+# 4. Bundle Go source in the npm package
+Write-Host ""
+Write-Host ">> Bundling Go source in npm package..." -ForegroundColor Yellow
+Push-Location "$PSScriptRoot\..\cli\npm"
+node copy-source.js
+if ($LASTEXITCODE -ne 0) { Write-Host "copy-source.js failed" -ForegroundColor Red; exit 1 }
+Write-Host "   Go source bundled" -ForegroundColor Green
+Pop-Location
+
+# 5. Link @goleo/cli
+Push-Location "$PSScriptRoot\..\cli\npm"
+npm link
+Write-Host "   @goleo/cli -> global" -ForegroundColor Green
+
+# Copy bundled Go source directly to the npm global location
+$globalCliDir = "$(npm root -g)\@goleo\cli"
+if (Test-Path "$globalCliDir") {
+    $globalGoleoDir = "$globalCliDir\goleo"
+    if (Test-Path $globalGoleoDir) { Remove-Item -Recurse -Force $globalGoleoDir -ErrorAction SilentlyContinue }
+    New-Item -ItemType Directory -Force -Path $globalGoleoDir | Out-Null
+    $repoRoot = "$PSScriptRoot\.."
+    Copy-Item "$repoRoot\go.mod" "$globalGoleoDir\go.mod" -Force
+    Copy-Item "$repoRoot\go.sum" "$globalGoleoDir\go.sum" -Force
+    Copy-Item -Recurse "$repoRoot\runtime" "$globalGoleoDir\runtime" -Force
+    Copy-Item -Recurse "$repoRoot\bridge" "$globalGoleoDir\bridge" -Force
+    Write-Host "   goleo source copied to global install" -ForegroundColor Green
+} else {
+    Write-Host "   Warning: @goleo/cli not found at npm global root - source not copied" -ForegroundColor Yellow
+}
+Pop-Location
+
+# 6. Install root workspace deps
+Write-Host ""
+Write-Host ">> Installing workspace dependencies..." -ForegroundColor Yellow
+Push-Location "$PSScriptRoot\.."
+npm install
+Pop-Location
+
+Write-Host ""
+Write-Host "=== Setup complete! ===" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "Try these commands from anywhere:" -ForegroundColor White
+Write-Host "  npx create-goleo-app my-test-app" -ForegroundColor Green
+Write-Host "  npx goleo version" -ForegroundColor Green
+Write-Host ""
+Write-Host "In the scaffolded project (until published):" -ForegroundColor White
+Write-Host "  cd my-test-app\frontend" -ForegroundColor Green
+Write-Host "  npm link @goleo/bridge" -ForegroundColor Green
+Write-Host "  npm install" -ForegroundColor Green
+Write-Host "  cd .." -ForegroundColor Green
+Write-Host "  npx goleo dev" -ForegroundColor Green
+Write-Host "  npx goleo build" -ForegroundColor Green

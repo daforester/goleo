@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -91,7 +93,11 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	}
 
 	if targetName == "android" {
-		return buildForAndroid(frontendDist)
+		deps, err := ensureAndroidDeps()
+		if err != nil {
+			return err
+		}
+		return buildForAndroid(frontendDist, deps)
 	}
 	if targetName == "ios" {
 		return buildForIOS(frontendDist)
@@ -139,14 +145,38 @@ func buildForDesktop(target buildTarget, distDir string) error {
 	env = append(env, fmt.Sprintf("GOARCH=%s", target.GOARCH))
 	env = append(env, "CGO_ENABLED=0")
 
+	// The main package embeds frontend/dist relative to its own directory;
+	// copy the built frontend there when the backend lives in backend/.
+	pkgDir := backendPkgDir()
+	if pkgDir == "./backend" && distExists(distDir) {
+		embedDist := filepath.Join("backend", "frontend", "dist")
+		os.RemoveAll(embedDist)
+		os.MkdirAll(filepath.Dir(embedDist), 0755)
+		if err := copyDir(distDir, embedDist); err != nil {
+			return fmt.Errorf("copying frontend dist for embed: %w", err)
+		}
+	}
+
 	ldflags := fmt.Sprintf("-s -w -X main.Version=%s", "0.1.0")
 
-	args := []string{"build", "-ldflags", ldflags, "-o", outputName + target.OutputExt, "."}
+	args := []string{"build", "-ldflags", ldflags, "-o", outputName + target.OutputExt, pkgDir}
 
 	build := exec.Command("go", args...)
 	build.Env = env
 	build.Stdout = os.Stdout
 	build.Stderr = os.Stderr
+
+	// Ensure all Go dependencies are resolved
+	fmt.Println("  Resolving Go dependencies...")
+	if err := ensureLocalReplace("."); err != nil {
+		return fmt.Errorf("go module resolution: %w", err)
+	}
+	tidy := exec.Command("go", "mod", "tidy")
+	tidy.Stdout = os.Stdout
+	tidy.Stderr = os.Stderr
+	if err := tidy.Run(); err != nil {
+		return fmt.Errorf("go mod tidy failed: %w", err)
+	}
 
 	fmt.Printf("  Compiling Go binary for %s/%s...\n", target.GOOS, target.GOARCH)
 	if err := build.Run(); err != nil {
@@ -158,45 +188,238 @@ func buildForDesktop(target buildTarget, distDir string) error {
 	return nil
 }
 
-func buildForAndroid(distDir string) error {
-	if err := checkCommand("gomobile", "gomobile"); err != nil {
-		return err
+func buildAndroidDev(deps *androidDeps) (string, error) {
+	cwd, _ := os.Getwd()
+	buildDir := filepath.Join(cwd, ".goleo", "android-dev")
+	os.RemoveAll(buildDir)
+
+	fmt.Println("  Resolving Go dependencies...")
+	if err := ensureLocalReplace("."); err != nil {
+		return "", fmt.Errorf("go module resolution: %w", err)
+	}
+	tidy := exec.Command("go", "mod", "tidy")
+	tidy.Stdout = os.Stdout
+	tidy.Stderr = os.Stderr
+	if err := tidy.Run(); err != nil {
+		return "", fmt.Errorf("go mod tidy failed: %w", err)
 	}
 
-	fmt.Println("  Building Android package with gomobile...")
+	fmt.Println("  Building Go mobile library with gomobile...")
+	goGet := exec.Command("go", "get", "-tool", "golang.org/x/mobile/cmd/gobind")
+	goGet.Stdout = os.Stdout
+	goGet.Stderr = os.Stderr
+	if err := goGet.Run(); err != nil {
+		fmt.Println("  Warning: could not add tool dependency:", err)
+	}
 
-	env := os.Environ()
-	if buildAndroid != "" {
-		env = append(env, fmt.Sprintf("ANDROID_NDK_HOME=%s", buildAndroid))
+	gomobileInit := exec.Command(deps.Gomobile, "init")
+	gomobileInit.Stdout = os.Stdout
+	gomobileInit.Stderr = os.Stderr
+	setMobileEnv(gomobileInit, deps)
+	if err := gomobileInit.Run(); err != nil {
+		return "", fmt.Errorf("gomobile init failed: %w", err)
+	}
+
+	aanName := "goleo.aar"
+	aanPath := filepath.Join(cwd, aanName)
+	gomobileArgs := []string{
+		"bind", "-v",
+		"-tags", "mobilebuild,goleodev",
+		"-o", aanPath,
+		"-target", "android",
+		"-androidapi", fmt.Sprintf("%d", androidAPI),
+		gomobilePkgDir(),
+	}
+	gomobile := exec.Command(deps.Gomobile, gomobileArgs...)
+	gomobile.Stdout = os.Stdout
+	gomobile.Stderr = os.Stderr
+	setMobileEnv(gomobile, deps)
+	if err := gomobile.Run(); err != nil {
+		return "", fmt.Errorf("gomobile bind failed: %w", err)
+	}
+	defer os.Remove(aanPath)
+
+	fmt.Println("  Generating dev Android project...")
+	mobileCfg := loadMobileConfig(".")
+	if err := extractMobileTemplate("android-dev", buildDir, &mobileCfg); err != nil {
+		return "", fmt.Errorf("generating dev Android project: %w", err)
+	}
+
+	libsDir := filepath.Join(buildDir, "app", "libs")
+	os.MkdirAll(libsDir, 0755)
+	if err := copyFile(aanPath, filepath.Join(libsDir, aanName)); err != nil {
+		return "", fmt.Errorf("copying .aar: %w", err)
 	}
 
 	outputName := buildOutput
 	if outputName == "" {
-		outputName = "app.aar"
+		outputName = "app-dev.apk"
+	}
+	outputPath := filepath.Join(cwd, outputName)
+
+	fmt.Println("  Compiling dev APK with Gradle...")
+	gradlew := filepath.Join(buildDir, "gradlew")
+	if _, err := os.Stat(gradlew); os.IsNotExist(err) {
+		if err := downloadGradleWrapper(buildDir); err != nil {
+			return "", fmt.Errorf("downloading Gradle wrapper: %w", err)
+		}
 	}
 
-	args := []string{
-		"bind",
-		"-v",
-		"-o", outputName,
+	gradleCmd := exec.Command(gradlew, "assembleDebug")
+	gradleCmd.Dir = buildDir
+	gradleCmd.Stdout = os.Stdout
+	gradleCmd.Stderr = os.Stderr
+	setMobileEnv(gradleCmd, deps)
+	if err := gradleCmd.Run(); err != nil {
+		return "", fmt.Errorf("gradle build failed: %w", err)
+	}
+
+	apkPath := filepath.Join(buildDir, "app", "build", "outputs", "apk", "debug", "app-debug.apk")
+	if _, err := os.Stat(apkPath); err == nil {
+		copyFile(apkPath, outputPath)
+		fmt.Printf("  Dev APK: %s\n", outputPath)
+	} else {
+		return "", fmt.Errorf("APK not found at %s", apkPath)
+	}
+
+	fmt.Printf("  Dev Android build complete!\n")
+	return outputPath, nil
+}
+
+func buildForAndroid(distDir string, deps *androidDeps) error {
+	fmt.Println("  Resolving Go dependencies...")
+	if err := ensureLocalReplace("."); err != nil {
+		return fmt.Errorf("go module resolution: %w", err)
+	}
+	tidy := exec.Command("go", "mod", "tidy")
+	tidy.Stdout = os.Stdout
+	tidy.Stderr = os.Stderr
+	if err := tidy.Run(); err != nil {
+		return fmt.Errorf("go mod tidy failed: %w", err)
+	}
+
+	cwd, _ := os.Getwd()
+	buildDir := filepath.Join(cwd, ".goleo", "android")
+
+	// Copy frontend dist into the gomobile package directory for embedding
+	if distExists(distDir) {
+		gmDist := filepath.Join(cwd, filepath.FromSlash(gomobilePkgDir()), "frontend", "dist")
+		os.RemoveAll(gmDist)
+		os.MkdirAll(filepath.Dir(gmDist), 0755)
+		if err := copyDir(distDir, gmDist); err != nil {
+			return fmt.Errorf("copying frontend dist for embed: %w", err)
+		}
+	}
+
+	os.RemoveAll(buildDir)
+	os.MkdirAll(buildDir, 0755)
+
+	aanName := "goleo.aar"
+	aanPath := filepath.Join(cwd, aanName)
+
+	gomobileArgs := []string{
+		"bind", "-v",
+		"-tags", "mobilebuild",
+		"-o", aanPath,
 		"-target", "android",
 		"-androidapi", fmt.Sprintf("%d", androidAPI),
-		"./backend",
+		gomobilePkgDir(),
 	}
 
-	build := exec.Command("gomobile", args...)
-	build.Env = append(os.Environ(), env...)
-	build.Stdout = os.Stdout
-	build.Stderr = os.Stderr
-
-	if err := build.Run(); err != nil {
-		return fmt.Errorf("gomobile build failed: %w", err)
+	fmt.Println("  Adding golang.org/x/mobile tool dependency...")
+	goGet := exec.Command("go", "get", "-tool", "golang.org/x/mobile/cmd/gobind")
+	goGet.Stdout = os.Stdout
+	goGet.Stderr = os.Stderr
+	if err := goGet.Run(); err != nil {
+		fmt.Println("  Warning: could not add tool dependency:", err)
 	}
 
-	absPath, _ := filepath.Abs(outputName)
-	fmt.Printf("  Android build complete: %s\n", absPath)
-	fmt.Println("  Import the .aar into your Android project or use gomobile build for .apk")
+	fmt.Println("  Initializing gomobile toolchain...")
+	gomobileInit := exec.Command(deps.Gomobile, "init")
+	gomobileInit.Stdout = os.Stdout
+	gomobileInit.Stderr = os.Stderr
+	setMobileEnv(gomobileInit, deps)
+	if err := gomobileInit.Run(); err != nil {
+		return fmt.Errorf("gomobile init failed: %w", err)
+	}
+
+	fmt.Println("  Building Go mobile library with gomobile...")
+	gomobile := exec.Command(deps.Gomobile, gomobileArgs...)
+	gomobile.Stdout = os.Stdout
+	gomobile.Stderr = os.Stderr
+	setMobileEnv(gomobile, deps)
+	if err := gomobile.Run(); err != nil {
+		return fmt.Errorf("gomobile bind failed: %w", err)
+	}
+
+	fmt.Println("  Generating Android project...")
+	mobileCfg := loadMobileConfig(".")
+	if err := extractMobileTemplate("android", buildDir, &mobileCfg); err != nil {
+		return fmt.Errorf("generating Android project: %w", err)
+	}
+
+	libsDir := filepath.Join(buildDir, "app", "libs")
+	os.MkdirAll(libsDir, 0755)
+	if err := copyFile(aanPath, filepath.Join(libsDir, aanName)); err != nil {
+		return fmt.Errorf("copying .aar: %w", err)
+	}
+
+	if distExists(distDir) {
+		assetsDir := filepath.Join(buildDir, "app", "src", "main", "assets")
+		os.RemoveAll(assetsDir)
+		if err := copyDir(distDir, assetsDir); err != nil {
+			return fmt.Errorf("copying frontend assets: %w", err)
+		}
+	}
+
+	outputName := buildOutput
+	if outputName == "" {
+		outputName = "app.apk"
+	}
+	outputPath := filepath.Join(cwd, outputName)
+
+	fmt.Println("  Compiling APK with Gradle...")
+	gradlew := filepath.Join(buildDir, "gradlew")
+	if _, err := os.Stat(gradlew); os.IsNotExist(err) {
+		if err := downloadGradleWrapper(buildDir); err != nil {
+			_ = err
+		}
+	}
+
+	gradleCmd := exec.Command(gradlew, "assembleDebug")
+	gradleCmd.Dir = buildDir
+	gradleCmd.Stdout = os.Stdout
+	gradleCmd.Stderr = os.Stderr
+	setMobileEnv(gradleCmd, deps)
+	if err := gradleCmd.Run(); err != nil {
+		return fmt.Errorf("gradle build failed: %w", err)
+	}
+
+	apkPath := filepath.Join(buildDir, "app", "build", "outputs", "apk", "debug", "app-debug.apk")
+	if _, err := os.Stat(apkPath); err == nil {
+		copyFile(apkPath, outputPath)
+		fmt.Printf("  APK: %s\n", outputPath)
+	} else {
+		fmt.Println("  APK built in:", filepath.Join(buildDir, "app", "build", "outputs", "apk"))
+	}
+
+	os.Remove(aanPath)
+	fmt.Printf("  Android build complete!\n")
 	return nil
+}
+
+func setMobileEnv(cmd *exec.Cmd, deps *androidDeps) {
+	env := os.Environ()
+	if deps.JavaHome != "" {
+		env = append(env, "JAVA_HOME="+deps.JavaHome)
+	}
+	if deps.SDKRoot != "" {
+		env = append(env, "ANDROID_HOME="+deps.SDKRoot)
+	}
+	if deps.NDKDir != "" {
+		env = append(env, "ANDROID_NDK_HOME="+deps.NDKDir)
+	}
+	cmd.Env = env
 }
 
 func buildForIOS(distDir string) error {
@@ -204,37 +427,235 @@ func buildForIOS(distDir string) error {
 		return fmt.Errorf("iOS builds require macOS with Xcode")
 	}
 
-	if err := checkCommand("gomobile", "gomobile"); err != nil {
+	if err := checkCommand("gomobile", "golang.org/x/mobile/cmd/gomobile"); err != nil {
 		return err
 	}
 
-	fmt.Println("  Building iOS package with gomobile...")
+	fmt.Println("  Resolving Go dependencies...")
+	if err := ensureLocalReplace("."); err != nil {
+		return fmt.Errorf("go module resolution: %w", err)
+	}
+	tidy := exec.Command("go", "mod", "tidy")
+	tidy.Stdout = os.Stdout
+	tidy.Stderr = os.Stderr
+	if err := tidy.Run(); err != nil {
+		return fmt.Errorf("go mod tidy failed: %w", err)
+	}
+
+	cwd, _ := os.Getwd()
+	buildDir := filepath.Join(cwd, ".goleo", "ios")
+
+	// Copy frontend dist into the gomobile package directory for embedding
+	if distExists(distDir) {
+		gmDist := filepath.Join(cwd, filepath.FromSlash(gomobilePkgDir()), "frontend", "dist")
+		os.RemoveAll(gmDist)
+		os.MkdirAll(filepath.Dir(gmDist), 0755)
+		if err := copyDir(distDir, gmDist); err != nil {
+			return fmt.Errorf("copying frontend dist for embed: %w", err)
+		}
+	}
+
+	os.RemoveAll(buildDir)
+	os.MkdirAll(buildDir, 0755)
+
+	xcfName := "goleo.xcframework"
+	xcfPath := filepath.Join(cwd, xcfName)
+
+	gomobileArgs := []string{
+		"bind", "-v",
+		"-tags", "mobilebuild",
+		"-o", xcfPath,
+		"-target", "ios",
+		"-iosversion", iosDeployTarget,
+		gomobilePkgDir(),
+	}
+
+	fmt.Println("  Adding golang.org/x/mobile tool dependency...")
+	goGet := exec.Command("go", "get", "-tool", "golang.org/x/mobile/cmd/gobind")
+	goGet.Stdout = os.Stdout
+	goGet.Stderr = os.Stderr
+	if err := goGet.Run(); err != nil {
+		fmt.Println("  Warning: could not add tool dependency:", err)
+	}
+
+	gomobilePath := "gomobile"
+	if p, err := exec.LookPath("gomobile"); err == nil {
+		gomobilePath = p
+	}
+
+	fmt.Println("  Initializing gomobile toolchain...")
+	gomobileInit := exec.Command(gomobilePath, "init")
+	gomobileInit.Stdout = os.Stdout
+	gomobileInit.Stderr = os.Stderr
+	if err := gomobileInit.Run(); err != nil {
+		return fmt.Errorf("gomobile init failed: %w", err)
+	}
+
+	fmt.Println("  Building Go mobile library with gomobile...")
+	gomobile := exec.Command(gomobilePath, gomobileArgs...)
+	gomobile.Stdout = os.Stdout
+	gomobile.Stderr = os.Stderr
+	if err := gomobile.Run(); err != nil {
+		return fmt.Errorf("gomobile bind failed: %w", err)
+	}
+
+	fmt.Println("  Generating iOS project...")
+	mobileCfg := loadMobileConfig(".")
+	if err := extractMobileTemplate("ios", buildDir, &mobileCfg); err != nil {
+		return fmt.Errorf("generating iOS project: %w", err)
+	}
+
+	if err := copyDir(xcfPath, filepath.Join(buildDir, xcfName)); err != nil {
+		return fmt.Errorf("copying .xcframework: %w", err)
+	}
+
+	if distExists(distDir) {
+		appAssets := filepath.Join(buildDir, "App", "Assets")
+		if err := copyDir(distDir, appAssets); err != nil {
+			return fmt.Errorf("copying frontend assets: %w", err)
+		}
+	}
 
 	outputName := buildOutput
 	if outputName == "" {
-		outputName = "app.xcframework"
+		outputName = "GoleoApp.app"
+	}
+	outputPath := filepath.Join(cwd, outputName)
+
+	fmt.Println("  Generating Xcode project with xcodegen...")
+	if err := checkCommand("xcodegen", "xcodegen"); err != nil {
+		return err
+	}
+	xcodegen := exec.Command("xcodegen", "--spec", filepath.Join(buildDir, "xcodegen.yml"))
+	xcodegen.Dir = buildDir
+	xcodegen.Stdout = os.Stdout
+	xcodegen.Stderr = os.Stderr
+	if err := xcodegen.Run(); err != nil {
+		return fmt.Errorf("xcodegen failed: %w", err)
 	}
 
-	args := []string{
-		"bind",
-		"-v",
-		"-o", outputName,
-		"-target", "ios",
-		"-iosversion", iosDeployTarget,
-		"./backend",
+	fmt.Println("  Compiling with xcodebuild...")
+	xcodebuild := exec.Command("xcodebuild", "-project", filepath.Join(buildDir, "GoleoApp.xcodeproj"), "-scheme", "App", "-configuration", "Debug", "CONFIGURATION_BUILD_DIR="+cwd)
+	xcodebuild.Stdout = os.Stdout
+	xcodebuild.Stderr = os.Stderr
+	if err := xcodebuild.Run(); err != nil {
+		return fmt.Errorf("xcodebuild failed: %w", err)
 	}
 
-	build := exec.Command("gomobile", args...)
-	build.Stdout = os.Stdout
-	build.Stderr = os.Stderr
+	os.RemoveAll(xcfPath)
+	fmt.Printf("  iOS build complete: %s\n", outputPath)
+	return nil
+}
 
-	if err := build.Run(); err != nil {
-		return fmt.Errorf("gomobile iOS build failed: %w", err)
+// backendPkgDir returns the Go main-package directory: ./backend for the
+// current project layout, "." for legacy projects with main.go at the root.
+func backendPkgDir() string {
+	if _, err := os.Stat(filepath.Join("backend", "main.go")); err == nil {
+		return "./backend"
+	}
+	return "."
+}
+
+// gomobilePkgDir returns the gomobile bind package path, supporting both the
+// backend/gomobile layout and the legacy root-level gomobile package.
+func gomobilePkgDir() string {
+	if fi, err := os.Stat(filepath.Join("backend", "gomobile")); err == nil && fi.IsDir() {
+		return "./backend/gomobile"
+	}
+	return "./gomobile"
+}
+
+func distExists(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !e.IsDir() && e.Name() != ".gitkeep" {
+			return true
+		}
+	}
+	return false
+}
+
+func copyFile(src, dst string) error {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dst, data, 0644)
+}
+
+func copyDir(src, dst string) error {
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	os.MkdirAll(dst, 0755)
+	for _, e := range entries {
+		srcPath := filepath.Join(src, e.Name())
+		dstPath := filepath.Join(dst, e.Name())
+		if e.IsDir() {
+			if err := copyDir(srcPath, dstPath); err != nil {
+				return err
+			}
+		} else {
+			if err := copyFile(srcPath, dstPath); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func downloadGradleWrapper(dir string) error {
+	jarDir := filepath.Join(dir, "gradle", "wrapper")
+	if err := os.MkdirAll(jarDir, 0755); err != nil {
+		return fmt.Errorf("creating wrapper dir: %w", err)
 	}
 
-	absPath, _ := filepath.Abs(outputName)
-	fmt.Printf("  iOS build complete: %s\n", absPath)
-	fmt.Println("  Import the .xcframework into your Xcode project")
+	jarPath := filepath.Join(jarDir, "gradle-wrapper.jar")
+	if _, err := os.Stat(jarPath); err == nil {
+		return nil
+	}
+
+	batScript := filepath.Join(dir, "gradlew.bat")
+	batContent := `@echo off
+set DIRNAME=%~dp0
+if "%DIRNAME%" == "" set DIRNAME=.
+"%JAVA_HOME%/bin/java" -Dorg.gradle.appname=gradlew -classpath "%DIRNAME%/gradle/wrapper/gradle-wrapper.jar" org.gradle.wrapper.GradleWrapperMain %*
+`
+	os.WriteFile(batScript, []byte(batContent), 0755)
+
+	shScript := filepath.Join(dir, "gradlew")
+	shContent := `#!/bin/sh
+DIRNAME="$(dirname "$0")"
+java -Dorg.gradle.appname=gradlew -classpath "$DIRNAME/gradle/wrapper/gradle-wrapper.jar" org.gradle.wrapper.GradleWrapperMain "$@"
+`
+	os.WriteFile(shScript, []byte(shContent), 0755)
+
+	jarURL := "https://github.com/gradle/gradle/raw/v8.10.2/gradle/wrapper/gradle-wrapper.jar"
+	fmt.Println("  Downloading Gradle wrapper JAR...")
+	resp, err := http.Get(jarURL)
+	if err != nil {
+		return fmt.Errorf("downloading wrapper JAR: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("HTTP %d downloading wrapper JAR", resp.StatusCode)
+	}
+
+	out, err := os.Create(jarPath)
+	if err != nil {
+		return fmt.Errorf("creating wrapper JAR: %w", err)
+	}
+	defer out.Close()
+
+	if _, err := io.Copy(out, resp.Body); err != nil {
+		return fmt.Errorf("writing wrapper JAR: %w", err)
+	}
+
 	return nil
 }
 

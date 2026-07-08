@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 
 	"github.com/spf13/cobra"
 )
@@ -12,14 +14,8 @@ import (
 var devCmd = &cobra.Command{
 	Use:   "dev",
 	Short: "Start the Goleo development server",
-	Long: `Starts the Goleo development environment with hot reload.
-
-Starts both:
-  - The Go backend server with live reload
-  - The Vite frontend dev server with HMR
-
-The frontend dev server proxies API calls to the Go backend.`,
-	RunE: runDev,
+	Long:  `Starts the Go backend and Vite frontend dev server with HMR.`,
+	RunE:  runDev,
 }
 
 var (
@@ -33,27 +29,32 @@ func init() {
 }
 
 func runDev(cmd *cobra.Command, args []string) error {
-	frontendPath := frontendDir
-	if !filepath.IsAbs(frontendPath) {
-		frontendPath = filepath.Join(".", frontendPath)
-	}
-
-	frontendAbs, err := filepath.Abs(frontendPath)
+	frontendAbs, err := filepath.Abs(frontendDir)
 	if err != nil {
 		return fmt.Errorf("invalid frontend path: %w", err)
 	}
-
 	if _, err := os.Stat(filepath.Join(frontendAbs, "package.json")); os.IsNotExist(err) {
 		return fmt.Errorf("frontend directory not found at %s", frontendAbs)
 	}
 
 	envVars := []string{
-		fmt.Sprintf("GOLEO_DEV=true"),
+		"GOLEO_DEV=true",
 		fmt.Sprintf("GOLEO_PORT=%d", devPort),
 		fmt.Sprintf("GOLEO_FRONTEND_DIR=%s", frontendAbs),
 	}
 
-	goBackend := exec.Command("go", "run", ".")
+	fmt.Println("  Resolving Go dependencies...")
+	if err := ensureLocalReplace("."); err != nil {
+		return fmt.Errorf("go module resolution: %w", err)
+	}
+	tidy := exec.Command("go", "mod", "tidy")
+	tidy.Stdout = os.Stdout
+	tidy.Stderr = os.Stderr
+	if err := tidy.Run(); err != nil {
+		return fmt.Errorf("go mod tidy failed: %w", err)
+	}
+
+	goBackend := exec.Command("go", "run", backendPkgDir())
 	goBackend.Env = append(os.Environ(), envVars...)
 	goBackend.Stdout = os.Stdout
 	goBackend.Stderr = os.Stderr
@@ -73,16 +74,29 @@ func runDev(cmd *cobra.Command, args []string) error {
 	fmt.Println()
 
 	if err := viteCmd.Start(); err != nil {
-		goBackend.Process.Kill()
+		killProcTree(goBackend.Process.Pid)
 		return fmt.Errorf("failed to start Vite dev server: %w", err)
 	}
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
 	done := make(chan error, 2)
 	go func() { done <- goBackend.Wait() }()
 	go func() { done <- viteCmd.Wait() }()
 
-	err = <-done
-	goBackend.Process.Kill()
-	viteCmd.Process.Kill()
+	select {
+	case sig := <-sigCh:
+		fmt.Printf("\n  Received %s, shutting down...\n", sig)
+	case err = <-done:
+	}
+
+	killProcTree(goBackend.Process.Pid)
+	killProcTree(viteCmd.Process.Pid)
+
+	goBackend.Wait()
+	viteCmd.Wait()
+
+	fmt.Println("  All processes stopped.")
 	return err
 }

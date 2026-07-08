@@ -17,9 +17,11 @@ export async function createApp(projectName: string): Promise<void> {
 
   // Create directory structure
   const dirs = [
-    'backend',
+    'backend/commands',
+    'backend/gomobile',
+    'backend/frontend/dist',
     'frontend/src',
-    'frontend/public',
+    'frontend/dist',
   ]
 
   for (const dir of dirs) {
@@ -36,21 +38,35 @@ export async function createApp(projectName: string): Promise<void> {
   }
 
   // Install dependencies
+  const frontendDir = join(projectDir, 'frontend')
   console.log('\n  Installing frontend dependencies...')
+
   try {
-    execSync('npm install', {
-      cwd: join(projectDir, 'frontend'),
-      stdio: 'inherit',
-    })
+    execSync('npm install', { cwd: frontendDir, stdio: 'inherit' })
   } catch {
-    console.log('  Warning: npm install failed. Run manually: cd frontend && npm install')
+    // npm install failed (likely @goleo/bridge not published yet).
+    // Try linking from global if available.
+    console.log('  npm install failed. Checking for local @goleo/bridge...')
+    try {
+      execSync('npm link @goleo/bridge', { cwd: frontendDir, stdio: 'inherit' })
+      console.log('  @goleo/bridge linked locally — retrying install...')
+      execSync('npm install', { cwd: frontendDir, stdio: 'inherit' })
+    } catch {
+      console.log(`  Warning: could not install frontend dependencies.`)
+      console.log(`  Run manually:`)
+      console.log(`    cd ${projectName}/frontend`)
+      console.log(`    npm link @goleo/bridge`)
+      console.log(`    npm install`)
+    }
   }
 
   console.log('\n  Project created successfully!\n')
   console.log('  Next steps:')
   console.log(`    cd ${projectName}`)
+  console.log(`    cd frontend && npm link @goleo/bridge && npm install && cd ..`)
   console.log('    goleo dev')
-  console.log('    goleo build\n')
+  console.log('    goleo build')
+  console.log('    goleo emulate android\n')
 }
 
 function getProjectFiles(name: string): ProjectFiles {
@@ -66,6 +82,8 @@ function getProjectFiles(name: string): ProjectFiles {
         'goleo:build-darwin': 'goleo build darwin',
         'goleo:build-android': 'goleo build android',
         'goleo:build-ios': 'goleo build ios',
+        'goleo:emulate': 'goleo emulate android',
+        'goleo:emulate-ios': 'goleo emulate ios',
       },
     }, null, 2) + '\n',
 
@@ -78,23 +96,19 @@ function getProjectFiles(name: string): ProjectFiles {
         dev_command: 'npm run dev',
         dist_dir: 'dist',
       },
-      backend: {
-        directory: 'backend',
-        main_file: 'main.go',
-      },
       mobile: {
         android: {
           min_sdk: 24,
-          package_name: `com.${name}.app`,
+          package_name: 'com.goleo.app',
         },
         ios: {
           deployment_target: '14.0',
-          bundle_identifier: `com.${name}.app`,
+          bundle_identifier: 'com.goleo.app',
         },
       },
     }, null, 2) + '\n',
 
-    'backend/go.mod': `module goleo/${name}\n\ngo 1.26\n\nrequire github.com/daforester/goleo v0.1.0\n`,
+    'go.mod': `module goleo/${name}\n\ngo 1.26\n\nrequire github.com/daforester/goleo v0.1.0\n`,
 
     'backend/main.go': `package main
 
@@ -102,20 +116,34 @@ import (
 	"context"
 	"embed"
 	"log"
+	"os"
 
 	"goleo/${name}/backend/commands"
 	"github.com/daforester/goleo/runtime"
 )
 
-//go:embed frontend/dist/*
-var frontendFS embed.FS
+// Embedded application assets: the built frontend plus the startup script.
+// goleo build copies frontend/dist here before compiling.
+// If you delete init.js, also remove its embed line below — the app then
+// falls back to the window settings in runtime.Config.
+//
+//go:embed all:frontend/dist
+//go:embed init.js
+var appFS embed.FS
 
 func main() {
-	app := runtime.New(runtime.Config{
-		Title:    "${name}",
-		Width:    1024,
-		Height:   768,
-		EmbedFS:  frontendFS,
+	devMode := os.Getenv("GOLEO_DEV") == "true"
+
+	var app *runtime.App
+	app = runtime.New(runtime.Config{
+		Title:      "${name}",
+		Width:      1024,
+		Height:     768,
+		DevMode:    devMode,
+		Port:       9842,
+		WindowMode: runtime.WindowModeWebview,
+		EmbedFS:    appFS,
+		// InitJS: "init.js", // custom startup script path (default: init.js, then backend/init.js)
 		OnStartup: func(ctx context.Context) {
 			log.Println("${name} starting up...")
 			runtime.RegisterBuiltins(app.Bridge())
@@ -132,16 +160,44 @@ func main() {
 }
 `,
 
-    'backend/commands.go': `package commands
+    'backend/init.js': `// init.js — Goleo startup script.
+//
+// Runs inside the Go backend (embedded JS engine) before any window is
+// shown, giving you full control over window creation. Available API:
+//
+//   getConfig()       -> { title, width, height, devMode, devServer, port, url }
+//   createWindow(opts) - opts: title, width, height, minWidth, minHeight,
+//                        center, devTools, url (defaults to the app's own URL)
+//   console.log/info/warn/error
+//
+// Delete this file (and its embed line in main.go) to fall back to the
+// built-in window setup from runtime.Config.
+
+const config = getConfig()
+
+createWindow({
+  title: config.title,
+  width: config.width,
+  height: config.height,
+  center: true,
+})
+`,
+
+    'backend/frontend/dist/.gitkeep': '',
+
+    'backend/commands/commands.go': `package commands
 
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"runtime"
+	"time"
 
-	"github.com/daforester/goleo/runtime"
+	goleoruntime "github.com/daforester/goleo/runtime"
 )
 
-func Register(b *runtime.Bridge) {
+func Register(b *goleoruntime.Bridge) {
 	b.Handle("greet", func(ctx context.Context, args json.RawMessage) (any, error) {
 		var params map[string]string
 		if err := json.Unmarshal(args, &params); err != nil {
@@ -152,16 +208,184 @@ func Register(b *runtime.Bridge) {
 			name = "World"
 		}
 		return map[string]string{
-			"message": "Hello, " + name + "! From Go backend.",
+			"message": fmt.Sprintf("Hello, %s! From Go backend at %s.", name, time.Now().Format(time.RFC3339)),
 		}, nil
 	})
 
-	b.Handle("getVersion", func(ctx context.Context, args json.RawMessage) (any, error) {
-		return map[string]string{
-			"version": "1.0.0",
+	b.Handle("systemInfo", func(ctx context.Context, args json.RawMessage) (any, error) {
+		return map[string]any{
+			"goVersion":  runtime.Version(),
+			"os":         runtime.GOOS,
+			"arch":       runtime.GOARCH,
+			"cpus":       runtime.NumCPU(),
+			"goroutines": runtime.NumGoroutine(),
 		}, nil
 	})
+
+	b.Handle("add", func(ctx context.Context, args json.RawMessage) (any, error) {
+		var params map[string]float64
+		if err := json.Unmarshal(args, &params); err != nil {
+			return nil, fmt.Errorf("invalid args: need 'a' and 'b' numbers")
+		}
+		return map[string]float64{
+			"result": params["a"] + params["b"],
+		}, nil
+	})
+
+	b.Handle("countdown", func(ctx context.Context, args json.RawMessage) (any, error) {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(3 * time.Second):
+			return map[string]string{
+				"message": "3 seconds have passed! Async works.",
+			}, nil
+		}
+	})
+
+	b.Handle("notify", func(ctx context.Context, args json.RawMessage) (any, error) {
+		var params map[string]string
+		if err := json.Unmarshal(args, &params); err != nil {
+			params = map[string]string{"title": "Notification", "message": string(args)}
+		}
+		if params["title"] == "" {
+			params["title"] = "Goleo"
+		}
+		if params["message"] == "" {
+			params["message"] = "Hello from Go!"
+		}
+		// Deliver through the OS notification service: toast on Windows,
+		// Notification Center on macOS, libnotify on Linux, and the native
+		// shell on Android/iOS.
+		if err := goleoruntime.Notify(params["title"], params["message"]); err != nil {
+			return nil, err
+		}
+		b.Emit("notification:show", params)
+		return map[string]string{"status": "sent"}, nil
+	})
 }
+`,
+
+    'backend/gomobile/gomobile.go': `//go:build mobilebuild && !goleodev
+
+package gomobile
+
+import (
+	"context"
+	"embed"
+
+	"goleo/${name}/backend/commands"
+	"github.com/daforester/goleo/runtime"
+)
+
+//go:embed all:frontend/dist
+var frontendFS embed.FS
+
+var app *runtime.App
+
+func StartServer() int {
+	app = runtime.New(runtime.Config{
+		Title:      "${name}",
+		Width:      1024,
+		Height:     768,
+		DevMode:    false,
+		WindowMode: runtime.WindowModeBrowser,
+		EmbedFS:    frontendFS,
+		OnStartup: func(ctx context.Context) {
+			runtime.RegisterBuiltins(app.Bridge())
+			commands.Register(app.Bridge())
+		},
+	})
+	port, err := app.StartServer()
+	if err != nil {
+		return 0
+	}
+	return port
+}
+
+func StopServer() {
+	if app != nil {
+		app.Stop()
+	}
+}
+`,
+
+    'backend/gomobile/gomobile_dev.go': `//go:build mobilebuild && goleodev
+
+package gomobile
+
+import (
+	"context"
+
+	"goleo/${name}/backend/commands"
+	"github.com/daforester/goleo/runtime"
+)
+
+var app *runtime.App
+
+func StartServer() int {
+	app = runtime.New(runtime.Config{
+		Title:      "${name} (dev)",
+		Width:      1024,
+		Height:     768,
+		DevMode:    true,
+		WindowMode: runtime.WindowModeBrowser,
+		EmbedFS:    nil,
+		OnStartup: func(ctx context.Context) {
+			runtime.RegisterBuiltins(app.Bridge())
+			commands.Register(app.Bridge())
+		},
+	})
+	port, err := app.StartServer()
+	if err != nil {
+		return 0
+	}
+	return port
+}
+
+func StopServer() {
+	if app != nil {
+		app.Stop()
+	}
+}
+`,
+
+    'backend/gomobile/notifier.go': `//go:build mobilebuild
+
+package gomobile
+
+import "github.com/daforester/goleo/runtime"
+
+// Notifier is implemented by the native shell (Android Activity / iOS
+// AppDelegate) to deliver system notifications. gomobile generates
+// bindings for this interface.
+type Notifier interface {
+	Show(title string, body string)
+	PermissionGranted() bool
+	RequestPermission() string
+}
+
+// SetNotifier registers the native notification backend. The shell must
+// call this at startup so runtime.Notify can reach the OS notification
+// service.
+func SetNotifier(n Notifier) {
+	if n == nil {
+		runtime.SetNativeNotifier(nil)
+		return
+	}
+	runtime.SetNativeNotifier(&notifierAdapter{n: n})
+}
+
+type notifierAdapter struct{ n Notifier }
+
+func (a *notifierAdapter) Show(title, body string) error {
+	a.n.Show(title, body)
+	return nil
+}
+
+func (a *notifierAdapter) PermissionGranted() bool { return a.n.PermissionGranted() }
+
+func (a *notifierAdapter) RequestPermission() string { return a.n.RequestPermission() }
 `,
 
     'frontend/package.json': JSON.stringify({
@@ -182,7 +406,6 @@ func Register(b *runtime.Bridge) {
         '@vitejs/plugin-vue': '^5.0.0',
         typescript: '^5.3.0',
         vite: '^5.0.0',
-        'vue-tsc': '^1.8.0',
       },
     }, null, 2) + '\n',
 
@@ -242,6 +465,17 @@ export default defineConfig({
       references: [{ path: './tsconfig.node.json' }],
     }, null, 2) + '\n',
 
+    'frontend/tsconfig.node.json': JSON.stringify({
+      compilerOptions: {
+        composite: true,
+        skipLibCheck: true,
+        module: 'ESNext',
+        moduleResolution: 'bundler',
+        allowSyntheticDefaultImports: true,
+      },
+      include: ['vite.config.ts'],
+    }, null, 2) + '\n',
+
     'frontend/env.d.ts': `/// <reference types="vite/client" />
 
 declare module '*.vue' {
@@ -252,12 +486,18 @@ declare module '*.vue' {
 `,
 
     'frontend/src/main.ts': `import { createApp } from 'vue'
-import { initBridge } from '@goleo/bridge'
+import { initBridge, isPermissionGranted, requestPermission } from '@goleo/bridge'
 import App from './App.vue'
 import './style.css'
 
 async function main() {
   await initBridge()
+
+  // Ask the OS for notification permission (system dialog on Android 13+/iOS,
+  // resolves to "granted" immediately on desktop).
+  if (!(await isPermissionGranted())) {
+    await requestPermission()
+  }
 
   const app = createApp(App)
   app.mount('#app')
@@ -273,6 +513,8 @@ import { invoke, getOSInfo, on } from '@goleo/bridge'
 const message = ref('Loading...')
 const osInfo = ref('')
 const backendMessage = ref('')
+const notifyStatus = ref('')
+const lastNotification = ref('')
 
 onMounted(async () => {
   try {
@@ -289,6 +531,25 @@ onMounted(async () => {
 on('backend:ready', () => {
   console.log('Backend is ready')
 })
+
+on('notification:show', (data: any) => {
+  // The OS notification is shown natively by the Go backend; this event
+  // just mirrors it into the page.
+  lastNotification.value = data.message || ''
+})
+
+async function sendNotification() {
+  notifyStatus.value = 'Sending...'
+  try {
+    await invoke('notify', {
+      title: 'Hello from Goleo!',
+      message: 'This notification was triggered from the Go backend.',
+    })
+    notifyStatus.value = 'Notification sent!'
+  } catch (err) {
+    notifyStatus.value = 'Error: ' + err
+  }
+}
 </script>
 
 <template>
@@ -297,6 +558,12 @@ on('backend:ready', () => {
     <p>OS Info:</p>
     <pre>{{ osInfo }}</pre>
     <p>Backend says: <strong>{{ backendMessage }}</strong></p>
+
+    <hr />
+    <h2>Notifications Demo</h2>
+    <p>Last event: {{ lastNotification }}</p>
+    <button @click="sendNotification" class="btn">Send System Notification</button>
+    <p class="status">{{ notifyStatus }}</p>
   </div>
 </template>
 `,
@@ -326,12 +593,48 @@ h1 {
   color: #2c3e50;
 }
 
+h2 {
+  font-size: 1.5rem;
+  margin: 1.5rem 0 0.5rem;
+  color: #2c3e50;
+}
+
 pre {
   background: #eee;
   padding: 0.5rem;
   border-radius: 4px;
   overflow-x: auto;
 }
+
+hr {
+  border: none;
+  border-top: 1px solid #ddd;
+  margin: 1.5rem 0;
+}
+
+.btn {
+  display: inline-block;
+  padding: 0.6rem 1.2rem;
+  background: #42b883;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.btn:hover {
+  background: #38a476;
+}
+
+.status {
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+  color: #666;
+}
 `,
+
+    'frontend/dist/.gitkeep': '',
+
   }
 }
