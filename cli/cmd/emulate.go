@@ -218,6 +218,10 @@ func buildAndDeployDev(deps *androidDeps, deviceID, pkgName string) error {
 		return fmt.Errorf("go mod tidy failed: %w", err)
 	}
 
+	if err := generateBackendEntrypoints("."); err != nil {
+		return fmt.Errorf("generating backend entry points: %w", err)
+	}
+
 	fmt.Println("  Building Go mobile library with gomobile...")
 	goGet := exec.Command("go", "get", "-tool", "golang.org/x/mobile/cmd/gobind")
 	goGet.Stdout = os.Stdout
@@ -236,7 +240,7 @@ func buildAndDeployDev(deps *androidDeps, deviceID, pkgName string) error {
 	aanPath := filepath.Join(cwd, aanName)
 	gomobileArgs := []string{
 		"bind", "-v",
-		"-tags", "mobilebuild,goleodev",
+		"-tags", "mobilebuild",
 		"-o", aanPath,
 		"-target", "android",
 		"-androidapi", fmt.Sprintf("%d", androidAPI),

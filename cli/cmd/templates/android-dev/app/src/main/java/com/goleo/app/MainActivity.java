@@ -47,7 +47,7 @@ public class MainActivity extends AppCompatActivity {
         createNotificationChannel();
         Gomobile.setNotifier(new GoleoNotifier());
 
-        Gomobile.startServer();
+        Gomobile.startServer(true);
 
         webView = new WebView(this);
         WebSettings settings = webView.getSettings();

@@ -16,7 +16,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     ) -> Bool {
         Goleo.setNotifier(notifier)
 
-        let port = Goleo.startServer()
+        let port = Goleo.startServer(devMode: false)
         let url = URL(string: "http://127.0.0.1:\(port)")!
 
         let config = WKWebViewConfiguration()

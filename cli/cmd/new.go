@@ -40,6 +40,7 @@ func runNew(cmd *cobra.Command, args []string) error {
 	fmt.Println()
 
 	for _, sub := range []string{
+		filepath.Join("backend", "app"),
 		filepath.Join("backend", "commands"),
 		filepath.Join("backend", "gomobile"),
 		filepath.Join("backend", "frontend", "dist"),
@@ -53,27 +54,25 @@ func runNew(cmd *cobra.Command, args []string) error {
 	}
 
 	files := map[string]string{
-		"backend/main.go":                   tmplMainGo,
-		"backend/init.js":                   tmplInitJS,
-		"backend/commands/commands.go":      tmplBackendCommandsGo,
-		"backend/gomobile/gomobile.go":      tmplMobileGo,
-		"backend/gomobile/gomobile_dev.go":  tmplMobileDevGo,
-		"backend/gomobile/notifier.go":      tmplMobileNotifierGo,
-		"backend/frontend/dist/.gitkeep":    "",
-		"go.mod":                            tmplGoMod,
-		"frontend/package.json":             tmplFrontendPackageJSON,
-		"frontend/index.html":               tmplIndexHTML,
-		"frontend/vite.config.ts":           tmplViteConfig,
-		"frontend/tsconfig.json":            tmplTsconfig,
-		"frontend/env.d.ts":                 tmplEnvDTS,
-		"frontend/src/main.ts":              tmplMainTS,
-		"frontend/src/App.vue":              tmplAppVue,
-		"frontend/src/style.css":            tmplStyleCSS,
-		"frontend/public/sw.js":             tmplSWJS,
-		"frontend/public/manifest.json":     tmplManifestJSON,
-		"frontend/dist/.gitkeep":            "",
-		"package.json":                      tmplRootPackageJSON,
-		"goleo.json":                        tmplGoleoJSON,
+		"backend/app/app.go":             tmplAppGo,
+		"backend/init.js":                tmplInitJS,
+		"backend/commands/commands.go":   tmplBackendCommandsGo,
+		"backend/frontend/dist/.gitkeep": "",
+		"go.mod":                         tmplGoMod,
+		"frontend/package.json":          tmplFrontendPackageJSON,
+		"frontend/index.html":            tmplIndexHTML,
+		"frontend/vite.config.ts":        tmplViteConfig,
+		"frontend/tsconfig.json":         tmplTsconfig,
+		"frontend/env.d.ts":              tmplEnvDTS,
+		"frontend/src/main.ts":           tmplMainTS,
+		"frontend/src/App.vue":           tmplAppVue,
+		"frontend/src/style.css":         tmplStyleCSS,
+		"frontend/public/sw.js":          tmplSWJS,
+		"frontend/public/manifest.json":  tmplManifestJSON,
+		"frontend/dist/.gitkeep":         "",
+		"package.json":                   tmplRootPackageJSON,
+		"goleo.json":                     tmplGoleoJSON,
+		".gitignore":                     tmplGitignore,
 	}
 
 	for relPath, content := range files {
@@ -107,6 +106,15 @@ func runNew(cmd *cobra.Command, args []string) error {
 		if err := tidy.Run(); err != nil {
 			fmt.Printf("  Warning: go mod tidy failed: %v\n", err)
 		}
+	}
+
+	if err := generateBackendEntrypoints(dir); err != nil {
+		fmt.Printf("  Warning: could not generate backend entry points: %v\n", err)
+		fmt.Println("  They will be generated on the next goleo dev/build/emulate run.")
+	} else {
+		fmt.Println("  created backend/main.go (generated)")
+		fmt.Println("  created backend/gomobile/gomobile.go (generated)")
+		fmt.Println("  created backend/gomobile/notifier.go (generated)")
 	}
 
 	fmt.Println()
@@ -168,5 +176,3 @@ func renderTemplate(tmpl string, data projectConfig) (string, error) {
 	}
 	return buf.String(), nil
 }
-
-

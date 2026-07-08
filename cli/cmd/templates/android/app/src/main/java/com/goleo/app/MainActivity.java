@@ -47,7 +47,7 @@ public class MainActivity extends AppCompatActivity {
         createNotificationChannel();
         Gomobile.setNotifier(new GoleoNotifier());
 
-        long port = Gomobile.startServer();
+        long port = Gomobile.startServer(false);
         if (port <= 0) {
             port = 9842;
         }

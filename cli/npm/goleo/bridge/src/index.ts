@@ -5,6 +5,78 @@ export {
   requestPermission,
 } from './notification'
 export type { NotificationOptions, NotificationPermission } from './notification'
+export {
+  readText as clipboardReadText,
+  writeText as clipboardWriteText,
+} from './clipboard'
+export {
+  openFile,
+  openFiles,
+  saveFile,
+  selectFolder,
+  showMessage,
+  showPrompt,
+} from './dialogs'
+export type { FileFilter, FileDialogOptions, MessageBoxOptions, PromptOptions } from './dialogs'
+export {
+  readTextFile,
+  writeTextFile,
+  readBinaryFile,
+  writeBinaryFile,
+  listDir,
+  deleteFile,
+  appDataDir,
+  homeDir,
+} from './fs'
+export type { FileEntry } from './fs'
+export {
+  getCurrentPosition,
+} from './geolocation'
+export type { Position, PositionOptions } from './geolocation'
+export {
+  getBatteryInfo,
+} from './battery'
+export type { BatteryInfo } from './battery'
+export {
+  wakeLockRequest,
+  wakeLockRelease,
+} from './wakelock'
+export {
+  vibrate,
+} from './vibration'
+export {
+  startSensor,
+  stopSensor,
+  startBrowserSensor,
+} from './sensors'
+export type { SensorData } from './sensors'
+export {
+  capturePhoto,
+} from './camera'
+export type { PhotoData } from './camera'
+export {
+  requestDevice,
+  connect as bleConnect,
+  disconnect as bleDisconnect,
+} from './bluetooth'
+export type { BLEDevice } from './bluetooth'
+export {
+  startScan,
+  stopScan,
+  write as nfcWrite,
+} from './nfc'
+export type { NFCRecord, NFCMessage } from './nfc'
+export {
+  registerSync,
+  isPermissionGranted as isBackgroundPermissionGranted,
+  requestPermission as requestBackgroundPermission,
+} from './background'
+export {
+  subscribe as pushSubscribe,
+  unsubscribe as pushUnsubscribe,
+  getSubscription as pushGetSubscription,
+} from './push'
+export type { PushSubscriptionData } from './push'
 export type {
   OSInfo,
   PlatformInfo,

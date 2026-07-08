@@ -80,6 +80,20 @@ func findGoleoRoot() string {
 	return ""
 }
 
+func parseModuleName(projectDir string) (string, error) {
+	data, err := os.ReadFile(filepath.Join(projectDir, "go.mod"))
+	if err != nil {
+		return "", err
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "module ") {
+			return strings.TrimSpace(strings.TrimPrefix(trimmed, "module ")), nil
+		}
+	}
+	return "", fmt.Errorf("module directive not found in go.mod")
+}
+
 func goModHasReplace(projectDir, module string) (bool, error) {
 	data, err := os.ReadFile(filepath.Join(projectDir, "go.mod"))
 	if err != nil {

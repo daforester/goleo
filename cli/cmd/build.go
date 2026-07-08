@@ -39,10 +39,10 @@ Examples:
 }
 
 var (
-	buildOutput    string
-	buildFrontend  string
-	buildAndroid   string
-	androidAPI     int
+	buildOutput     string
+	buildFrontend   string
+	buildAndroid    string
+	androidAPI      int
 	iosDeployTarget string
 )
 
@@ -84,6 +84,12 @@ func runBuild(cmd *cobra.Command, args []string) error {
 
 	if err := checkGoleoJSON(); err != nil {
 		return err
+	}
+
+	if targetName != "pwa" {
+		if err := generateBackendEntrypoints("."); err != nil {
+			return fmt.Errorf("generating backend entry points: %w", err)
+		}
 	}
 
 	fmt.Printf("  Building Goleo app for %s (%s/%s)...\n", target.Label, target.GOOS, target.GOARCH)
@@ -234,7 +240,7 @@ func buildAndroidDev(deps *androidDeps) (string, error) {
 	aanPath := filepath.Join(cwd, aanName)
 	gomobileArgs := []string{
 		"bind", "-v",
-		"-tags", "mobilebuild,goleodev",
+		"-tags", "mobilebuild",
 		"-o", aanPath,
 		"-target", "android",
 		"-androidapi", fmt.Sprintf("%d", androidAPI),
@@ -587,8 +593,11 @@ func buildForPWA(distDir string) error {
 
 // backendPkgDir returns the Go main-package directory: ./backend for the
 // current project layout, "." for legacy projects with main.go at the root.
+// Checks for the backend directory itself rather than backend/main.go,
+// since main.go is generated fresh by generateBackendEntrypoints and may not
+// exist yet on a fresh clone.
 func backendPkgDir() string {
-	if _, err := os.Stat(filepath.Join("backend", "main.go")); err == nil {
+	if fi, err := os.Stat("backend"); err == nil && fi.IsDir() {
 		return "./backend"
 	}
 	return "."

@@ -2,10 +2,12 @@ package cmd
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -68,6 +70,14 @@ func runDev(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("go mod tidy failed: %w", err)
 	}
 
+	if err := generateBackendEntrypoints("."); err != nil {
+		return fmt.Errorf("generating backend entry points: %w", err)
+	}
+
+	if err := checkPortAvailable(devPort); err != nil {
+		return err
+	}
+
 	goBackend := exec.Command("go", "run", backendPkgDir())
 	goBackend.Env = append(os.Environ(), envVars...)
 	goBackend.Stdout = os.Stdout
@@ -75,6 +85,9 @@ func runDev(cmd *cobra.Command, args []string) error {
 
 	if err := goBackend.Start(); err != nil {
 		return fmt.Errorf("failed to start Go backend: %w", err)
+	}
+	if err := bindProcessLifetime(goBackend); err != nil {
+		fmt.Printf("  Warning: could not set up process cleanup safeguard: %v\n", err)
 	}
 
 	viteCmd := exec.Command("npx", "vite", "--port", "5173")
@@ -90,6 +103,9 @@ func runDev(cmd *cobra.Command, args []string) error {
 	if err := viteCmd.Start(); err != nil {
 		killProcTree(goBackend.Process.Pid)
 		return fmt.Errorf("failed to start Vite dev server: %w", err)
+	}
+	if err := bindProcessLifetime(viteCmd); err != nil {
+		fmt.Printf("  Warning: could not set up process cleanup safeguard: %v\n", err)
 	}
 
 	sigCh := make(chan os.Signal, 1)
@@ -113,6 +129,29 @@ func runDev(cmd *cobra.Command, args []string) error {
 
 	fmt.Println("  All processes stopped.")
 	return err
+}
+
+// checkPortAvailable fails fast with an actionable message if port is
+// already bound, instead of letting the Go backend silently fall back to a
+// random port (see runtime/server.go) — Vite's dev proxy targets this exact
+// port, so a silent fallback means requests quietly go to whatever old
+// process is squatting on it (typically an orphaned backend.exe/backend
+// from a goleo dev session that didn't shut down cleanly) rather than the
+// one just started.
+func checkPortAvailable(port int) error {
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		killCmd := "pkill -f 'go-build.*/backend' (or lsof -i :" + fmt.Sprint(port) + " to find the exact PID)"
+		if runtime.GOOS == "windows" {
+			killCmd = "Get-Process backend -ErrorAction SilentlyContinue | Stop-Process -Force"
+		}
+		return fmt.Errorf(
+			"port %d is already in use — likely a leftover backend process from a goleo dev session that wasn't cleanly stopped.\n"+
+				"  Stop it first:\n    %s\n"+
+				"  Then run goleo dev again", port, killCmd)
+	}
+	ln.Close()
+	return nil
 }
 
 func runDevPWA(cmd *cobra.Command, args []string) error {
