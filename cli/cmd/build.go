@@ -425,7 +425,9 @@ func buildForAndroid(distDir string, deps *androidDeps) error {
 }
 
 func setMobileEnv(cmd *exec.Cmd, deps *androidDeps) {
-	env := os.Environ()
+	// Put the Go bin directory on PATH so gomobile can find gobind, which it
+	// shells out to and which `go install` also drops into GOPATH/bin.
+	env := prependPath(os.Environ(), goBinDir())
 	if deps.JavaHome != "" {
 		env = append(env, "JAVA_HOME="+deps.JavaHome)
 	}
@@ -495,7 +497,7 @@ func buildForIOS(distDir string) error {
 	}
 
 	gomobilePath := "gomobile"
-	if p, err := exec.LookPath("gomobile"); err == nil {
+	if p, ok := findTool("gomobile"); ok {
 		gomobilePath = p
 	}
 
@@ -503,6 +505,7 @@ func buildForIOS(distDir string) error {
 	gomobileInit := exec.Command(gomobilePath, "init")
 	gomobileInit.Stdout = os.Stdout
 	gomobileInit.Stderr = os.Stderr
+	gomobileInit.Env = goToolEnv()
 	if err := gomobileInit.Run(); err != nil {
 		return fmt.Errorf("gomobile init failed: %w", err)
 	}
@@ -511,6 +514,7 @@ func buildForIOS(distDir string) error {
 	gomobile := exec.Command(gomobilePath, gomobileArgs...)
 	gomobile.Stdout = os.Stdout
 	gomobile.Stderr = os.Stderr
+	gomobile.Env = goToolEnv()
 	if err := gomobile.Run(); err != nil {
 		return fmt.Errorf("gomobile bind failed: %w", err)
 	}
@@ -714,7 +718,7 @@ func checkGoleoJSON() error {
 }
 
 func checkCommand(name, installHint string) error {
-	if _, err := exec.LookPath(name); err != nil {
+	if _, ok := findTool(name); !ok {
 		return fmt.Errorf("%s not found. Install it with: go install %s@latest", name, installHint)
 	}
 	return nil

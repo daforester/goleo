@@ -91,6 +91,7 @@ func runDev(cmd *cobra.Command, args []string) error {
 	goBackend.Env = append(goBackend.Env, webkitEnv...)
 	goBackend.Stdout = os.Stdout
 	goBackend.Stderr = os.Stderr
+	newProcessGroup(goBackend)
 
 	if err := goBackend.Start(); err != nil {
 		return fmt.Errorf("failed to start Go backend: %w", err)
@@ -103,6 +104,7 @@ func runDev(cmd *cobra.Command, args []string) error {
 	viteCmd.Dir = frontendAbs
 	viteCmd.Stdout = os.Stdout
 	viteCmd.Stderr = os.Stderr
+	newProcessGroup(viteCmd)
 
 	fmt.Println("  Starting Goleo development server...")
 	fmt.Printf("  Frontend: http://localhost:5173\n")
@@ -188,6 +190,7 @@ func runDevPWA(cmd *cobra.Command, args []string) error {
 	viteCmd.Env = append(os.Environ(), "VITE_GOLEO_PLATFORM=pwa")
 	viteCmd.Stdout = os.Stdout
 	viteCmd.Stderr = os.Stderr
+	newProcessGroup(viteCmd)
 
 	if err := viteCmd.Start(); err != nil {
 		return fmt.Errorf("failed to start Vite dev server: %w", err)

@@ -9,9 +9,9 @@ import (
 )
 
 type Feature struct {
-	Name        string
-	BuildTag    string
-	Permissions []string // Android permissions
+	Name          string
+	BuildTag      string
+	Permissions   []string          // Android permissions
 	IOSUsageDescs map[string]string // iOS Info.plist keys → descriptions
 }
 

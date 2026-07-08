@@ -9,16 +9,28 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 )
 
+const (
+	// Java versions the Android build toolchain can run on. The bundled Gradle
+	// (see gradle-wrapper.properties; currently 9.4.1) runs on JDK 17–26, and
+	// AGP (currently 9.2.0) requires at least 17. Keep this range in sync with
+	// the Gradle version pinned in the Android templates: raise maxBuildJava
+	// only to a value the bundled Gradle documents as supported, otherwise its
+	// embedded Kotlin DSL compiler throws while parsing the java version.
+	minBuildJava = 17
+	maxBuildJava = 26
+)
+
 type androidDeps struct {
-	JavaHome      string
-	SDKRoot       string
-	NDKDir        string
-	Gomobile      string
-	AdbPath       string
-	EmulatorPath  string
+	JavaHome     string
+	SDKRoot      string
+	NDKDir       string
+	Gomobile     string
+	AdbPath      string
+	EmulatorPath string
 }
 
 const (
@@ -55,65 +67,123 @@ func ensureAndroidDeps() (*androidDeps, error) {
 }
 
 func (d *androidDeps) resolveJava() error {
-	javaHome := os.Getenv("JAVA_HOME")
-	if javaHome != "" {
-		javac := filepath.Join(javaHome, "bin", "javac")
-		if runtime.GOOS == "windows" {
-			javac += ".exe"
-		}
-		if _, err := os.Stat(javac); err == nil {
-			d.JavaHome = javaHome
-			ver := exec.Command(filepath.Join(javaHome, "bin", "java"), "-version")
-			ver.Stderr = os.Stderr
-			return nil
-		}
+	// Collect candidate JAVA_HOMEs from the environment, PATH, and common
+	// install locations, then pick the first one that has javac AND is a
+	// Gradle-compatible version. A too-new system JDK (e.g. Java 26) is skipped
+	// so we don't hand Gradle a JVM its Kotlin DSL compiler can't parse.
+	var candidates []string
+	if jh := os.Getenv("JAVA_HOME"); jh != "" {
+		candidates = append(candidates, jh)
 	}
-
-	if path, err := exec.LookPath("javac"); err == nil {
-		parent := filepath.Dir(filepath.Dir(path))
-		if _, err := os.Stat(filepath.Join(parent, "bin", "javac")); err == nil {
-			d.JavaHome = parent
-			return nil
-		}
-	}
-
-	if path, err := exec.LookPath("java"); err == nil {
-		// Try to find JAVA_HOME from java location
-		javaBin := filepath.Dir(path)
-		parent := filepath.Dir(javaBin)
-		if _, err := os.Stat(filepath.Join(parent, "lib", "tools.jar")); err == nil {
-			d.JavaHome = parent
-			return nil
-		}
-		if _, err := os.Stat(filepath.Join(parent, "jre")); err == nil {
-			d.JavaHome = parent
-			return nil
-		}
-		if _, err := os.Stat(filepath.Join(parent, "bin", "javac")); err == nil {
-			d.JavaHome = parent
-			return nil
-		}
-		// Check common JDK subdirectories
-		for _, name := range []string{"jdk", "jdk-17", "jdk-21", "jdk-11"} {
-			candidate := filepath.Join(parent, name)
-			if _, err := os.Stat(filepath.Join(candidate, "bin", "javac")); err == nil {
-				d.JavaHome = candidate
-				return nil
+	// A JDK a previous run downloaded under the project's .goleo dir; preferred
+	// so we don't re-download when the only system JDK is incompatible.
+	if localRoot, err := filepath.Abs(filepath.Join(goleoAndroidDir, "jdk")); err == nil {
+		if entries, err := os.ReadDir(localRoot); err == nil {
+			for _, e := range entries {
+				if e.IsDir() {
+					candidates = append(candidates, filepath.Join(localRoot, e.Name()))
+				}
 			}
 		}
-		// Fall through to common paths
 	}
+	if path, err := exec.LookPath("javac"); err == nil {
+		candidates = append(candidates, filepath.Dir(filepath.Dir(path)))
+	}
+	if path, err := exec.LookPath("java"); err == nil {
+		parent := filepath.Dir(filepath.Dir(path))
+		candidates = append(candidates, parent)
+		for _, name := range []string{"jdk", "jdk-17", "jdk-21", "jdk-11"} {
+			candidates = append(candidates, filepath.Join(parent, name))
+		}
+	}
+	candidates = append(candidates, commonJavaPaths()...)
 
-	// Check common install paths
-	common := commonJavaPaths()
-	for _, p := range common {
-		if _, err := os.Stat(filepath.Join(p, "bin", "javac")); err == nil {
-			d.JavaHome = p
+	seen := map[string]bool{}
+	var incompatible []string
+	for _, jh := range candidates {
+		if jh == "" || seen[jh] {
+			continue
+		}
+		seen[jh] = true
+		if !hasJavac(jh) {
+			continue
+		}
+		major, ok := javaMajorVersion(jh)
+		if !ok {
+			continue
+		}
+		if major >= minBuildJava && major <= maxBuildJava {
+			d.JavaHome = jh
 			return nil
 		}
+		incompatible = append(incompatible, fmt.Sprintf("%s (Java %d)", jh, major))
+	}
+
+	if len(incompatible) > 0 {
+		fmt.Printf("  Installed JDK(s) are incompatible with the bundled Gradle (needs Java %d–%d): %s\n",
+			minBuildJava, maxBuildJava, strings.Join(incompatible, ", "))
+		fmt.Printf("  A compatible JDK %d will be used for the Android build.\n", minBuildJava)
 	}
 
 	return d.installJava()
+}
+
+// hasJavac reports whether javaHome contains a javac executable.
+func hasJavac(javaHome string) bool {
+	if javaHome == "" {
+		return false
+	}
+	javac := filepath.Join(javaHome, "bin", "javac")
+	if runtime.GOOS == "windows" {
+		javac += ".exe"
+	}
+	_, err := os.Stat(javac)
+	return err == nil
+}
+
+// javaMajorVersion runs `<javaHome>/bin/java -version` and returns the major
+// Java version (e.g. 17, 21, 26; 8 for legacy "1.8" strings).
+func javaMajorVersion(javaHome string) (int, bool) {
+	javaBin := filepath.Join(javaHome, "bin", "java")
+	if runtime.GOOS == "windows" {
+		javaBin += ".exe"
+	}
+	out, err := exec.Command(javaBin, "-version").CombinedOutput()
+	if err != nil {
+		return 0, false
+	}
+	return parseJavaMajor(string(out))
+}
+
+// parseJavaMajor extracts the major version from `java -version` output, whose
+// first quoted token looks like "26.0.1", "21", or the legacy "1.8.0_291".
+func parseJavaMajor(verOutput string) (int, bool) {
+	i := strings.IndexByte(verOutput, '"')
+	if i < 0 {
+		return 0, false
+	}
+	rest := verOutput[i+1:]
+	j := strings.IndexByte(rest, '"')
+	if j < 0 {
+		return 0, false
+	}
+	fields := strings.FieldsFunc(rest[:j], func(r rune) bool {
+		return r == '.' || r == '_' || r == '-' || r == '+'
+	})
+	if len(fields) == 0 {
+		return 0, false
+	}
+	first, err := strconv.Atoi(fields[0])
+	if err != nil {
+		return 0, false
+	}
+	// Legacy "1.8" style: the major version is the second component.
+	if first == 1 && len(fields) > 1 {
+		if second, err := strconv.Atoi(fields[1]); err == nil {
+			return second, true
+		}
+	}
+	return first, true
 }
 
 func (d *androidDeps) installJava() error {
@@ -218,7 +288,7 @@ func javaDownloadURL() string {
 }
 
 func (d *androidDeps) resolveGomobile() error {
-	if path, err := exec.LookPath("gomobile"); err == nil {
+	if path, ok := findTool("gomobile"); ok {
 		d.Gomobile = path
 		return nil
 	}
@@ -242,12 +312,12 @@ func (d *androidDeps) resolveGomobile() error {
 		return fmt.Errorf("gomobile install failed: %w\nRun manually: go install golang.org/x/mobile/cmd/gomobile@latest", err)
 	}
 
-	if path, err := exec.LookPath("gomobile"); err == nil {
+	if path, ok := findTool("gomobile"); ok {
 		d.Gomobile = path
 		return nil
 	}
 
-	return fmt.Errorf("gomobile installed but not found in PATH. Ensure GOPATH/bin is in your PATH")
+	return fmt.Errorf("gomobile was installed but could not be located in the Go bin directory (%s) or on PATH", goBinDir())
 }
 
 func (d *androidDeps) resolveSDK() error {
@@ -258,7 +328,17 @@ func (d *androidDeps) resolveSDK() error {
 
 	if sdkRoot != "" {
 		if _, err := os.Stat(filepath.Join(sdkRoot, "platforms")); err == nil {
-			d.SDKRoot = sdkRoot
+			d.SDKRoot = absOr(sdkRoot)
+			return nil
+		}
+	}
+
+	// Reuse an SDK a previous goleo run installed under the project's .goleo
+	// dir, identified by the command-line tools we lay down there. This avoids
+	// re-downloading on every invocation.
+	if local, err := filepath.Abs(filepath.Join(goleoAndroidDir, "sdk")); err == nil {
+		if _, err := os.Stat(filepath.Join(local, "cmdline-tools", "latest", "bin")); err == nil {
+			d.SDKRoot = local
 			return nil
 		}
 	}
@@ -283,12 +363,22 @@ func (d *androidDeps) resolveSDK() error {
 
 	for _, p := range commonSDK {
 		if _, err := os.Stat(filepath.Join(p, "platforms")); err == nil {
-			d.SDKRoot = p
+			d.SDKRoot = absOr(p)
 			return nil
 		}
 	}
 
 	return d.installSDK()
+}
+
+// absOr returns the absolute form of p, or p unchanged if that fails. Keeping
+// SDKRoot absolute matters because several sdkmanager calls run with a changed
+// working directory.
+func absOr(p string) string {
+	if abs, err := filepath.Abs(p); err == nil {
+		return abs
+	}
+	return p
 }
 
 func (d *androidDeps) installSDK() error {
@@ -304,7 +394,13 @@ func (d *androidDeps) installSDK() error {
 		return fmt.Errorf("Android SDK is required. Install it manually:\n  https://developer.android.com/studio#command-line-tools-only")
 	}
 
-	installDir := filepath.Join(goleoAndroidDir, "sdk")
+	// Use an absolute install dir: several sdkmanager invocations run with a
+	// changed working directory, so a relative path would be resolved against
+	// the wrong cwd (producing a doubled, non-existent path).
+	installDir, err := filepath.Abs(filepath.Join(goleoAndroidDir, "sdk"))
+	if err != nil {
+		return fmt.Errorf("resolving SDK install path: %w", err)
+	}
 	os.MkdirAll(installDir, 0755)
 
 	fmt.Println("  Downloading Android command-line tools...")
@@ -316,44 +412,173 @@ func (d *androidDeps) installSDK() error {
 	}
 
 	fmt.Println("  Extracting...")
-	extractDir := filepath.Join(installDir, "cmdline-tools")
-	os.MkdirAll(extractDir, 0755)
-	if _, err := unzipAndFind(archivePath, extractDir, nil); err != nil {
+	sdkmanager, err := extractCmdlineTools(archivePath, installDir)
+	if err != nil {
 		return fmt.Errorf("extraction failed: %w", err)
 	}
 
-	// Find sdkmanager
-	sdkmanager := findFile(extractDir, "sdkmanager")
-	if sdkmanager == "" {
-		// Try nested structure: cmdline-tools/latest/bin/sdkmanager
-		nestedDir := filepath.Join(extractDir, "cmdline-tools")
-		if entries, _ := os.ReadDir(extractDir); len(entries) == 1 {
-			nestedDir = filepath.Join(extractDir, entries[0].Name())
-		}
-		os.MkdirAll(filepath.Join(installDir, "cmdline-tools", "latest"), 0755)
-		if err := moveDir(nestedDir, filepath.Join(installDir, "cmdline-tools", "latest")); err == nil {
-			sdkmanager = filepath.Join(installDir, "cmdline-tools", "latest", "bin", "sdkmanager")
-			if runtime.GOOS == "windows" {
-				sdkmanager += ".bat"
-			}
-		}
-	}
+	// SDKRoot must be set before running sdkmanager so the command picks up
+	// ANDROID_HOME and the correct working directory.
+	d.SDKRoot = installDir
 
-	if sdkmanager == "" || os.Getenv("CI") != "" {
-		fmt.Println("  Downloading essential SDK components directly...")
+	if os.Getenv("CI") != "" {
+		fmt.Println("  Skipping interactive component install (CI).")
 	} else {
 		fmt.Println("  Installing essential SDK components via sdkmanager...")
-		yes := exec.Command("sh", "-c", fmt.Sprintf("yes | %s \"platform-tools\" \"platforms;android-34\" \"build-tools;34.0.0\"", sdkmanager))
-		yes.Dir = installDir
-		yes.Stdout = os.Stdout
-		yes.Stderr = os.Stderr
-		yes.Run()
+		if err := runSdkmanager(d, sdkmanager, "platform-tools", "platforms;android-36", "build-tools;36.0.0"); err != nil {
+			fmt.Printf("  Warning: sdkmanager component install failed: %v\n", err)
+		}
 	}
 
-	d.SDKRoot = installDir
 	fmt.Printf("  Android SDK installed at: %s\n", installDir)
 	os.Setenv("ANDROID_HOME", installDir)
 	return nil
+}
+
+// extractCmdlineTools unzips the Android command-line tools archive and lays it
+// out as <installDir>/cmdline-tools/latest, the structure sdkmanager requires
+// to compute the SDK root correctly (it treats two directories above its own
+// bin/ as the SDK root). It returns the absolute path to the sdkmanager binary.
+func extractCmdlineTools(archivePath, installDir string) (string, error) {
+	tmp := filepath.Join(installDir, ".cmdline-tools-extract")
+	os.RemoveAll(tmp)
+	os.MkdirAll(tmp, 0755)
+	defer os.RemoveAll(tmp)
+
+	if _, err := unzipAndFind(archivePath, tmp, nil); err != nil {
+		return "", err
+	}
+
+	// The archive contains a top-level "cmdline-tools" directory; fall back to
+	// the extraction root if that ever changes.
+	inner := filepath.Join(tmp, "cmdline-tools")
+	if _, err := os.Stat(filepath.Join(inner, "bin")); err != nil {
+		inner = tmp
+	}
+
+	// Remove the whole cmdline-tools directory first, not just latest/, so a
+	// stale or doubled layout from an earlier run cannot linger and shadow the
+	// correct binary during lookup.
+	cmdlineTools := filepath.Join(installDir, "cmdline-tools")
+	os.RemoveAll(cmdlineTools)
+	latest := filepath.Join(cmdlineTools, "latest")
+	if err := os.MkdirAll(cmdlineTools, 0755); err != nil {
+		return "", err
+	}
+	if err := os.Rename(inner, latest); err != nil {
+		// Rename can fail across filesystems; fall back to a per-entry move.
+		os.MkdirAll(latest, 0755)
+		if err := moveDir(inner, latest); err != nil {
+			return "", err
+		}
+	}
+
+	sdkmanager := filepath.Join(latest, "bin", sdkmanagerName())
+	if _, err := os.Stat(sdkmanager); err != nil {
+		return "", fmt.Errorf("sdkmanager not found after extraction at %s", sdkmanager)
+	}
+	// Guarantee the launcher is executable regardless of how the archive was
+	// packed (no-op on Windows).
+	if runtime.GOOS != "windows" {
+		os.Chmod(sdkmanager, 0o755)
+	}
+	return sdkmanager, nil
+}
+
+func sdkmanagerName() string {
+	if runtime.GOOS == "windows" {
+		return "sdkmanager.bat"
+	}
+	return "sdkmanager"
+}
+
+// sdkmanagerPath returns the absolute path to sdkmanager within sdkRoot.
+func sdkmanagerPath(sdkRoot string) string { return sdkToolPath(sdkRoot, "sdkmanager") }
+
+// avdmanagerPath returns the absolute path to avdmanager within sdkRoot.
+func avdmanagerPath(sdkRoot string) string { return sdkToolPath(sdkRoot, "avdmanager") }
+
+// sdkToolPath returns the absolute path to a cmdline-tools launcher (base name
+// without extension) within sdkRoot. It checks the well-known locations in
+// priority order (rather than walking the tree, which could return a stale or
+// doubled copy) and only accepts an existing regular file. Returns "" if none
+// is found.
+func sdkToolPath(sdkRoot, base string) string {
+	name := base
+	if runtime.GOOS == "windows" {
+		name += ".bat"
+	}
+	candidates := []string{
+		filepath.Join(sdkRoot, "cmdline-tools", "latest", "bin", name),
+		filepath.Join(sdkRoot, "tools", "bin", name),
+	}
+	// Versioned command-line tools directories, e.g. cmdline-tools/11.0/bin.
+	if entries, err := os.ReadDir(filepath.Join(sdkRoot, "cmdline-tools")); err == nil {
+		for _, e := range entries {
+			if e.IsDir() && e.Name() != "latest" {
+				candidates = append(candidates, filepath.Join(sdkRoot, "cmdline-tools", e.Name(), "bin", name))
+			}
+		}
+	}
+	for _, c := range candidates {
+		if info, err := os.Stat(c); err == nil && !info.IsDir() {
+			return absOr(c)
+		}
+	}
+	// Last resort: search the tree.
+	if p := findFile(sdkRoot, base); p != "" {
+		return absOr(p)
+	}
+	return ""
+}
+
+// runSdkmanager invokes sdkmanager for the given package specs, auto-accepting
+// license prompts.
+func runSdkmanager(d *androidDeps, sdkmanager string, pkgs ...string) error {
+	// Accept package licenses without relying on `yes`/`sh`; feed enough "y"
+	// responses for any realistic number of prompts.
+	return runSdkTool(d, sdkmanager, strings.Repeat("y\n", 100), pkgs...)
+}
+
+// runSdkTool runs an Android command-line tool launcher (sdkmanager, avdmanager)
+// with the given arguments, optionally feeding stdin to answer interactive
+// prompts. The tool path must be absolute; the command runs from the SDK root
+// and inherits JAVA_HOME/ANDROID_HOME so it works regardless of the caller's cwd
+// or whether Java is on PATH. Command construction is platform-specific (see
+// sdkToolCommand) so it works without a POSIX shell on Windows.
+func runSdkTool(d *androidDeps, tool, stdin string, args ...string) error {
+	cmd := sdkToolCommand(tool, args)
+	cmd.Dir = d.SDKRoot
+	setMobileEnv(cmd, d)
+	if stdin != "" {
+		// A spent in-memory reader is harmless if fewer responses are consumed.
+		cmd.Stdin = strings.NewReader(stdin)
+	}
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// windowsSdkToolCmdLine builds the raw cmd.exe command line used to run a
+// cmdline-tools .bat launcher (sdkmanager, avdmanager) on Windows (.bat files
+// cannot be executed directly via CreateProcess). Each argument is quoted so
+// specs survive intact: cmd/batch treat ';' as an argument separator, which
+// would otherwise split specs like "platforms;android-34". The whole command is
+// wrapped in quotes and run with `/s` so cmd strips exactly the outer pair and
+// runs the rest verbatim.
+//
+// Defined here (untagged) so it is unit-testable on any platform; the
+// Windows-only wiring that consumes it lives in sdkmanager_windows.go.
+func windowsSdkToolCmdLine(tool string, args []string) string {
+	parts := []string{winQuote(tool)}
+	for _, a := range args {
+		parts = append(parts, winQuote(a))
+	}
+	return `cmd /s /c "` + strings.Join(parts, " ") + `"`
+}
+
+func winQuote(s string) string {
+	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
 }
 
 func (d *androidDeps) resolveNDK() error {
@@ -425,7 +650,7 @@ func (d *androidDeps) resolveNDK() error {
 		return fmt.Errorf("Android NDK is required")
 	}
 
-	sdkmanager := findFile(d.SDKRoot, "sdkmanager")
+	sdkmanager := sdkmanagerPath(d.SDKRoot)
 	if sdkmanager == "" {
 		fmt.Println("  sdkmanager not found. Cannot auto-install NDK.")
 		fmt.Println("  Install Android Studio or download NDK manually:")
@@ -434,11 +659,7 @@ func (d *androidDeps) resolveNDK() error {
 	}
 
 	fmt.Println("  Installing NDK via sdkmanager...")
-	install := exec.Command("sh", "-c", fmt.Sprintf("yes | %s \"ndk;25.2.9519653\"", sdkmanager))
-	install.Dir = d.SDKRoot
-	install.Stdout = os.Stdout
-	install.Stderr = os.Stderr
-	if err := install.Run(); err != nil {
+	if err := runSdkmanager(d, sdkmanager, "ndk;25.2.9519653"); err != nil {
 		return fmt.Errorf("NDK install failed: %w", err)
 	}
 
@@ -499,13 +720,9 @@ func (d *androidDeps) resolveAdb() error {
 		var choice string
 		fmt.Scanln(&choice)
 		if choice != "n" && choice != "N" {
-			sdkmanager := findFile(d.SDKRoot, "sdkmanager")
+			sdkmanager := sdkmanagerPath(d.SDKRoot)
 			if sdkmanager != "" {
-				install := exec.Command("sh", "-c", fmt.Sprintf("yes | %s \"platform-tools\"", sdkmanager))
-				install.Dir = d.SDKRoot
-				install.Stdout = os.Stdout
-				install.Stderr = os.Stderr
-				if err := install.Run(); err == nil {
+				if err := runSdkmanager(d, sdkmanager, "platform-tools"); err == nil {
 					adbPath := filepath.Join(d.SDKRoot, "platform-tools", "adb")
 					if runtime.GOOS == "windows" {
 						adbPath += ".exe"
@@ -556,7 +773,103 @@ func (d *androidDeps) resolveEmulator() error {
 			return nil
 		}
 	}
+
+	// Not installed. Offer to install the emulator package via sdkmanager.
+	sdkmanager := sdkmanagerPath(d.SDKRoot)
+	if d.SDKRoot == "" || sdkmanager == "" {
+		return nil // nothing we can do; caller surfaces the missing-emulator error
+	}
+
+	fmt.Println()
+	fmt.Println("  Android emulator not found.")
+	fmt.Print("  Install the emulator via sdkmanager now? [Y/n]: ")
+	var choice string
+	fmt.Scanln(&choice)
+	if choice == "n" || choice == "N" {
+		return nil
+	}
+
+	fmt.Println("  Installing emulator via sdkmanager...")
+	if err := runSdkmanager(d, sdkmanager, "emulator"); err != nil {
+		fmt.Printf("  Warning: emulator install failed: %v\n", err)
+		return nil
+	}
+
+	emuPath := filepath.Join(d.SDKRoot, "emulator", emulatorName)
+	if _, err := os.Stat(emuPath); err == nil {
+		d.EmulatorPath = emuPath
+	}
 	return nil
+}
+
+// avdName is the name of the AVD goleo creates when none exists.
+const avdName = "goleo_avd"
+
+// systemImagePackage returns the sdkmanager system-image spec matching the host
+// architecture, used when creating an emulator AVD.
+func systemImagePackage() string {
+	arch := "x86_64"
+	if runtime.GOARCH == "arm64" {
+		arch = "arm64-v8a"
+	}
+	return "system-images;android-34;google_apis;" + arch
+}
+
+// listAVDNames returns the names of installed AVDs, or nil if none / on error.
+func (d *androidDeps) listAVDNames() []string {
+	if d.EmulatorPath == "" {
+		return nil
+	}
+	out, err := exec.Command(d.EmulatorPath, "-list-avds").Output()
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if s := strings.TrimSpace(line); s != "" {
+			names = append(names, s)
+		}
+	}
+	return names
+}
+
+// ensureAVD returns the name of an AVD to boot, offering to create one (which
+// downloads the matching system image) when none exist. Returns "" if none is
+// available and the user declined or provisioning is not possible.
+func (d *androidDeps) ensureAVD() (string, error) {
+	if existing := d.listAVDNames(); len(existing) > 0 {
+		return existing[0], nil
+	}
+
+	sdkmanager := sdkmanagerPath(d.SDKRoot)
+	avdmanager := avdmanagerPath(d.SDKRoot)
+	if d.SDKRoot == "" || sdkmanager == "" || avdmanager == "" {
+		return "", nil
+	}
+
+	fmt.Println()
+	fmt.Println("  No Android Virtual Device (AVD) found.")
+	fmt.Println("  Goleo can create one automatically. This downloads a system image (~1 GB).")
+	fmt.Print("  Create a default AVD now? [Y/n]: ")
+	var choice string
+	fmt.Scanln(&choice)
+	if choice == "n" || choice == "N" {
+		return "", nil
+	}
+
+	image := systemImagePackage()
+	fmt.Printf("  Installing system image %s ...\n", image)
+	if err := runSdkmanager(d, sdkmanager, image); err != nil {
+		return "", fmt.Errorf("system image install failed: %w", err)
+	}
+
+	fmt.Printf("  Creating AVD %q ...\n", avdName)
+	// avdmanager prompts whether to create a custom hardware profile; answer no.
+	if err := runSdkTool(d, avdmanager, strings.Repeat("no\n", 10),
+		"create", "avd", "-n", avdName, "-k", image, "--device", "pixel", "--force"); err != nil {
+		return "", fmt.Errorf("AVD creation failed: %w", err)
+	}
+	return avdName, nil
 }
 
 // Utility functions
@@ -605,7 +918,13 @@ func unzipAndFind(zipPath, destDir string, predicate func(string) bool) (string,
 			return "", err
 		}
 
-		dst, err := os.Create(target)
+		// Preserve the archive's file mode so executables (sdkmanager, java,
+		// javac, ...) keep their executable bit; os.Create would force 0666.
+		mode := f.FileInfo().Mode().Perm()
+		if mode == 0 {
+			mode = 0644
+		}
+		dst, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
 		if err != nil {
 			src.Close()
 			return "", err

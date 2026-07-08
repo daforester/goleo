@@ -85,6 +85,7 @@ func emulateAndroid() error {
 	viteCmd.Dir = frontendAbs
 	viteCmd.Stdout = os.Stdout
 	viteCmd.Stderr = os.Stderr
+	newProcessGroup(viteCmd)
 	if err := viteCmd.Start(); err != nil {
 		return fmt.Errorf("failed to start Vite: %w", err)
 	}
@@ -103,7 +104,7 @@ func emulateAndroid() error {
 	fmt.Println("  Vite ready.")
 
 	// 2. Find or start emulator
-	deviceID, err := findDevice(deps.AdbPath, deps.EmulatorPath)
+	deviceID, err := findDevice(deps)
 	if err != nil {
 		return err
 	}
@@ -319,30 +320,36 @@ func buildAndDeployDev(deps *androidDeps, deviceID, pkgName string) error {
 	return nil
 }
 
-func findDevice(adbPath, emulatorPath string) (string, error) {
+func findDevice(deps *androidDeps) (string, error) {
 	// 1. Check for already-running devices
-	if deviceID := findRunningDevice(adbPath); deviceID != "" {
+	if deviceID := findRunningDevice(deps.AdbPath); deviceID != "" {
 		return deviceID, nil
 	}
 
 	// 2. No device found, try to start an emulator
-	if emulatorPath == "" {
+	if deps.EmulatorPath == "" {
 		return "", fmt.Errorf("no device found and emulator binary not found. Start an emulator or connect a device via USB.")
 	}
 
-	avds, err := listAVDs(emulatorPath)
-	if err != nil || len(avds) == 0 {
-		return "", fmt.Errorf("no device found and no AVDs available. Create an AVD in Android Studio first.")
+	// Ensure an AVD exists, offering to create one if not.
+	avd, err := deps.ensureAVD()
+	if err != nil {
+		return "", err
+	}
+	if avd == "" {
+		return "", fmt.Errorf("no device found and no AVD available. Create one (e.g. in Android Studio) or connect a device via USB.")
 	}
 
-	avdName := avds[0]
-	fmt.Printf("  Starting emulator: %s\n", avdName)
+	fmt.Printf("  Starting emulator: %s\n", avd)
 
-	emuArgs := []string{"-avd", avdName, "-no-snapshot-load"}
+	emuArgs := []string{"-avd", avd, "-no-snapshot-load"}
 	if emulateHeadless {
 		emuArgs = append(emuArgs, "-no-audio", "-no-window")
 	}
-	emu := exec.Command(emulatorPath, emuArgs...)
+	emu := exec.Command(deps.EmulatorPath, emuArgs...)
+	// Isolate the emulator in its own process group so it is not caught by a
+	// group signal aimed at goleo's children and can outlive this session.
+	newProcessGroup(emu)
 	if err := emu.Start(); err != nil {
 		return "", fmt.Errorf("failed to start emulator: %w", err)
 	}
@@ -351,8 +358,8 @@ func findDevice(adbPath, emulatorPath string) (string, error) {
 	fmt.Println("  Waiting for emulator to boot...")
 	deadline := time.Now().Add(5 * time.Minute)
 	for time.Now().Before(deadline) {
-		deviceID := findRunningDevice(adbPath)
-		if deviceID != "" && isBootCompleted(adbPath, deviceID) {
+		deviceID := findRunningDevice(deps.AdbPath)
+		if deviceID != "" && isBootCompleted(deps.AdbPath, deviceID) {
 			fmt.Println()
 			fmt.Println("  Emulator is ready.")
 			return deviceID, nil
@@ -385,21 +392,6 @@ func isBootCompleted(adbPath, deviceID string) bool {
 		return false
 	}
 	return strings.TrimSpace(string(out)) == "1"
-}
-
-func listAVDs(emulatorPath string) ([]string, error) {
-	out, err := exec.Command(emulatorPath, "-list-avds").Output()
-	if err != nil {
-		return nil, err
-	}
-	var avds []string
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			avds = append(avds, line)
-		}
-	}
-	return avds, nil
 }
 
 func extractPackageName(jsonStr string) string {

@@ -4,11 +4,11 @@ plugins {
 
 android {
     namespace = "{{.PackageName}}"
-    compileSdk = 34
+    compileSdk = 36
     defaultConfig {
         applicationId = "{{.PackageName}}"
         minSdk = 24
-        targetSdk = 34
+        targetSdk = 36
         versionCode = 1
         versionName = "1.0-dev"
     }
@@ -18,8 +18,8 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_21
-        targetCompatibility = JavaVersion.VERSION_21
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 }
 

@@ -18,6 +18,12 @@ func killProcTree(pid int) {
 	exec.Command("taskkill", "/F", "/T", "/PID", strconv.Itoa(pid)).Run()
 }
 
+// newProcessGroup is a no-op on Windows: killProcTree uses `taskkill /T`, which
+// terminates the child's process tree by PID without signalling goleo's own
+// process group, and bindProcessLifetime's Job Object is the backstop. So no
+// separate process group is needed to make killing a child safe here.
+func newProcessGroup(cmd *exec.Cmd) {}
+
 // devJob is a Windows Job Object that dev-session child processes (the Go
 // backend, the Vite server) are assigned to via bindProcessLifetime. It is
 // intentionally never closed explicitly: with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
