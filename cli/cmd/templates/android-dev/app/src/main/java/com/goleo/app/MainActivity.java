@@ -7,6 +7,9 @@ import android.app.NotificationManager;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.webkit.GeolocationPermissions;
+import android.webkit.PermissionRequest;
+import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.webkit.WebSettings;
@@ -17,6 +20,8 @@ import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import gomobile.Gomobile;
@@ -25,9 +30,14 @@ import gomobile.Notifier;
 public class MainActivity extends AppCompatActivity {
     private static final String NOTIFICATION_CHANNEL_ID = "goleo_default";
     private static final int NOTIFICATION_PERMISSION_REQUEST = 9842;
+    private static final int WEB_PERMISSION_REQUEST = 9843;
+    private static final int GEO_PERMISSION_REQUEST = 9844;
     private static final AtomicInteger notificationId = new AtomicInteger(1);
 
     private WebView webView;
+    private PermissionRequest pendingWebPermission;
+    private String pendingGeoOrigin;
+    private GeolocationPermissions.Callback pendingGeoCallback;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -47,11 +57,60 @@ public class MainActivity extends AppCompatActivity {
         settings.setLoadWithOverviewMode(true);
         settings.setUseWideViewPort(true);
         settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
+        settings.setGeolocationEnabled(true);
+        settings.setMediaPlaybackRequiresUserGesture(false);
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 return false;
+            }
+        });
+
+        // Bridge web permission prompts (getUserMedia, navigator.geolocation)
+        // to Android runtime permissions so the browser-API fallbacks work.
+        // Permissions not declared in the manifest are denied automatically;
+        // run `goleo scan` to see which manifest entries your app needs.
+        webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onPermissionRequest(PermissionRequest request) {
+                if (!request.getOrigin().toString().startsWith("http://10.0.2.2")) {
+                    request.deny();
+                    return;
+                }
+                List<String> needed = new ArrayList<>();
+                for (String resource : request.getResources()) {
+                    if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource)
+                            && !hasPermission(Manifest.permission.CAMERA)) {
+                        needed.add(Manifest.permission.CAMERA);
+                    } else if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource)
+                            && !hasPermission(Manifest.permission.RECORD_AUDIO)) {
+                        needed.add(Manifest.permission.RECORD_AUDIO);
+                    }
+                }
+                if (needed.isEmpty()) {
+                    request.grant(request.getResources());
+                    return;
+                }
+                pendingWebPermission = request;
+                ActivityCompat.requestPermissions(MainActivity.this,
+                        needed.toArray(new String[0]), WEB_PERMISSION_REQUEST);
+            }
+
+            @Override
+            public void onGeolocationPermissionsShowPrompt(String origin,
+                    GeolocationPermissions.Callback callback) {
+                if (hasPermission(Manifest.permission.ACCESS_FINE_LOCATION)
+                        || hasPermission(Manifest.permission.ACCESS_COARSE_LOCATION)) {
+                    callback.invoke(origin, true, false);
+                    return;
+                }
+                pendingGeoOrigin = origin;
+                pendingGeoCallback = callback;
+                ActivityCompat.requestPermissions(MainActivity.this,
+                        new String[]{Manifest.permission.ACCESS_FINE_LOCATION,
+                                Manifest.permission.ACCESS_COARSE_LOCATION},
+                        GEO_PERMISSION_REQUEST);
             }
         });
 
@@ -64,6 +123,43 @@ public class MainActivity extends AppCompatActivity {
         Gomobile.setNotifier(null);
         Gomobile.stopServer();
         super.onDestroy();
+    }
+
+    private boolean hasPermission(String permission) {
+        return ContextCompat.checkSelfPermission(this, permission)
+                == PackageManager.PERMISSION_GRANTED;
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions,
+            int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == WEB_PERMISSION_REQUEST && pendingWebPermission != null) {
+            boolean allGranted = grantResults.length > 0;
+            for (int result : grantResults) {
+                if (result != PackageManager.PERMISSION_GRANTED) {
+                    allGranted = false;
+                    break;
+                }
+            }
+            if (allGranted) {
+                pendingWebPermission.grant(pendingWebPermission.getResources());
+            } else {
+                pendingWebPermission.deny();
+            }
+            pendingWebPermission = null;
+        } else if (requestCode == GEO_PERMISSION_REQUEST && pendingGeoCallback != null) {
+            boolean granted = false;
+            for (int result : grantResults) {
+                if (result == PackageManager.PERMISSION_GRANTED) {
+                    granted = true;
+                    break;
+                }
+            }
+            pendingGeoCallback.invoke(pendingGeoOrigin, granted, false);
+            pendingGeoCallback = null;
+            pendingGeoOrigin = null;
+        }
     }
 
     private void createNotificationChannel() {

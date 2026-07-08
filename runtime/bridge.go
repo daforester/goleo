@@ -159,6 +159,12 @@ func (b *Bridge) Call(method string, args any) (any, error) {
 }
 
 func RegisterBuiltins(b *Bridge) {
+	registerCore(b)
+}
+
+// registerCore registers the always-safe built-in handlers that require no
+// platform permissions and are available on every target (desktop, mobile, PWA).
+func registerCore(b *Bridge) {
 	b.Handle("goleo:getOS", func(ctx context.Context, args json.RawMessage) (any, error) {
 		return GetOSInfo(), nil
 	})

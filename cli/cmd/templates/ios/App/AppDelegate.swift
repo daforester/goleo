@@ -8,6 +8,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
     var webView: WKWebView?
     let notifier = GoleoNotifier()
+    let permissionDelegate = GoleoWebPermissionDelegate()
 
     func application(
         _ application: UIApplication,
@@ -21,8 +22,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         let config = WKWebViewConfiguration()
         let userContentController = WKUserContentController()
         config.userContentController = userContentController
+        config.allowsInlineMediaPlayback = true
+        config.mediaTypesRequiringUserActionForPlayback = []
 
         webView = WKWebView(frame: UIScreen.main.bounds, configuration: config)
+        webView?.uiDelegate = permissionDelegate
         webView?.load(URLRequest(url: url))
 
         window = UIWindow(frame: UIScreen.main.bounds)
@@ -40,6 +44,34 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         let vc = UIViewController()
         vc.view = webView
         return vc
+    }
+}
+
+/// Grants camera/mic/location permission requests from web content
+/// (getUserMedia, navigator.geolocation) so the browser-API fallbacks used
+/// by the JS bridge work in the WKWebView. The corresponding
+/// NS*UsageDescription strings must be present in Info.plist or iOS denies
+/// (and, for the first prompt, terminates the app) automatically.
+class GoleoWebPermissionDelegate: NSObject, WKUIDelegate {
+    @available(iOS 15.0, *)
+    func webView(
+        _ webView: WKWebView,
+        requestMediaCapturePermissionFor origin: WKSecurityOrigin,
+        initiatedByFrame frame: WKFrameInfo,
+        type: WKMediaCaptureType,
+        decisionHandler: @escaping (WKPermissionDecision) -> Void
+    ) {
+        decisionHandler(.grant)
+    }
+
+    @available(iOS 15.4, *)
+    func webView(
+        _ webView: WKWebView,
+        requestGeolocationPermissionFor origin: WKSecurityOrigin,
+        initiatedByFrame frame: WKFrameInfo,
+        decisionHandler: @escaping (WKPermissionDecision) -> Void
+    ) {
+        decisionHandler(.grant)
     }
 }
 

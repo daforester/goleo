@@ -37,6 +37,7 @@ func main() {
 		OnStartup: func(ctx context.Context) {
 			log.Println("{{.Name}} starting up...")
 			runtime.RegisterBuiltins(app.Bridge())
+			runtime.RegisterDesktopFeatures(app.Bridge())
 			commands.Register(app.Bridge())
 			commands.StartHeartbeat(app.Bridge())
 		},
@@ -60,6 +61,41 @@ var tmplInitJS = `// init.js — Goleo startup script.
 //   createWindow(opts) - opts: title, width, height, minWidth, minHeight,
 //                        center, devTools, url (defaults to the app's own URL)
 //   console.log/info/warn/error
+//
+// Available bridge commands (call via bridge.invoke("goleo:xxx", { ... })):
+//
+//   Core:
+//     goleo:getOS                          -> OSInfo
+//     goleo:getPlatform                    -> PlatformInfo
+//     goleo:getArch                        -> string
+//     goleo:getEnv({ key })                -> string
+//     goleo:openURL({ url })               -> void
+//     goleo:notify({ title, body? })       -> void
+//     goleo:showMessage({ title, message }) -> void
+//
+//   Clipboard:
+//     goleo:clipboardReadText              -> { text }
+//     goleo:clipboardWriteText({ text })   -> void
+//
+//   Dialogs:
+//     goleo:dialogOpenFile({ ... })        -> string[]
+//     goleo:dialogSaveFile({ ... })        -> string
+//     goleo:dialogSelectFolder({ ... })    -> string
+//     goleo:dialogShowMessage({ ... })     -> { button }
+//     goleo:dialogShowPrompt({ ... })      -> string
+//
+//   File System:
+//     goleo:fsReadTextFile({ path })       -> string
+//     goleo:fsWriteTextFile({ path, content }) -> void
+//     goleo:fsReadBinaryFile({ path })     -> { data }
+//     goleo:fsWriteBinaryFile({ path, data }) -> void
+//     goleo:fsListDir({ path })            -> FileEntry[]
+//     goleo:fsDelete({ path })             -> void
+//     goleo:fsAppDataDir({ appName? })     -> string
+//     goleo:fsHomeDir                      -> string
+//
+//   Geolocation:
+//     goleo:geolocationGetCurrentPosition({ ... }) -> Position
 //
 // Delete this file (and its embed line in main.go) to fall back to the
 // built-in window setup from runtime.Config.
@@ -633,6 +669,22 @@ func StartServer() int {
 		OnStartup: func(ctx context.Context) {
 			runtime.RegisterBuiltins(app.Bridge())
 			commands.Register(app.Bridge())
+			// Uncomment and rebuild with the corresponding build tag to enable
+			// permission-gated features on mobile.
+			//   goleo build android -- -tags "goleo_nfc,goleo_ble"
+			//
+			// runtime.RegisterNFC(app.Bridge())
+			// runtime.RegisterBLE(app.Bridge())
+			// runtime.RegisterGeolocation(app.Bridge())
+			// runtime.RegisterCamera(app.Bridge())
+			// runtime.RegisterDialogs(app.Bridge())
+			// runtime.RegisterFS(app.Bridge())
+			// runtime.RegisterClipboard(app.Bridge())
+			// runtime.RegisterSensors(app.Bridge())
+			// runtime.RegisterVibration(app.Bridge())
+			// runtime.RegisterWakeLock(app.Bridge())
+			// runtime.RegisterBackground(app.Bridge())
+			// runtime.RegisterPush(app.Bridge())
 		},
 	})
 	port, err := app.StartServer()
@@ -711,6 +763,16 @@ func StartServer() int {
 		OnStartup: func(ctx context.Context) {
 			runtime.RegisterBuiltins(app.Bridge())
 			commands.Register(app.Bridge())
+			// Uncomment and rebuild with the corresponding build tag to enable
+			// permission-gated features on mobile.
+			//
+			// runtime.RegisterClipboard(app.Bridge())
+			// runtime.RegisterGeolocation(app.Bridge())
+			// runtime.RegisterDialogs(app.Bridge())
+			// runtime.RegisterFS(app.Bridge())
+			// runtime.RegisterSensors(app.Bridge())
+			// runtime.RegisterVibration(app.Bridge())
+			// etc.
 		},
 	})
 	port, err := app.StartServer()

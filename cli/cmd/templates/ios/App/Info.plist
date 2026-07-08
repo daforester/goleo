@@ -35,5 +35,11 @@
         <key>NSAllowsLocalNetworking</key>
         <true/>
     </dict>
+    <key>NSCameraUsageDescription</key>
+    <string>This app uses the camera when a page requests it.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>This app uses the microphone when a page requests it.</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>This app uses your location when a page requests it.</string>
 </dict>
 </plist>
