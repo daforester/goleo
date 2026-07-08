@@ -16,6 +16,21 @@ fail()  { echo -e "   ${RED}$1${NC}"; exit 1; }
 
 info "=== Goleo Local Setup ==="
 
+# 0. Point npm's global prefix at a user-owned directory so `npm link` installs
+#    into the user context instead of the system location (no sudo required).
+step "Configuring user-level npm prefix..."
+NPM_PREFIX="${GOLEO_NPM_PREFIX:-$HOME/.npm-global}"
+mkdir -p "$NPM_PREFIX"
+npm config set prefix "$NPM_PREFIX" --location=user
+ok "npm global prefix -> $NPM_PREFIX"
+
+NPM_BIN="$NPM_PREFIX/bin"
+case ":$PATH:" in
+  *":$NPM_BIN:"*) ok "$NPM_BIN already on PATH" ;;
+  *) echo -e "   ${YELLOW}Add this to your shell profile so the global bins resolve:${NC}"
+     echo -e "   ${GREEN}export PATH=\"$NPM_BIN:\$PATH\"${NC}" ;;
+esac
+
 # 1. Build the TypeScript packages
 step "Building TypeScript packages..."
 
@@ -70,6 +85,12 @@ popd > /dev/null
 
 echo ""
 info "=== Setup complete! ==="
+echo ""
+echo -e "Global packages were installed under ${GREEN}$NPM_PREFIX${NC} (user context)."
+case ":$PATH:" in
+  *":$NPM_BIN:"*) ;;
+  *) echo -e "${YELLOW}Make sure ${NPM_BIN} is on your PATH before running the commands below.${NC}" ;;
+esac
 echo ""
 echo -e "Try these commands from anywhere:"
 echo -e "  ${GREEN}npx create-goleo-app my-test-app${NC}"

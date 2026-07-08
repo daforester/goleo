@@ -3,6 +3,23 @@
 Write-Host "=== Goleo Local Setup ===" -ForegroundColor Cyan
 Write-Host ""
 
+# 0. Point npm's global prefix at a user-owned directory so `npm link` installs
+#    into the user context instead of a system-wide location (no admin required).
+Write-Host ">> Configuring user-level npm prefix..." -ForegroundColor Yellow
+$NpmPrefix = if ($env:GOLEO_NPM_PREFIX) { $env:GOLEO_NPM_PREFIX } else { Join-Path $env:APPDATA "npm" }
+if (-not (Test-Path $NpmPrefix)) { New-Item -ItemType Directory -Path $NpmPrefix -Force | Out-Null }
+npm config set prefix "$NpmPrefix" --location=user
+Write-Host "   npm global prefix -> $NpmPrefix" -ForegroundColor Green
+
+$NpmBin = $NpmPrefix
+$pathEntries = $env:PATH -split ';'
+if ($pathEntries -notcontains $NpmBin) {
+    Write-Host "   Add this to your PATH so the global bins resolve:" -ForegroundColor Yellow
+    Write-Host "   $NpmBin" -ForegroundColor Green
+} else {
+    Write-Host "   $NpmBin already on PATH" -ForegroundColor Green
+}
+
 # 1. Build the TypeScript packages
 Write-Host ">> Building TypeScript packages..." -ForegroundColor Yellow
 Push-Location "$PSScriptRoot\..\bridge"
@@ -88,6 +105,11 @@ Pop-Location
 
 Write-Host ""
 Write-Host "=== Setup complete! ===" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "Global packages were installed under $NpmPrefix (user context)." -ForegroundColor White
+if ($pathEntries -notcontains $NpmBin) {
+    Write-Host "Make sure $NpmBin is on your PATH before running the commands below." -ForegroundColor Yellow
+}
 Write-Host ""
 Write-Host "Try these commands from anywhere:" -ForegroundColor White
 Write-Host "  npx create-goleo-app my-test-app" -ForegroundColor Green

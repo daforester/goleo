@@ -78,8 +78,17 @@ func runDev(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Make sure cgo can find an installed WebKitGTK before compiling the
+	// backend, which embeds the webview runtime. On distros that ship only
+	// webkit2gtk-4.1 this points pkg-config at the version that's present.
+	webkitEnv, err := prepareWebkitEnv()
+	if err != nil {
+		return err
+	}
+
 	goBackend := exec.Command("go", "run", backendPkgDir())
 	goBackend.Env = append(os.Environ(), envVars...)
+	goBackend.Env = append(goBackend.Env, webkitEnv...)
 	goBackend.Stdout = os.Stdout
 	goBackend.Stderr = os.Stderr
 
