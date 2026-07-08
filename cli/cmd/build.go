@@ -25,6 +25,7 @@ Targets:
   darwin      Cross-compile for macOS (amd64)
   android     Build Android .apk (requires gomobile and NDK)
   ios         Build iOS .xcframework (requires Xcode, macOS only)
+  pwa         Build Progressive Web App (no Go backend)
 
 The frontend is built first with Vite, then the Go backend
 is compiled with the frontend assets embedded.
@@ -67,6 +68,7 @@ var targets = map[string]buildTarget{
 	"darwin":  {GOOS: "darwin", GOARCH: "amd64", OutputExt: "", Label: "macOS"},
 	"android": {GOOS: "android", GOARCH: "arm64", OutputExt: ".aar", Label: "Android"},
 	"ios":     {GOOS: "ios", GOARCH: "arm64", OutputExt: ".xcframework", Label: "iOS"},
+	"pwa":     {GOOS: "js", GOARCH: "wasm", OutputExt: "", Label: "PWA"},
 }
 
 func runBuild(cmd *cobra.Command, args []string) error {
@@ -77,7 +79,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 
 	target, ok := targets[targetName]
 	if !ok {
-		return fmt.Errorf("unknown target: %s\nAvailable: current, windows, linux, darwin, android, ios", targetName)
+		return fmt.Errorf("unknown target: %s\nAvailable: current, windows, linux, darwin, android, ios, pwa", targetName)
 	}
 
 	if err := checkGoleoJSON(); err != nil {
@@ -88,7 +90,11 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	fmt.Println()
 
 	frontendDist := filepath.Join(buildFrontend, "dist")
-	if err := buildFrontendProject(buildFrontend, frontendDist); err != nil {
+	var extraEnv []string
+	if targetName == "pwa" {
+		extraEnv = append(extraEnv, "VITE_GOLEO_PLATFORM=pwa")
+	}
+	if err := buildFrontendProject(buildFrontend, frontendDist, extraEnv); err != nil {
 		return fmt.Errorf("frontend build failed: %w", err)
 	}
 
@@ -102,11 +108,14 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	if targetName == "ios" {
 		return buildForIOS(frontendDist)
 	}
+	if targetName == "pwa" {
+		return buildForPWA(frontendDist)
+	}
 
 	return buildForDesktop(target, frontendDist)
 }
 
-func buildFrontendProject(frontendDir, distDir string) error {
+func buildFrontendProject(frontendDir, distDir string, extraEnv []string) error {
 	if _, err := os.Stat(filepath.Join(frontendDir, "package.json")); os.IsNotExist(err) {
 		return fmt.Errorf("frontend directory not found: %s", frontendDir)
 	}
@@ -125,6 +134,7 @@ func buildFrontendProject(frontendDir, distDir string) error {
 	fmt.Println("  Building frontend with Vite...")
 	viteBuild := exec.Command("npx", "vite", "build")
 	viteBuild.Dir = frontendDir
+	viteBuild.Env = append(os.Environ(), extraEnv...)
 	viteBuild.Stdout = os.Stdout
 	viteBuild.Stderr = os.Stderr
 	if err := viteBuild.Run(); err != nil {
@@ -544,6 +554,34 @@ func buildForIOS(distDir string) error {
 
 	os.RemoveAll(xcfPath)
 	fmt.Printf("  iOS build complete: %s\n", outputPath)
+	return nil
+}
+
+func buildForPWA(distDir string) error {
+	// Verify frontend dist exists
+	if !distExists(distDir) {
+		return fmt.Errorf("frontend dist directory %s is empty or does not exist", distDir)
+	}
+
+	// Determine output directory
+	outputDir := buildOutput
+	if outputDir == "" {
+		outputDir = "dist-pwa"
+	}
+
+	// Create output directory
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return fmt.Errorf("creating output directory: %w", err)
+	}
+
+	// Copy frontend dist files into output directory
+	fmt.Println("  Copying frontend assets...")
+	if err := copyDir(distDir, outputDir); err != nil {
+		return fmt.Errorf("copying frontend assets: %w", err)
+	}
+
+	absPath, _ := filepath.Abs(outputDir)
+	fmt.Printf("  PWA build complete: %s\n", absPath)
 	return nil
 }
 

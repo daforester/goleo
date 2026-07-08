@@ -60,7 +60,7 @@ export async function getEnv(key: string): Promise<string> {
 }
 
 export async function openURL(url: string): Promise<void> {
-  return invoke<void>('goleo:openURL', { url })
+  await invoke<void>('goleo:openURL', { url })
 }
 
 export function disconnect(): void {
@@ -72,4 +72,9 @@ export function disconnect(): void {
 export function isConnected(): boolean {
   const bridge = getBridge()
   return bridge.isConnected()
+}
+
+export function sendEvent(event: string, data?: Record<string, unknown>): void {
+  const bridge = getBridge()
+  bridge.sendEvent(event, data)
 }

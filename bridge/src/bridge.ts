@@ -6,6 +6,7 @@ class Bridge {
   private wsUrl: string
   private pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>()
   private eventHandlers = new Map<string, Set<EventCallback>>()
+  private localHandlers = new Map<string, (args?: Record<string, unknown>) => Promise<unknown>>()
   private requestId = 0
   private connected = false
   private ready = false
@@ -18,27 +19,48 @@ class Bridge {
     this.config = {
       serverUrl: config.serverUrl || 'http://localhost:9842',
       wsUrl: config.wsUrl || 'ws://localhost:9842/ws',
+      backend: config.backend ?? true,
       autoReconnect: config.autoReconnect ?? true,
       reconnectInterval: config.reconnectInterval ?? 3000,
-      maxReconnectAttempts: config.maxReconnectAttempts ?? 10,
+      maxReconnectAttempts: config.maxReconnectAttempts ?? 3,
+      connectionTimeout: config.connectionTimeout ?? 3000,
     }
     this.httpUrl = this.config.serverUrl
     this.wsUrl = this.config.wsUrl
     this.readyPromise = new Promise((resolve) => { this.readyResolve = resolve })
   }
 
+  handleLocal(method: string, handler: (args?: Record<string, unknown>) => Promise<unknown>): void {
+    this.localHandlers.set(method, handler)
+  }
+
   async connect(): Promise<void> {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) return
 
-    return new Promise((resolve, reject) => {
+    if (!this.config.backend) {
+      this.enterLocalMode()
+      return
+    }
+
+    return new Promise((resolve) => {
       try {
         this.ws = new WebSocket(this.wsUrl)
-      } catch (err) {
-        reject(err)
+      } catch {
+        this.enterLocalMode()
+        resolve()
         return
       }
 
+      const timeout = setTimeout(() => {
+        if (!this.connected) {
+          this.ws?.close()
+          this.enterLocalMode()
+          resolve()
+        }
+      }, this.config.connectionTimeout)
+
       this.ws.onopen = () => {
+        clearTimeout(timeout)
         this.connected = true
         this.reconnectAttempts = 0
         this.ready = true
@@ -59,15 +81,83 @@ class Bridge {
       this.ws.onclose = () => {
         this.connected = false
         this.emitEvent('bridge:disconnected', {})
-        if (this.config.autoReconnect) {
+        if (this.config.autoReconnect && this.ready) {
           this.attemptReconnect()
         }
       }
 
-      this.ws.onerror = (err) => {
+      this.ws.onerror = () => {
         if (!this.connected) {
-          reject(err)
+          clearTimeout(timeout)
+          this.ws?.close()
+          this.enterLocalMode()
+          resolve()
         }
+      }
+    })
+  }
+
+  private enterLocalMode(): void {
+    this.connected = false
+    this.ready = true
+    this.readyResolve()
+    this.registerLocalHandlers()
+    this.emitEvent('bridge:disconnected', {})
+    console.log('[goleo] running in local-only mode (no backend detected)')
+  }
+
+  private registerLocalHandlers(): void {
+    this.handleLocal('goleo:notify', async (args) => {
+      const { title, body, message } = (args || {}) as { title?: string; body?: string; message?: string }
+      if (typeof window !== 'undefined' && 'Notification' in window && window.Notification.permission === 'granted') {
+        new window.Notification(title || '', { body: body || message || '' })
+      }
+    })
+
+    this.handleLocal('goleo:notificationPermissionGranted', async () => {
+      if (typeof window !== 'undefined' && 'Notification' in window) {
+        return window.Notification.permission === 'granted'
+      }
+      return false
+    })
+
+    this.handleLocal('goleo:requestNotificationPermission', async () => {
+      if (typeof window !== 'undefined' && 'Notification' in window) {
+        return window.Notification.requestPermission()
+      }
+      return 'denied' as NotificationPermission
+    })
+
+    this.handleLocal('goleo:getOS', async () => {
+      const ua = typeof navigator !== 'undefined' ? navigator.userAgent : ''
+      const platform = typeof navigator !== 'undefined' ? navigator.platform : ''
+      return {
+        os: platform || 'web',
+        arch: '',
+        name: ua,
+        version: '',
+      }
+    })
+
+    this.handleLocal('goleo:getPlatform', async () => {
+      const ua = typeof navigator !== 'undefined' ? navigator.userAgent : ''
+      const isMobile = /Android|iPhone|iPad|iPod|webOS/i.test(ua)
+      return {
+        platform: isMobile ? 'mobile' : 'web',
+        isMobile,
+        isDesktop: !isMobile && typeof window !== 'undefined',
+        isBrowser: typeof window !== 'undefined',
+      }
+    })
+
+    this.handleLocal('goleo:getArch', async () => '')
+
+    this.handleLocal('goleo:getEnv', async () => '')
+
+    this.handleLocal('goleo:openURL', async (args) => {
+      const { url } = (args || {}) as { url?: string }
+      if (url && typeof window !== 'undefined') {
+        window.open(url, '_blank')
       }
     })
   }
@@ -127,7 +217,16 @@ class Bridge {
       return this.invokeWS<T>(method, args)
     }
 
-    return this.invokeHTTP<T>(method, args)
+    if (this.connected) {
+      return this.invokeHTTP<T>(method, args)
+    }
+
+    const localHandler = this.localHandlers.get(method)
+    if (localHandler) {
+      return localHandler(args) as Promise<T>
+    }
+
+    throw new Error(`backend not connected: cannot invoke "${method}"`)
   }
 
   private invokeWS<T>(method: string, args?: Record<string, unknown>): Promise<T> {
@@ -211,6 +310,15 @@ class Bridge {
     }
     this.connected = false
     this.ready = false
+  }
+
+  sendEvent(event: string, data?: Record<string, unknown>): void {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({
+        type: 'event',
+        data: { event, data },
+      }))
+    }
   }
 
   isConnected(): boolean {

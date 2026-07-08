@@ -106,6 +106,18 @@ func (b *Bridge) HandleRequest(req InvokeRequest) InvokeResponse {
 	}
 }
 
+func (b *Bridge) DispatchEvent(event string, data json.RawMessage) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	handlers, ok := b.events[event]
+	if !ok {
+		return
+	}
+	for _, fn := range handlers {
+		fn(context.Background(), data)
+	}
+}
+
 func (b *Bridge) Subscribe() chan EventMessage {
 	b.mu.Lock()
 	defer b.mu.Unlock()

@@ -44,6 +44,7 @@ func runNew(cmd *cobra.Command, args []string) error {
 		filepath.Join("backend", "gomobile"),
 		filepath.Join("backend", "frontend", "dist"),
 		filepath.Join("frontend", "src"),
+		filepath.Join("frontend", "public"),
 		filepath.Join("frontend", "dist"),
 	} {
 		if err := os.MkdirAll(filepath.Join(dir, sub), 0755); err != nil {
@@ -68,6 +69,8 @@ func runNew(cmd *cobra.Command, args []string) error {
 		"frontend/src/main.ts":              tmplMainTS,
 		"frontend/src/App.vue":              tmplAppVue,
 		"frontend/src/style.css":            tmplStyleCSS,
+		"frontend/public/sw.js":             tmplSWJS,
+		"frontend/public/manifest.json":     tmplManifestJSON,
 		"frontend/dist/.gitkeep":            "",
 		"package.json":                      tmplRootPackageJSON,
 		"goleo.json":                        tmplGoleoJSON,

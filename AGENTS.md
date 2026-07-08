@@ -165,12 +165,14 @@ The server auto-selects a port if the configured one is in use and sets CORS hea
 |---------|-------------|
 | goleo new <name> | Scaffold a new Goleo project |
 | goleo dev | Start development mode (Go + Vite with HMR) |
+| goleo dev pwa | Start PWA development mode (Vite only, no Go backend) |
 | goleo build | Build for current platform |
 | goleo build windows | Cross-compile for Windows amd64 |
 | goleo build linux | Cross-compile for Linux amd64 |
 | goleo build darwin | Cross-compile for macOS amd64 |
 | goleo build android | Build Android .aar via gomobile |
 | goleo build ios | Build iOS .xcframework via gomobile |
+| goleo build pwa | Build Progressive Web App (no Go backend) |
 | goleo version | Print version |
 
 ### Build Targets
@@ -183,6 +185,7 @@ The server auto-selects a port if the configured one is in use and sets CORS hea
 | darwin | darwin | amd64 | binary | none |
 | android | android | arm64 | .aar | gomobile + NDK |
 | ios | ios | arm64 | .xcframework | gomobile + Xcode |
+| pwa | js | wasm | dist-pwa/ | none |
 
 ## Frontend Bridge (@goleo/bridge)
 
@@ -251,12 +254,14 @@ my-app/
 {
   "scripts": {
     "goleo:dev": "goleo dev",
+    "goleo:dev-pwa": "goleo dev pwa",
     "goleo:build": "goleo build",
     "goleo:build-windows": "goleo build windows",
     "goleo:build-linux": "goleo build linux",
     "goleo:build-darwin": "goleo build darwin",
     "goleo:build-android": "goleo build android",
-    "goleo:build-ios": "goleo build ios"
+    "goleo:build-ios": "goleo build ios",
+    "goleo:build-pwa": "goleo build pwa"
   }
 }
 `
@@ -307,12 +312,14 @@ goleo build      # Build for current platform
 
 ## Platform Support
 
-| Feature | Windows | Linux | macOS | Android | iOS |
-|---------|---------|-------|-------|---------|-----|
-| Dev mode | yes | yes | yes | n/a | n/a |
-| Desktop build | yes | yes | yes | n/a | n/a |
-| Mobile build | no* | no* | yes | yes | yes |
-| Gomobile | no* | no* | yes | yes | yes |
+| Feature | Windows | Linux | macOS | Android | iOS | PWA |
+|---------|---------|-------|-------|---------|-----|-----|
+| Dev mode | yes | yes | yes | n/a | n/a | yes |
+| Desktop build | yes | yes | yes | n/a | n/a | n/a |
+| Mobile build | n/a | n/a | yes | yes | yes | n/a |
+| PWA build | yes | yes | yes | yes | yes | yes |
+| PWA dev mode | yes | yes | yes | yes | yes | yes |
+| Gomobile | n/a | n/a | yes | yes | yes | n/a |
 
 *Cross-compilation for mobile is only supported on macOS due to Apple requirements and gomobile limitations. Android .aar can be built on any platform with the NDK, but ios requires macOS.
 
@@ -324,3 +331,25 @@ Currently, Goleo runs the frontend in a web browser (browser mode). Future versi
 - macOS: WKWebView
 
 Mobile platforms use the platform's built-in WebView component via gomobile bindings.
+
+## Session Summary (Jul 8, 2026)
+
+### PWA Build Target
+- Added `goleo build pwa` — builds PWA (no Go backend, frontend only to `dist-pwa/`)
+- Added `goleo dev pwa` — starts Vite dev server without Go backend
+- Sets `VITE_GOLEO_PLATFORM=pwa` env var for both dev and build
+
+### Bridge Graceful Degradation
+- Bridge now handles connection timeout → local-only mode (no backend fallback)
+- `backend` config option for explicit platform targeting (desktop/mobile/pwa)
+- `showNotification`, `showAlert`, etc. fall back to browser Notification API
+- `getOSInfo`, `getPlatformInfo`, `getArch`, `getEnv`, `openURL` fall back to browser APIs when Go backend unavailable
+
+### init.js Restored
+- `init.js` is a *feature*, not stale — gives JS developers control over window creation
+- Back in `tmplInitJS` in `templates.go`, `new.go` files map, and `create-app.ts` files map
+- Embedded via `//go:embed init.js` in main.go template alongside `//go:embed all:frontend/dist`
+
+### Template Cleanup
+- Removed stale entries from `create-app.ts`: `commands/commands.go`, `commands/init.js`
+- Files are at `backend/commands.go` and `backend/init.js` (flat, not in a `commands/` subdir)

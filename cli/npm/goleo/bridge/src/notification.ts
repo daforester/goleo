@@ -1,36 +1,45 @@
-import { invoke } from './index'
+import { getBridge } from './bridge'
 
 export interface NotificationOptions {
-  /** Notification title. */
   title: string
-  /** Optional notification body text. */
   body?: string
 }
 
 export type NotificationPermission = 'granted' | 'denied' | 'default'
 
-/**
- * Show a native system notification.
- *
- * The notification is posted by the Goleo core: toast notifications on
- * Windows, Notification Center on macOS, libnotify on Linux, and the
- * platform notification service on Android/iOS (via the native shell).
- */
+function supportsBrowserNotification(): boolean {
+  return typeof window !== 'undefined' && 'Notification' in window
+}
+
 export async function sendNotification(options: NotificationOptions | string): Promise<void> {
   const opts = typeof options === 'string' ? { title: options } : options
-  return invoke<void>('goleo:notify', { title: opts.title, body: opts.body ?? '' })
+  try {
+    await getBridge().invoke<void>('goleo:notify', { title: opts.title, body: opts.body ?? '' })
+  } catch {
+    if (supportsBrowserNotification() && window.Notification.permission === 'granted') {
+      new window.Notification(opts.title, { body: opts.body })
+    }
+  }
 }
 
-/** Whether the app currently has permission to post notifications. */
 export async function isPermissionGranted(): Promise<boolean> {
-  return invoke<boolean>('goleo:notificationPermissionGranted')
+  try {
+    return await getBridge().invoke<boolean>('goleo:notificationPermissionGranted')
+  } catch {
+    if (supportsBrowserNotification()) {
+      return window.Notification.permission === 'granted'
+    }
+    return false
+  }
 }
 
-/**
- * Request permission to post notifications. On desktop this resolves to
- * "granted" immediately; on Android 13+ / iOS it triggers the system
- * permission dialog and returns the current state.
- */
 export async function requestPermission(): Promise<NotificationPermission> {
-  return invoke<NotificationPermission>('goleo:requestNotificationPermission')
+  try {
+    return await getBridge().invoke<NotificationPermission>('goleo:requestNotificationPermission')
+  } catch {
+    if (supportsBrowserNotification()) {
+      return window.Notification.requestPermission()
+    }
+    return 'denied'
+  }
 }

@@ -14,8 +14,21 @@ import (
 var devCmd = &cobra.Command{
 	Use:   "dev",
 	Short: "Start the Goleo development server",
-	Long:  `Starts the Go backend and Vite frontend dev server with HMR.`,
-	RunE:  runDev,
+	Long: `Starts the Go backend and Vite frontend dev server with HMR.
+
+Subcommands:
+  pwa   Start Vite dev server only (no Go backend)`,
+	RunE: runDev,
+}
+
+var devPwaCmd = &cobra.Command{
+	Use:   "pwa",
+	Short: "Start PWA development server (frontend only)",
+	Long: `Starts the Vite dev server with HMR for PWA development, without a Go backend.
+
+Frontend changes reflect instantly via HMR. No Go backend is started.
+Useful for testing the frontend in a browser or on a mobile device.`,
+	RunE: runDevPWA,
 }
 
 var (
@@ -26,6 +39,7 @@ var (
 func init() {
 	devCmd.Flags().IntVarP(&devPort, "port", "p", 9842, "Port for the Go backend server")
 	devCmd.Flags().StringVarP(&frontendDir, "frontend-dir", "f", "frontend", "Path to frontend directory")
+	devCmd.AddCommand(devPwaCmd)
 }
 
 func runDev(cmd *cobra.Command, args []string) error {
@@ -95,6 +109,59 @@ func runDev(cmd *cobra.Command, args []string) error {
 	killProcTree(viteCmd.Process.Pid)
 
 	goBackend.Wait()
+	viteCmd.Wait()
+
+	fmt.Println("  All processes stopped.")
+	return err
+}
+
+func runDevPWA(cmd *cobra.Command, args []string) error {
+	frontendAbs, err := filepath.Abs(frontendDir)
+	if err != nil {
+		return fmt.Errorf("invalid frontend path: %w", err)
+	}
+	if _, err := os.Stat(filepath.Join(frontendAbs, "package.json")); os.IsNotExist(err) {
+		return fmt.Errorf("frontend directory not found at %s", frontendAbs)
+	}
+
+	if _, err := os.Stat(filepath.Join(frontendAbs, "node_modules")); os.IsNotExist(err) {
+		fmt.Println("  Installing frontend dependencies...")
+		install := exec.Command("npm", "install")
+		install.Dir = frontendAbs
+		install.Stdout = os.Stdout
+		install.Stderr = os.Stderr
+		if err := install.Run(); err != nil {
+			return fmt.Errorf("npm install failed: %w", err)
+		}
+	}
+
+	viteCmd := exec.Command("npx", "vite", "--port", "5173", "--host")
+	viteCmd.Dir = frontendAbs
+	viteCmd.Env = append(os.Environ(), "VITE_GOLEO_PLATFORM=pwa")
+	viteCmd.Stdout = os.Stdout
+	viteCmd.Stderr = os.Stderr
+
+	if err := viteCmd.Start(); err != nil {
+		return fmt.Errorf("failed to start Vite dev server: %w", err)
+	}
+
+	fmt.Println("  Starting Goleo PWA development server...")
+	fmt.Printf("  Frontend: http://localhost:5173\n")
+	fmt.Println()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	done := make(chan error, 1)
+	go func() { done <- viteCmd.Wait() }()
+
+	select {
+	case sig := <-sigCh:
+		fmt.Printf("\n  Received %s, shutting down...\n", sig)
+	case err = <-done:
+	}
+
+	killProcTree(viteCmd.Process.Pid)
 	viteCmd.Wait()
 
 	fmt.Println("  All processes stopped.")

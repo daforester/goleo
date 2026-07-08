@@ -16,13 +16,14 @@ export async function createApp(projectName: string): Promise<void> {
   console.log(`\n  Creating Goleo project: ${projectName}\n`)
 
   // Create directory structure
-  const dirs = [
+const dirs = [
     'backend/commands',
     'backend/gomobile',
     'backend/frontend/dist',
     'frontend/src',
+    'frontend/public',
     'frontend/dist',
-  ]
+]
 
   for (const dir of dirs) {
     mkdirSync(join(projectDir, dir), { recursive: true })
@@ -76,12 +77,14 @@ function getProjectFiles(name: string): ProjectFiles {
       private: true,
       scripts: {
         'goleo:dev': 'goleo dev',
+        'goleo:dev-pwa': 'goleo dev pwa',
         'goleo:build': 'goleo build',
         'goleo:build-windows': 'goleo build windows',
         'goleo:build-linux': 'goleo build linux',
         'goleo:build-darwin': 'goleo build darwin',
         'goleo:build-android': 'goleo build android',
         'goleo:build-ios': 'goleo build ios',
+        'goleo:build-pwa': 'goleo build pwa',
         'goleo:emulate': 'goleo emulate android',
         'goleo:emulate-ios': 'goleo emulate ios',
       },
@@ -143,11 +146,11 @@ func main() {
 		Port:       9842,
 		WindowMode: runtime.WindowModeWebview,
 		EmbedFS:    appFS,
-		// InitJS: "init.js", // custom startup script path (default: init.js, then backend/init.js)
 		OnStartup: func(ctx context.Context) {
 			log.Println("${name} starting up...")
 			runtime.RegisterBuiltins(app.Bridge())
 			commands.Register(app.Bridge())
+			commands.StartHeartbeat(app.Bridge())
 		},
 		OnShutdown: func(ctx context.Context) {
 			log.Println("${name} shutting down...")
@@ -183,14 +186,13 @@ createWindow({
 })
 `,
 
-    'backend/frontend/dist/.gitkeep': '',
-
     'backend/commands/commands.go': `package commands
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"runtime"
 	"time"
 
@@ -254,15 +256,35 @@ func Register(b *goleoruntime.Bridge) {
 		if params["message"] == "" {
 			params["message"] = "Hello from Go!"
 		}
-		// Deliver through the OS notification service: toast on Windows,
-		// Notification Center on macOS, libnotify on Linux, and the native
-		// shell on Android/iOS.
 		if err := goleoruntime.Notify(params["title"], params["message"]); err != nil {
 			return nil, err
 		}
 		b.Emit("notification:show", params)
 		return map[string]string{"status": "sent"}, nil
 	})
+
+	b.On("app:log", func(ctx context.Context, data json.RawMessage) {
+		var msg string
+		if err := json.Unmarshal(data, &msg); err != nil {
+			msg = string(data)
+		}
+		log.Printf("[app:log] %s", msg)
+	})
+}
+
+// StartHeartbeat emits a "heartbeat" event every 5 seconds with the current
+// server time and active goroutine count. Call this in OnStartup to stream
+// live data to the frontend.
+func StartHeartbeat(b *goleoruntime.Bridge) {
+	go func() {
+		for {
+			time.Sleep(5 * time.Second)
+			b.Emit("heartbeat", map[string]any{
+				"time":       time.Now().Format(time.RFC3339),
+				"goroutines": runtime.NumGoroutine(),
+			})
+		}
+	}()
 }
 `,
 
@@ -388,6 +410,8 @@ func (a *notifierAdapter) PermissionGranted() bool { return a.n.PermissionGrante
 func (a *notifierAdapter) RequestPermission() string { return a.n.RequestPermission() }
 `,
 
+    'backend/frontend/dist/.gitkeep': '',
+
     'frontend/package.json': JSON.stringify({
       name: `${name}-frontend`,
       private: true,
@@ -462,18 +486,6 @@ export default defineConfig({
         noFallthroughCasesInSwitch: true,
       },
       include: ['src/**/*.ts', 'src/**/*.tsx', 'src/**/*.vue', 'env.d.ts'],
-      references: [{ path: './tsconfig.node.json' }],
-    }, null, 2) + '\n',
-
-    'frontend/tsconfig.node.json': JSON.stringify({
-      compilerOptions: {
-        composite: true,
-        skipLibCheck: true,
-        module: 'ESNext',
-        moduleResolution: 'bundler',
-        allowSyntheticDefaultImports: true,
-      },
-      include: ['vite.config.ts'],
     }, null, 2) + '\n',
 
     'frontend/env.d.ts': `/// <reference types="vite/client" />
@@ -486,17 +498,16 @@ declare module '*.vue' {
 `,
 
     'frontend/src/main.ts': `import { createApp } from 'vue'
-import { initBridge, isPermissionGranted, requestPermission } from '@goleo/bridge'
+import { initBridge } from '@goleo/bridge'
 import App from './App.vue'
 import './style.css'
 
 async function main() {
-  await initBridge()
+  const isPWA = import.meta.env.VITE_GOLEO_PLATFORM === 'pwa'
+  await initBridge({ backend: !isPWA })
 
-  // Ask the OS for notification permission (system dialog on Android 13+/iOS,
-  // resolves to "granted" immediately on desktop).
-  if (!(await isPermissionGranted())) {
-    await requestPermission()
+  if (isPWA && 'serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js')
   }
 
   const app = createApp(App)
@@ -508,62 +519,149 @@ main()
 
     'frontend/src/App.vue': `<script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { invoke, getOSInfo, on } from '@goleo/bridge'
+import { invoke, getOSInfo, on, isConnected, sendEvent, isPermissionGranted, requestPermission } from '@goleo/bridge'
 
-const message = ref('Loading...')
 const osInfo = ref('')
 const backendMessage = ref('')
+const systemInfo = ref('')
+const a = ref(0)
+const b = ref(0)
+const sumResult = ref<number | null>(null)
+const countdownMessage = ref('')
+const heartbeat = ref('')
+const logInput = ref('')
+const logStatus = ref('')
 const notifyStatus = ref('')
 const lastNotification = ref('')
+const permStatus = ref('')
 
 onMounted(async () => {
-  try {
-    const info = await getOSInfo()
-    osInfo.value = JSON.stringify(info, null, 2)
+  const info = await getOSInfo()
+  osInfo.value = JSON.stringify(info, null, 2)
 
-    const result = await invoke('greet', { name: 'Goleo' })
-    backendMessage.value = result.message
-  } catch (err) {
-    message.value = 'Error: ' + err
+  if (isConnected()) {
+    try {
+      const result = await invoke('greet', { name: 'Goleo' })
+      backendMessage.value = result.message
+    } catch (err) {
+      backendMessage.value = 'Backend error: ' + err
+    }
+  } else {
+    backendMessage.value = 'PWA mode — no Go backend'
   }
+
+  permStatus.value = (await isPermissionGranted()) ? 'granted' : 'default'
 })
 
-on('backend:ready', () => {
-  console.log('Backend is ready')
+on('bridge:connected', () => {
+  console.log('Backend connected')
 })
 
 on('notification:show', (data: any) => {
-  // The OS notification is shown natively by the Go backend; this event
-  // just mirrors it into the page.
   lastNotification.value = data.message || ''
 })
 
-async function sendNotification() {
-  notifyStatus.value = 'Sending...'
+on('heartbeat', (data: any) => {
+  heartbeat.value = JSON.stringify(data)
+})
+
+async function fetchSystemInfo() {
   try {
-    await invoke('notify', {
-      title: 'Hello from Goleo!',
-      message: 'This notification was triggered from the Go backend.',
-    })
-    notifyStatus.value = 'Notification sent!'
+    systemInfo.value = JSON.stringify(await invoke('systemInfo'), null, 2)
   } catch (err) {
-    notifyStatus.value = 'Error: ' + err
+    systemInfo.value = 'Error: ' + err
   }
+}
+
+async function doAdd() {
+  try {
+    const result = await invoke<{ result: number }>('add', { a: a.value, b: b.value })
+    sumResult.value = result.result
+  } catch (err) {
+    sumResult.value = null
+    countdownMessage.value = 'Add error: ' + err
+  }
+}
+
+async function doCountdown() {
+  countdownMessage.value = 'Waiting 3 seconds...'
+  try {
+    const result = await invoke<{ message: string }>('countdown')
+    countdownMessage.value = result.message
+  } catch (err) {
+    countdownMessage.value = 'Countdown error: ' + err
+  }
+}
+
+function doSendLog() {
+  sendEvent('app:log', { text: logInput.value || 'Hello from frontend!' })
+  logStatus.value = 'Event sent!'
+}
+
+async function requestNotifyPermission() {
+  permStatus.value = 'requesting'
+  const result = await requestPermission()
+  permStatus.value = result
+}
+
+async function sendNativeNotify() {
+  if (!(await isPermissionGranted())) {
+    const result = await requestPermission()
+    permStatus.value = result
+    if (result !== 'granted') {
+      notifyStatus.value = 'Permission denied'
+      return
+    }
+  }
+  notifyStatus.value = 'Sending...'
+  await invoke('goleo:notify', {
+    title: 'Hello from Goleo!',
+    body: 'This notification was triggered via the Goleo bridge.',
+  })
+  notifyStatus.value = 'Notification sent!'
 }
 </script>
 
 <template>
   <div class="container">
-    <h1>{{ message }}</h1>
+    <h1>Goleo App</h1>
     <p>OS Info:</p>
     <pre>{{ osInfo }}</pre>
     <p>Backend says: <strong>{{ backendMessage }}</strong></p>
 
     <hr />
+    <h2>Custom Invoke — systemInfo</h2>
+    <button @click="fetchSystemInfo" class="btn">Get System Info</button>
+    <pre>{{ systemInfo }}</pre>
+
+    <h2>Custom Invoke — add</h2>
+    <input v-model.number="a" placeholder="a" class="input" /> +
+    <input v-model.number="b" placeholder="b" class="input" />
+    <button @click="doAdd" class="btn">=</button>
+    <span v-if="sumResult !== null"><strong>{{ sumResult }}</strong></span>
+
+    <h2>Custom Invoke — countdown (async)</h2>
+    <button @click="doCountdown" class="btn">Start 3s Countdown</button>
+    <p>{{ countdownMessage }}</p>
+
+    <hr />
+    <h2>Backend Event: heartbeat</h2>
+    <p>Received every 5s from Go backend via <code>b.Emit("heartbeat", ...)</code>:</p>
+    <pre>{{ heartbeat }}</pre>
+
+    <h2>Frontend Event: app:log</h2>
+    <p>Sent to Go backend via <code>sendEvent("app:log", ...)</code>:</p>
+    <input v-model="logInput" placeholder="Log message" class="input" />
+    <button @click="doSendLog" class="btn">Send to Backend</button>
+    <p>{{ logStatus }}</p>
+
+    <hr />
     <h2>Notifications Demo</h2>
+    <p>Permission: <strong>{{ permStatus }}</strong></p>
+    <button @click="requestNotifyPermission" class="btn">Request Permission</button>
+    <button @click="sendNativeNotify" class="btn">Send System Notification</button>
+    <p>{{ notifyStatus }}</p>
     <p>Last event: {{ lastNotification }}</p>
-    <button @click="sendNotification" class="btn">Send System Notification</button>
-    <p class="status">{{ notifyStatus }}</p>
   </div>
 </template>
 `,
@@ -627,12 +725,69 @@ hr {
   background: #38a476;
 }
 
+.input {
+  padding: 0.5rem 0.8rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 1rem;
+  width: 80px;
+  margin-right: 0.3rem;
+}
+
+.input[placeholder="Log message"] {
+  width: 240px;
+}
+
 .status {
   margin-top: 0.5rem;
   font-size: 0.9rem;
   color: #666;
 }
 `,
+
+    'frontend/public/sw.js': `const CACHE_NAME = 'goleo-pwa-v1'
+
+self.addEventListener('install', (event) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => {
+      return cache.addAll([
+        '/',
+        '/index.html',
+      ])
+    })
+  )
+})
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys().then((cacheNames) => {
+      return Promise.all(
+        cacheNames
+          .filter((name) => name !== CACHE_NAME)
+          .map((name) => caches.delete(name))
+      )
+    })
+  )
+})
+
+self.addEventListener('fetch', (event) => {
+  event.respondWith(
+    caches.match(event.request).then((response) => {
+      return response || fetch(event.request)
+    })
+  )
+})
+`,
+
+    'frontend/public/manifest.json': JSON.stringify({
+      name: '${name}',
+      short_name: '${name}',
+      start_url: '/',
+      display: 'standalone',
+      background_color: '#ffffff',
+      theme_color: '#000000',
+      description: '${name} - Built with Goleo',
+    }, null, 2) + '\n',
 
     'frontend/dist/.gitkeep': '',
 

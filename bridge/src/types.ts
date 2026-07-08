@@ -36,7 +36,9 @@ export type EventCallback = (data: unknown) => void
 export interface BridgeConfig {
   serverUrl?: string
   wsUrl?: string
+  backend?: boolean
   autoReconnect?: boolean
   reconnectInterval?: number
   maxReconnectAttempts?: number
+  connectionTimeout?: number
 }

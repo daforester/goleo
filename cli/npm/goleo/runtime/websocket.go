@@ -116,6 +116,14 @@ func (c *WSClient) readPump(bridge *Bridge) {
 			default:
 			}
 
+		case "event":
+			var msg EventMessage
+			if err := json.Unmarshal(envelope.Data, &msg); err != nil {
+				log.Printf("invalid event message: %v", err)
+				continue
+			}
+			bridge.DispatchEvent(msg.Event, msg.Data)
+
 		case "ping":
 			respData, _ := json.Marshal(map[string]string{"type": "pong"})
 			select {
