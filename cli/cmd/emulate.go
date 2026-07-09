@@ -239,9 +239,13 @@ func buildAndDeployDev(deps *androidDeps, deviceID, pkgName string) error {
 
 	aanName := "goleo.aar"
 	aanPath := filepath.Join(cwd, aanName)
+	bindTags, err := mobileBindTags(".")
+	if err != nil {
+		return fmt.Errorf("detecting feature usage: %w", err)
+	}
 	gomobileArgs := []string{
 		"bind", "-v",
-		"-tags", "mobilebuild",
+		"-tags", bindTags,
 		"-o", aanPath,
 		"-target", "android",
 		"-androidapi", fmt.Sprintf("%d", androidAPI),

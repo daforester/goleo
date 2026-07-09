@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref } from 'vue'
-import { startBrowserSensor } from '@goleo/bridge'
+import { startBrowserSensor, startNativeSensor } from '@goleo/bridge'
 import type { SensorData } from '@goleo/bridge'
 import DemoFrame from './DemoFrame.vue'
 
@@ -10,13 +10,21 @@ const running = ref(false)
 const err = ref('')
 let stop: (() => void) | null = null
 
-function start() {
+async function start() {
   err.value = ''
   stopSensor()
+  const onReading = (d: SensorData) => { reading.value = d }
   try {
-    stop = startBrowserSensor(type.value, (d) => {
-      reading.value = d
-    })
+    // Native platform sensor manager (Android SensorManager / iOS
+    // CoreMotion), if a shell registered one.
+    stop = await startNativeSensor(type.value, onReading)
+    running.value = true
+    return
+  } catch {
+    // Fall through to the browser Generic Sensor API.
+  }
+  try {
+    stop = startBrowserSensor(type.value, onReading)
     running.value = true
   } catch (e) {
     err.value = String(e)

@@ -23,12 +23,20 @@ func generateBackendEntrypoints(projectDir string) error {
 		return fmt.Errorf("creating backend/gomobile: %w", err)
 	}
 
-	// gomobile.go's //go:embed all:frontend/dist requires this directory to
-	// contain at least one file at compile time, even in dev mode where the
-	// embedded copy is never actually served (Vite serves the frontend
-	// directly). Without a placeholder here, a fresh clone or a
-	// goleo emulate run that hasn't first run goleo build android/ios fails
-	// with "pattern all:frontend/dist: no matching files found".
+	// main.go and gomobile.go's //go:embed all:frontend/dist directives
+	// require their respective directories to contain at least one file at
+	// compile time, even in dev mode where the embedded copy is never
+	// actually served (Vite serves the frontend directly over HTTP).
+	// Without a placeholder here, a fresh clone or a goleo dev/emulate run
+	// that hasn't first run goleo build fails with
+	// "pattern all:frontend/dist: no matching files found".
+	if err := os.MkdirAll(filepath.Join(projectDir, "backend"), 0755); err != nil {
+		return fmt.Errorf("creating backend: %w", err)
+	}
+	desktopDistDir := filepath.Join(projectDir, "backend", "frontend", "dist")
+	if err := ensureEmbeddableDir(desktopDistDir); err != nil {
+		return fmt.Errorf("preparing backend/frontend/dist: %w", err)
+	}
 	gmDistDir := filepath.Join(projectDir, "backend", "gomobile", "frontend", "dist")
 	if err := ensureEmbeddableDir(gmDistDir); err != nil {
 		return fmt.Errorf("preparing backend/gomobile/frontend/dist: %w", err)
@@ -48,10 +56,26 @@ func generateBackendEntrypoints(projectDir string) error {
 		}
 	}
 
-	// notifier.go has no per-project placeholders — write it as-is.
-	notifierPath := filepath.Join(projectDir, "backend", "gomobile", "notifier.go")
-	if err := os.WriteFile(notifierPath, []byte(tmplMobileNotifierGo), 0644); err != nil {
-		return fmt.Errorf("writing backend/gomobile/notifier.go: %w", err)
+	// notifier.go and the feature provider files have no per-project
+	// placeholders — write them as-is. Each feature file is its own
+	// goleo_*-gated file (mirroring runtime/*_reexport.go's own build tags)
+	// so that disabling a feature in app.go — which drops its tag from
+	// mobileBindTags — excludes the matching file too, instead of leaving a
+	// dangling reference to a runtime symbol that no longer exists.
+	static := map[string]string{
+		"backend/gomobile/notifier.go":   tmplMobileNotifierGo,
+		"backend/gomobile/features.go":   tmplMobileFeaturesGo,
+		"backend/gomobile/battery.go":    tmplMobileBatteryGo,
+		"backend/gomobile/wakelock.go":   tmplMobileWakeLockGo,
+		"backend/gomobile/sensors.go":    tmplMobileSensorsGo,
+		"backend/gomobile/background.go": tmplMobileBackgroundGo,
+		"backend/gomobile/nfc.go":        tmplMobileNFCGo,
+		"backend/gomobile/ble.go":        tmplMobileBLEGo,
+	}
+	for relPath, content := range static {
+		if err := os.WriteFile(filepath.Join(projectDir, relPath), []byte(content), 0644); err != nil {
+			return fmt.Errorf("writing %s: %w", relPath, err)
+		}
 	}
 
 	return nil

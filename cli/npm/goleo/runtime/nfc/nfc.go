@@ -29,6 +29,31 @@ var (
 	provider   Provider
 )
 
+// eventSink, when set by RegisterNFC, forwards NFC events (e.g. scanned tags)
+// to the frontend via the bridge. Native backends (the libnfc desktop scanner,
+// mobile providers) call emit() to push a "nfc:tag" event.
+var (
+	sinkMu    sync.RWMutex
+	eventSink func(event string, data any)
+)
+
+// SetEventSink registers the function used to deliver NFC events to the
+// frontend. Safe to call with nil to clear it.
+func SetEventSink(fn func(event string, data any)) {
+	sinkMu.Lock()
+	defer sinkMu.Unlock()
+	eventSink = fn
+}
+
+func emit(event string, data any) {
+	sinkMu.RLock()
+	fn := eventSink
+	sinkMu.RUnlock()
+	if fn != nil {
+		fn(event, data)
+	}
+}
+
 func SetProvider(p Provider) {
 	providerMu.Lock()
 	defer providerMu.Unlock()

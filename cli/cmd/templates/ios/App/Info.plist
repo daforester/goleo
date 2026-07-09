@@ -41,5 +41,13 @@
     <string>This app uses the microphone when a page requests it.</string>
     <key>NSLocationWhenInUseUsageDescription</key>
     <string>This app uses your location when a page requests it.</string>
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>processing</string>
+    </array>
+    <key>BGTaskSchedulerPermittedIdentifiers</key>
+    <array>
+        <string>$(PRODUCT_BUNDLE_IDENTIFIER).sync</string>
+    </array>
 </dict>
 </plist>

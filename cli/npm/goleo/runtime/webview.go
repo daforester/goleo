@@ -19,6 +19,10 @@ func NewWebviewWindow(cfg windowConfig) WebviewWindow {
 	debug := cfg.DevTools
 
 	w := webview.New(debug)
+	// Auto-grant OS permission requests (camera, mic, geolocation) so the
+	// frontend's browser-API fallbacks resolve instead of hanging the webview.
+	// No-op on non-Linux desktops (see webview_permissions_*.go).
+	enableWebviewPermissions(w.Window())
 	w.SetTitle(cfg.Title)
 	w.SetSize(cfg.Width, cfg.Height, webview.HintNone)
 

@@ -48,6 +48,7 @@ export {
   startSensor,
   stopSensor,
   startBrowserSensor,
+  startNativeSensor,
 } from './sensors'
 export type { SensorData } from './sensors'
 export {

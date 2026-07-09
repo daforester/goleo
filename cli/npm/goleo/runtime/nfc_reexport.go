@@ -10,6 +10,12 @@ import (
 )
 
 func RegisterNFC(b *Bridge) {
+	// Let native NFC backends (e.g. the libnfc desktop scanner) push scanned
+	// tags to the frontend as "nfc:tag" events.
+	nfc.SetEventSink(func(event string, data any) {
+		b.Emit(event, data)
+	})
+
 	b.Handle("goleo:nfcStartScan", func(ctx context.Context, args json.RawMessage) (any, error) {
 		return nil, nfc.StartScan()
 	})

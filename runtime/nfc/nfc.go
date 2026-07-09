@@ -31,7 +31,7 @@ var (
 
 // eventSink, when set by RegisterNFC, forwards NFC events (e.g. scanned tags)
 // to the frontend via the bridge. Native backends (the libnfc desktop scanner,
-// mobile providers) call emit() to push a "nfc:tag" event.
+// mobile providers) call Emit() to push a "nfc:tag" event.
 var (
 	sinkMu    sync.RWMutex
 	eventSink func(event string, data any)
@@ -45,7 +45,11 @@ func SetEventSink(fn func(event string, data any)) {
 	eventSink = fn
 }
 
-func emit(event string, data any) {
+// Emit delivers an NFC event (e.g. a scanned tag) to the frontend via
+// whatever sink RegisterNFC installed. Exported so native providers bound
+// through gomobile — which can't reach this package's unexported state —
+// can push events without going through the Provider interface itself.
+func Emit(event string, data any) {
 	sinkMu.RLock()
 	fn := eventSink
 	sinkMu.RUnlock()

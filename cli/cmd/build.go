@@ -238,9 +238,13 @@ func buildAndroidDev(deps *androidDeps) (string, error) {
 
 	aanName := "goleo.aar"
 	aanPath := filepath.Join(cwd, aanName)
+	bindTags, err := mobileBindTags(".")
+	if err != nil {
+		return "", fmt.Errorf("detecting feature usage: %w", err)
+	}
 	gomobileArgs := []string{
 		"bind", "-v",
-		"-tags", "mobilebuild",
+		"-tags", bindTags,
 		"-o", aanPath,
 		"-target", "android",
 		"-androidapi", fmt.Sprintf("%d", androidAPI),
@@ -333,9 +337,14 @@ func buildForAndroid(distDir string, deps *androidDeps) error {
 	aanName := "goleo.aar"
 	aanPath := filepath.Join(cwd, aanName)
 
+	bindTags, err := mobileBindTags(".")
+	if err != nil {
+		return fmt.Errorf("detecting feature usage: %w", err)
+	}
+
 	gomobileArgs := []string{
 		"bind", "-v",
-		"-tags", "mobilebuild",
+		"-tags", bindTags,
 		"-o", aanPath,
 		"-target", "android",
 		"-androidapi", fmt.Sprintf("%d", androidAPI),
@@ -479,9 +488,14 @@ func buildForIOS(distDir string) error {
 	xcfName := "goleo.xcframework"
 	xcfPath := filepath.Join(cwd, xcfName)
 
+	bindTags, err := mobileBindTags(".")
+	if err != nil {
+		return fmt.Errorf("detecting feature usage: %w", err)
+	}
+
 	gomobileArgs := []string{
 		"bind", "-v",
-		"-tags", "mobilebuild",
+		"-tags", bindTags,
 		"-o", xcfPath,
 		"-target", "ios",
 		"-iosversion", iosDeployTarget,

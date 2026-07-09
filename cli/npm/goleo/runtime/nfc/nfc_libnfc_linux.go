@@ -89,10 +89,10 @@ func platformStartScan() error {
 				uid := C.GoString((*C.char)(unsafe.Pointer(&buf[0])))
 				if uid != "" && uid != last {
 					last = uid
-					Emit("nfc:tag", map[string]any{"uid": uid})
+					emit("nfc:tag", map[string]any{"uid": uid})
 				}
 			case rc < 0:
-				Emit("nfc:error", map[string]any{"code": rc, "message": "no NFC reader available"})
+				emit("nfc:error", map[string]any{"code": rc, "message": "no NFC reader available"})
 				time.Sleep(2 * time.Second) // avoid a busy loop when no reader is present
 			default:
 				last = "" // no tag in field; let the same tag re-trigger next time

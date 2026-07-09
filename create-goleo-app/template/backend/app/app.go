@@ -63,22 +63,38 @@ func New(opts Options) *runtime.App {
 				runtime.RegisterNFC(a.Bridge())
 			}
 
-			// Mobile permission-gated features. Enable the ones your app uses,
-			// and rebuild with the matching build tags, e.g.:
-			//   goleo build android -- -tags "goleo_nfc,goleo_ble,goleo_camera"
+			// Mobile permission-gated features. The build tag each one needs
+			// (e.g. goleo_camera) is detected automatically from this file by
+			// `goleo build android/ios` and `goleo emulate` — see
+			// detectFeatureUsage in cli/cmd/scan.go — so you don't need to
+			// pass -tags by hand. Just comment a line out if you don't use
+			// that feature (it also drops the matching manifest permission).
 			//
-			// runtime.RegisterNFC(a.Bridge())
-			// runtime.RegisterBLE(a.Bridge())
-			// runtime.RegisterGeolocation(a.Bridge())
-			// runtime.RegisterCamera(a.Bridge())
-			// runtime.RegisterDialogs(a.Bridge())
-			// runtime.RegisterFS(a.Bridge())
-			// runtime.RegisterClipboard(a.Bridge())
-			// runtime.RegisterSensors(a.Bridge())
-			// runtime.RegisterVibration(a.Bridge())
-			// runtime.RegisterWakeLock(a.Bridge())
-			// runtime.RegisterBattery(a.Bridge())
-			// runtime.RegisterBackground(a.Bridge())
+			// These have working native providers on Android (+ best-effort,
+			// unverified iOS — no Xcode available to test it — see
+			// AppDelegate.swift) and/or a WebView browser-API fallback that
+			// Just Works, so the bundled demo pages exercise them by default:
+			runtime.RegisterGeolocation(a.Bridge())
+			runtime.RegisterCamera(a.Bridge())
+			runtime.RegisterClipboard(a.Bridge())
+			runtime.RegisterDialogs(a.Bridge())
+			runtime.RegisterVibration(a.Bridge())
+			runtime.RegisterWakeLock(a.Bridge())
+			runtime.RegisterBattery(a.Bridge())
+			runtime.RegisterFS(a.Bridge())
+			runtime.RegisterSensors(a.Bridge())
+			runtime.RegisterBackground(a.Bridge())
+			// NFC: foreground-dispatch scan/write, native provider on
+			// Android (best-effort, unverified iOS — CoreNFC needs a paid
+			// Apple Developer entitlement + physical device either way).
+			runtime.RegisterNFC(a.Bridge())
+			// BLE: scan/connect/read/write via BluetoothLeScanner + GATT,
+			// native provider on Android (best-effort, unverified iOS).
+			runtime.RegisterBLE(a.Bridge())
+			//
+			// Commented out because it needs your own Firebase/Apple
+			// Developer project credentials, which can't be provided
+			// generically no matter what native code exists:
 			// runtime.RegisterPush(a.Bridge())
 		},
 		OnShutdown: func(ctx context.Context) {

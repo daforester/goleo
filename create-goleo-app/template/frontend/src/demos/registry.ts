@@ -54,7 +54,7 @@ export const demos: Demo[] = [
     title: 'File System',
     icon: '📁',
     description: 'Read, write, list and delete files in app-scoped directories.',
-    support: { desktop: 'yes', android: 'yes', ios: 'yes', pwa: 'no' },
+    support: { desktop: 'yes', android: 'yes', ios: 'partial', pwa: 'no' },
     load: () => import('./FileSystemDemo.vue'),
   },
   {
@@ -94,7 +94,7 @@ export const demos: Demo[] = [
     title: 'Motion Sensors',
     icon: '🧭',
     description: 'Stream accelerometer / gyroscope / magnetometer readings.',
-    support: { desktop: 'no', android: 'yes', ios: 'yes', pwa: 'partial' },
+    support: { desktop: 'no', android: 'yes', ios: 'partial', pwa: 'partial' },
     load: () => import('./SensorsDemo.vue'),
   },
   {
@@ -110,7 +110,7 @@ export const demos: Demo[] = [
     title: 'Bluetooth LE',
     icon: '📶',
     description: 'Discover and connect to a Bluetooth Low Energy device.',
-    support: { desktop: 'no', android: 'yes', ios: 'yes', pwa: 'partial' },
+    support: { desktop: 'no', android: 'yes', ios: 'no', pwa: 'partial' },
     load: () => import('./BluetoothDemo.vue'),
   },
   {
@@ -118,7 +118,7 @@ export const demos: Demo[] = [
     title: 'NFC',
     icon: '📇',
     description: 'Scan and write NFC tags.',
-    support: { desktop: 'partial', android: 'yes', ios: 'partial', pwa: 'partial' },
+    support: { desktop: 'partial', android: 'yes', ios: 'no', pwa: 'partial' },
     load: () => import('./NfcDemo.vue'),
   },
   {
@@ -126,7 +126,7 @@ export const demos: Demo[] = [
     title: 'Push Notifications',
     icon: '📨',
     description: 'Subscribe to remote push notifications.',
-    support: { desktop: 'no', android: 'yes', ios: 'yes', pwa: 'partial' },
+    support: { desktop: 'no', android: 'no', ios: 'no', pwa: 'partial' },
     load: () => import('./PushDemo.vue'),
   },
   {
@@ -134,7 +134,7 @@ export const demos: Demo[] = [
     title: 'Background Sync',
     icon: '🔄',
     description: 'Register a task to run when connectivity returns.',
-    support: { desktop: 'no', android: 'yes', ios: 'yes', pwa: 'partial' },
+    support: { desktop: 'no', android: 'yes', ios: 'partial', pwa: 'partial' },
     load: () => import('./BackgroundSyncDemo.vue'),
   },
 ]

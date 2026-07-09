@@ -31,10 +31,19 @@ func RegisterNFC(b *Bridge) {
 	})
 }
 
-// NFCProvider is re-exported so shells (e.g. the gomobile bridge) can
-// inject a native backend without importing the sub-package directly.
+// NFCProvider, NFCMessage and NFCRecord are re-exported so shells (e.g. the
+// gomobile bridge) can inject a native backend without importing the
+// sub-package directly.
 type NFCProvider = nfc.Provider
+type NFCMessage = nfc.NFCMessage
+type NFCRecord = nfc.NFCRecord
 
 func SetNFCProvider(p NFCProvider) {
 	nfc.SetProvider(p)
+}
+
+// EmitNFCTag lets a native NFC backend (e.g. the gomobile bridge) push a
+// "nfc:tag" event without depending on the Provider interface for it.
+func EmitNFCTag(uid string) {
+	nfc.Emit("nfc:tag", map[string]any{"uid": uid})
 }

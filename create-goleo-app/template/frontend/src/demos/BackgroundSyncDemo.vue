@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import {
   registerSync,
   isBackgroundPermissionGranted,
   requestBackgroundPermission,
+  on,
 } from '@goleo/bridge'
 import DemoFrame from './DemoFrame.vue'
 
@@ -11,6 +12,14 @@ const granted = ref(false)
 const tag = ref('goleo-demo-sync')
 const status = ref('')
 const err = ref('')
+const lastSync = ref('')
+
+// Fires when a registered task actually runs (Android WorkManager /
+// iOS BGTaskScheduler — see MainActivity.java's GoleoBackground).
+const offSync = on('goleo:backgroundSync', (d: any) => {
+  lastSync.value = 'Ran at ' + new Date().toLocaleTimeString() + ' — tag "' + (d?.tag ?? '') + '"'
+})
+onBeforeUnmount(offSync)
 
 async function refresh() {
   err.value = ''
@@ -61,10 +70,13 @@ onMounted(refresh)
         <button class="btn btn-primary" @click="register">Register</button>
       </div>
       <p class="muted" v-if="status">{{ status }}</p>
+      <p class="muted" v-if="lastSync" style="margin-top: 0.5rem">{{ lastSync }}</p>
       <p class="muted" style="margin-top: 0.5rem">
-        In PWA/web mode this uses the Background Sync API (Chromium only), which
-        runs the task in the service worker when connectivity returns. Desktops
-        keep the process running, so background scheduling doesn't apply.
+        On Android this schedules a real WorkManager task that runs once
+        connectivity is available — even if the app isn't in the foreground.
+        In PWA/web mode it uses the Background Sync API (Chromium only) via
+        the service worker instead. Desktops keep the process running, so
+        background scheduling doesn't apply.
       </p>
     </div>
 

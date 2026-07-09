@@ -48,7 +48,11 @@ var featureRegistry = []Feature{
 	{
 		Name:        "Battery",
 		BuildTag:    "goleo_battery",
-		Permissions: []string{"android.permission.BATTERY_STATS"},
+		// BATTERY_STATS is signature|privileged (for reading OTHER apps'
+		// stats) and can't be held by a normal app. Reading this app's own
+		// battery level/charging state via BatteryManager needs no
+		// permission at all.
+		Permissions: []string{},
 	},
 	{
 		Name:        "WakeLock",
@@ -180,6 +184,13 @@ func detectFeatureUsage(projectDir string) ([]string, error) {
 		sourceType := "go"
 		if ext != ".go" {
 			sourceType = "ts"
+		} else {
+			// Strip `//` line comments before matching, so the
+			// commented-out "uncomment to enable" RegisterXxx() boilerplate
+			// in the default backend/app/app.go template isn't detected as
+			// actual usage — otherwise every project would light up all
+			// feature tags regardless of what it really calls.
+			content = stripGoLineComments(content)
 		}
 		for _, sp := range scanPatterns {
 			if sp.Source != "go" && sp.Source != sourceType {
@@ -222,4 +233,36 @@ func detectFeatureUsage(projectDir string) ([]string, error) {
 		tags = append(tags, t)
 	}
 	return tags, nil
+}
+
+// mobileBindTags returns the -tags value for `gomobile bind`: the
+// always-required "mobilebuild" plus whatever permission-gated feature tags
+// detectFeatureUsage finds in the project's own source (so RegisterCamera(),
+// RegisterBattery(), etc. actually resolve when compiling for
+// android/ios — those symbols only exist under their own goleo_* tag on
+// mobile — without the caller having to track and pass tags by hand).
+func mobileBindTags(projectDir string) (string, error) {
+	tags, err := detectFeatureUsage(projectDir)
+	if err != nil {
+		return "", err
+	}
+	if len(tags) > 0 {
+		fmt.Printf("  Detected mobile features: %s\n", strings.Join(tags, ", "))
+	}
+	return strings.Join(append([]string{"mobilebuild"}, tags...), ","), nil
+}
+
+// stripGoLineComments blanks out everything from `//` to end-of-line. This
+// is a lightweight approximation (not a real Go parser: a `//` inside a
+// string literal would also truncate the line), which is fine here since
+// under-detecting a call sharing a line with a stray "//" is a far safer
+// failure mode than over-detecting commented-out boilerplate as real usage.
+func stripGoLineComments(src string) string {
+	lines := strings.Split(src, "\n")
+	for i, line := range lines {
+		if idx := strings.Index(line, "//"); idx >= 0 {
+			lines[i] = line[:idx]
+		}
+	}
+	return strings.Join(lines, "\n")
 }

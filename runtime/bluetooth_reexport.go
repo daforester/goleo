@@ -71,9 +71,11 @@ func RegisterBLE(b *Bridge) {
 	})
 }
 
-// BLEProvider is re-exported so shells (e.g. the gomobile bridge) can
-// inject a native backend without importing the sub-package directly.
+// BLEProvider and BLEDevice are re-exported so shells (e.g. the gomobile
+// bridge) can inject a native backend without importing the sub-package
+// directly.
 type BLEProvider = bluetooth.Provider
+type BLEDevice = bluetooth.BLEDevice
 
 func SetBLEProvider(p BLEProvider) {
 	bluetooth.SetProvider(p)
