@@ -1,0 +1,41 @@
+name: macos-webview-spike
+
+# Validates the cgo-free (purego) WKWebView + JS<->Go bridge on real macOS
+# hardware. Runs only on its spike branch and on manual dispatch.
+on:
+  push:
+    branches: [ "spike/macos-webview" ]
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14   # Apple Silicon (arm64)
+            arch: arm64
+          - os: macos-13   # Intel (amd64)
+            arch: amd64
+    runs-on: ${{ matrix.os }}
+    name: wkwebview-${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: spikes/macos-webview/go.mod
+
+      - name: Go / arch info
+        run: |
+          go version
+          echo "runner arch: $(uname -m)"
+
+      - name: Build spike (CGO_ENABLED=0)
+        working-directory: spikes/macos-webview
+        run: CGO_ENABLED=0 go build -o macspike .
+
+      - name: Run spike (JS<->Go round-trip)
+        working-directory: spikes/macos-webview
+        timeout-minutes: 3
+        run: ./macspike
