@@ -106,7 +106,13 @@ func (s *Server) handleEvents(ctx context.Context) {
 
 func (s *Server) broadcastEvent(msg EventMessage) {
 	conns := hub.GetAll()
-	data, _ := json.Marshal(msg)
+	// Wrap in the same {type, data} envelope the client's handleMessage
+	// switches on (matching the invokeResult/pong frames in websocket.go);
+	// without the "event" type the frontend logs "unknown message type".
+	data, _ := json.Marshal(map[string]any{
+		"type": "event",
+		"data": msg,
+	})
 	for _, conn := range conns {
 		select {
 		case conn.send <- data:

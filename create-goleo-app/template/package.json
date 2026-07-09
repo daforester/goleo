@@ -1,0 +1,17 @@
+{
+  "name": "__GOLEO_APP_NAME__",
+  "private": true,
+  "scripts": {
+    "goleo:dev": "goleo dev",
+    "goleo:dev-pwa": "goleo dev pwa",
+    "goleo:build": "goleo build",
+    "goleo:build-windows": "goleo build windows",
+    "goleo:build-linux": "goleo build linux",
+    "goleo:build-darwin": "goleo build darwin",
+    "goleo:build-android": "goleo build android",
+    "goleo:build-ios": "goleo build ios",
+    "goleo:build-pwa": "goleo build pwa",
+    "goleo:emulate": "goleo emulate android",
+    "goleo:emulate-ios": "goleo emulate ios"
+  }
+}

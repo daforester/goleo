@@ -13,6 +13,7 @@
   },
   "files": [
     "dist",
+    "template",
     "README.md"
   ],
   "keywords": ["goleo", "scaffold", "cross-platform", "desktop", "mobile", "go"],

@@ -1,0 +1,9 @@
+{
+  "name": "__GOLEO_APP_NAME__",
+  "short_name": "__GOLEO_APP_NAME__",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#6d5efc",
+  "description": "__GOLEO_APP_NAME__ - Built with Goleo"
+}
