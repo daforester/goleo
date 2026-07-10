@@ -29,6 +29,17 @@
   registered (`goleo:share`, tag `goleo_share`). **Remaining for full mobile:** gomobile
   provider template (`tmplMobileShareGo`), Android/iOS shell wiring, a `ShareDemo.vue`, the
   `create-goleo-app` template mirror, and dist rebuild — all need an emulator to verify.
+- **Share sheet — Android provider wired (complete)** — `tmplMobileShareGo` + generator entry
+  + `GoleoShare` (`Intent.ACTION_SEND`, UI-thread) in both android shells; `RegisterShare`
+  added to the scaffold `app.go`. Android verified to compile; run to confirm. **Remaining:** a
+  `ShareDemo.vue` demo page (optional).
+- **iOS providers wired blind (UNVERIFIED)** — `GoleoClipboardImpl` (`UIPasteboard`) +
+  `GoleoShareImpl` (`UIActivityViewController`) added to `AppDelegate.swift` + registered. No
+  Xcode/device here, so gomobile's exact Swift protocol signatures/arg-labels are a best guess
+  (marked with NOTE comments) — needs a Mac to validate.
+- **npm mirror synced** — `cli/npm/goleo/` (runtime + bridge src/dist + `go.mod`) resynced
+  with all recent work; mirror module verified to build on host, windows (cgo-free), and the
+  android mobile guard, and the store test passes there.
 - **Android dev secure-context fix** — `goleo emulate android` now serves the frontend over
   **`http://localhost:<vitePort>` via `adb reverse`** instead of `http://10.0.2.2` (which is
   *not* a secure context, silently disabling the WebView's secure-context-only APIs:

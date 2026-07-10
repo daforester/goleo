@@ -19,6 +19,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     let wakeLockProvider = GoleoWakeLock()
     let sensorsProvider = GoleoSensors()
     let backgroundProvider = GoleoBackground()
+    let clipboardProvider = GoleoClipboardImpl()
+    let shareProvider = GoleoShareImpl()
     let permissionDelegate = GoleoWebPermissionDelegate()
 
     func application(
@@ -37,6 +39,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         Goleo.setWakeLockProvider(wakeLockProvider)
         Goleo.setSensorsProvider(sensorsProvider)
         Goleo.setBackgroundProvider(backgroundProvider)
+        Goleo.setClipboardProvider(clipboardProvider)
+        Goleo.setShareProvider(shareProvider)
 
         let port = Goleo.startServer(devMode: false)
         let url = URL(string: "http://127.0.0.1:\(port)")!
@@ -132,6 +136,47 @@ class GoleoWakeLock: NSObject, GoleoWakeLockProviderProtocol {
     func release() throws {
         DispatchQueue.main.async {
             UIApplication.shared.isIdleTimerDisabled = false
+        }
+    }
+}
+
+/// Reads/writes the system clipboard via UIPasteboard. Implements the
+/// gomobile-generated ClipboardProvider interface.
+/// NOTE: iOS is unverified (no Xcode/device available here); gomobile's exact
+/// Swift method/argument-label generation may need adjusting.
+class GoleoClipboardImpl: NSObject, GoleoClipboardProviderProtocol {
+    func readText() -> String {
+        if Thread.isMainThread {
+            return UIPasteboard.general.string ?? ""
+        }
+        var result = ""
+        DispatchQueue.main.sync {
+            result = UIPasteboard.general.string ?? ""
+        }
+        return result
+    }
+
+    func writeText(_ text: String?) {
+        DispatchQueue.main.async {
+            UIPasteboard.general.string = text ?? ""
+        }
+    }
+}
+
+/// Opens the system share sheet via UIActivityViewController. Implements the
+/// gomobile-generated ShareProvider interface.
+/// NOTE: iOS is unverified; the arg-label syntax gomobile generates for a
+/// multi-arg method may differ from this and need adjusting.
+class GoleoShareImpl: NSObject, GoleoShareProviderProtocol {
+    func share(_ title: String?, text: String?, url: String?) {
+        DispatchQueue.main.async {
+            var items: [Any] = []
+            if let t = text, !t.isEmpty { items.append(t) }
+            if let u = url, !u.isEmpty, let link = URL(string: u) { items.append(link) }
+            if items.isEmpty, let t = title, !t.isEmpty { items.append(t) }
+            let vc = UIActivityViewController(activityItems: items, applicationActivities: nil)
+            let root = UIApplication.shared.windows.first(where: { $0.isKeyWindow })?.rootViewController
+            root?.present(vc, animated: true)
         }
     }
 }

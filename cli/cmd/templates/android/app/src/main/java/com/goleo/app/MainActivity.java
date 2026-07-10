@@ -79,6 +79,7 @@ import gomobile.Gomobile;
 import gomobile.NFCProvider;
 import gomobile.Notifier;
 import gomobile.SensorsProvider;
+import gomobile.ShareProvider;
 import gomobile.WakeLockProvider;
 
 public class MainActivity extends AppCompatActivity {
@@ -141,6 +142,7 @@ public class MainActivity extends AppCompatActivity {
         Gomobile.setNFCProvider(goleoNfc);
         Gomobile.setBLEProvider(new GoleoBle());
         Gomobile.setClipboardProvider(new GoleoClipboard());
+        Gomobile.setShareProvider(new GoleoShare());
 
         nfcAdapter = NfcAdapter.getDefaultAdapter(this);
         if (nfcAdapter != null) {
@@ -292,6 +294,7 @@ public class MainActivity extends AppCompatActivity {
         Gomobile.setNFCProvider(null);
         Gomobile.setBLEProvider(null);
         Gomobile.setClipboardProvider(null);
+        Gomobile.setShareProvider(null);
         Gomobile.stopServer();
         super.onDestroy();
     }
@@ -422,6 +425,34 @@ public class MainActivity extends AppCompatActivity {
 
     // FLAG_KEEP_SCREEN_ON needs no permission and no wakelock service — it's
     // a window flag the OS honors only while this Activity is in front.
+    private class GoleoShare implements ShareProvider {
+        @Override
+        public void share(String title, String text, String url) {
+            runOnUiThread(() -> {
+                try {
+                    StringBuilder sb = new StringBuilder();
+                    if (text != null && !text.isEmpty()) sb.append(text);
+                    if (url != null && !url.isEmpty()) {
+                        if (sb.length() > 0) sb.append(' ');
+                        sb.append(url);
+                    }
+                    Intent intent = new Intent(Intent.ACTION_SEND);
+                    intent.setType("text/plain");
+                    intent.putExtra(Intent.EXTRA_TEXT, sb.toString());
+                    if (title != null && !title.isEmpty()) {
+                        intent.putExtra(Intent.EXTRA_SUBJECT, title);
+                    }
+                    Intent chooser = Intent.createChooser(intent,
+                            (title != null && !title.isEmpty()) ? title : "Share");
+                    chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(chooser);
+                } catch (Exception e) {
+                    // best effort
+                }
+            });
+        }
+    }
+
     private class GoleoClipboard implements ClipboardProvider {
         @Override
         public String readText() {

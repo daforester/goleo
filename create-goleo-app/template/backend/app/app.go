@@ -77,6 +77,7 @@ func New(opts Options) *runtime.App {
 			runtime.RegisterGeolocation(a.Bridge())
 			runtime.RegisterCamera(a.Bridge())
 			runtime.RegisterClipboard(a.Bridge())
+			runtime.RegisterShare(a.Bridge())
 			runtime.RegisterDialogs(a.Bridge())
 			runtime.RegisterVibration(a.Bridge())
 			runtime.RegisterWakeLock(a.Bridge())

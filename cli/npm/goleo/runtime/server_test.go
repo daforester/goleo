@@ -54,6 +54,29 @@ func TestOriginAllowed(t *testing.T) {
 	}
 }
 
+func TestOriginOK_DevIsPermissive(t *testing.T) {
+	// Regression: `goleo emulate android` loads the UI from http://10.0.2.2:<port>
+	// (host Vite) but connects the bridge to the in-app localhost backend. In dev
+	// mode that cross-origin WS upgrade must be allowed, or the app drops into
+	// local-only mode ("backend not available").
+	dev := &Server{config: Config{DevMode: true}, allowedOrigins: defaultAllowedOrigins(9842, Config{DevMode: true})}
+	if !dev.originOK("http://10.0.2.2:5173") {
+		t.Error("dev mode must allow the emulator's cross-origin WS upgrade")
+	}
+
+	// Production enforces the allow-list.
+	prod := &Server{config: Config{}, allowedOrigins: defaultAllowedOrigins(9842, Config{})}
+	if prod.originOK("http://10.0.2.2:5173") {
+		t.Error("production must reject a foreign origin")
+	}
+	if !prod.originOK("http://127.0.0.1:9842") {
+		t.Error("production must allow its own origin")
+	}
+	if !prod.originOK("") {
+		t.Error("production must allow empty origin (native WebView client)")
+	}
+}
+
 func TestTokenOK(t *testing.T) {
 	// No token configured (dev): everything passes.
 	dev := &Server{}

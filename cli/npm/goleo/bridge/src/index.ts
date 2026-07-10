@@ -83,6 +83,13 @@ export {
 } from './share'
 export type { ShareData } from './share'
 export {
+  storeGet,
+  storeSet,
+  storeDelete,
+  storeKeys,
+  storeClear,
+} from './store'
+export {
   openWindow,
   closeWindow,
   listWindows,
