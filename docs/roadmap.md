@@ -106,6 +106,21 @@
   released on shutdown. **Fully unit-tested** with real in-process loopback IPC
   (acquire/forward/ACK, re-acquire after close) — no GUI needed. Also the daemon "wake"
   mechanism and the basis for deep-linking. Cross-platform; mirror synced.
+- **D4 autostart (complete)** — `runtime/autostart/`: launch-on-login via Windows HKCU Run key
+  (cgo-free `x/sys/windows/registry`), macOS LaunchAgent plist, Linux `~/.config/autostart`
+  .desktop; mobile/wasm → `ErrUnsupported`. `goleo:autostart{Enable,Disable,IsEnabled}` +
+  `bridge/src/autostart.ts`. Unit-tested generators; darwin cross-compile verified.
+- **D4 tray + Config.Background (complete)** — headless-controller mode (no auto primary
+  window; main thread runs the tray or blocks until Quit) + `Config.Tray` via `gogpu/systray`
+  (cgo-free) with Go `OnClick` callbacks; `Config.OnReady` (post-server hook where OpenWindow
+  works). `runtime/tray_desktop.go` / `tray_stub.go` (excluded on mobile). Builds windows
+  cgo-free + android-mobile-guard; run on Windows to verify UX.
+- **D4 deep-link / URL scheme (complete)** — `runtime/deeplink/`: register a `myapp://` scheme
+  (Windows registry, Linux `x-scheme-handler` .desktop + xdg-mime, macOS via the `.app`
+  Info.plist `CFBundleURLTypes` the bundler now emits). `Config.URLScheme`; the launch URL is
+  read via `goleo:initialURL`, later launches forward through single-instance → `app:openURL`
+  (`bridge/src/deeplink.ts`: `getInitialURL`/`onDeepLink`). Unit-tested; cross-platform; mirror
+  synced. (macOS URL *handling* still needs the native app layer.)
 - **D3a Capability ACL (central enforcement, complete)** — `runtime/policy.go`: a `Policy`
   (Allow list with `prefix*` wildcards + always-safe core commands) enforced **centrally in
   `Bridge.HandleRequest`** (deny-by-default when a policy is set; no policy = legacy-permissive,

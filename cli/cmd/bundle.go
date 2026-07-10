@@ -23,6 +23,8 @@ type bundleConfig struct {
 	// Publish (updater manifest)
 	UpdateURLBase string // base URL where update artifacts are hosted
 	ReleaseNotes  string // notes for this release
+
+	URLScheme string // custom URL scheme to register (deep links), e.g. "myapp"
 }
 
 func loadBundleConfig(projectDir string) bundleConfig {
@@ -56,6 +58,7 @@ func loadBundleConfig(projectDir string) bundleConfig {
 		cfg.IconPNG = str("icon_png")
 		cfg.UpdateURLBase = str("update_url_base")
 		cfg.ReleaseNotes = str("release_notes")
+		cfg.URLScheme = str("url_scheme")
 	}
 	return cfg
 }
@@ -202,6 +205,15 @@ func bundleDarwin(binaryPath string, cfg bundleConfig, outDir string, sc signCon
 }
 
 func infoPlist(cfg bundleConfig, binBase string) string {
+	urlTypes := ""
+	if cfg.URLScheme != "" {
+		urlTypes = fmt.Sprintf(`	<key>CFBundleURLTypes</key>
+	<array><dict>
+		<key>CFBundleURLName</key><string>%s</string>
+		<key>CFBundleURLSchemes</key><array><string>%s</string></array>
+	</dict></array>
+`, cfg.Identifier, cfg.URLScheme)
+	}
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -214,9 +226,9 @@ func infoPlist(cfg bundleConfig, binBase string) string {
 	<key>CFBundlePackageType</key><string>APPL</string>
 	<key>CFBundleIconFile</key><string>icon.icns</string>
 	<key>NSHighResolutionCapable</key><true/>
-</dict>
+%s</dict>
 </plist>
-`, cfg.AppName, binBase, cfg.Identifier, cfg.Version, cfg.Version)
+`, cfg.AppName, binBase, cfg.Identifier, cfg.Version, cfg.Version, urlTypes)
 }
 
 // --- Linux (nfpm → .deb/.rpm) ---

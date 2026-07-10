@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/daforester/goleo/runtime/autostart"
+	"github.com/daforester/goleo/runtime/deeplink"
 	"github.com/daforester/goleo/runtime/singleinstance"
 )
 
@@ -21,9 +22,10 @@ type App struct {
 	bridge  *Bridge
 	server  *Server
 	jsr      *JSRuntime
-	windows  windowSpawner
-	instance *singleinstance.Instance
-	port     int
+	windows    windowSpawner
+	instance   *singleinstance.Instance
+	initialURL string
+	port       int
 	mu      sync.Mutex
 	running bool
 	cancel  context.CancelFunc
@@ -58,6 +60,10 @@ type Config struct {
 	// the port is known — where OpenWindow works. Unlike OnStartup, which runs
 	// before the server binds.
 	OnReady func(ctx context.Context)
+	// URLScheme, if set (e.g. "myapp"), registers a custom URL scheme so
+	// myapp:// links launch/wake the app. The frontend reads the launch URL via
+	// goleo:initialURL and listens for app:openURL (forwarded from later launches).
+	URLScheme string
 	// InitJS is the path to a JavaScript startup script that controls window
 	// creation (createWindow/getConfig API). When set, the file must exist.
 	// When empty, init.js then backend/init.js are tried; if neither exists
@@ -144,6 +150,10 @@ func (a *App) Run() error {
 		}
 		inst, primary, err := singleinstance.Acquire(appID, os.Args[1:], func(args []string) {
 			a.Emit("app:secondInstance", map[string]any{"args": args})
+			// A forwarded launch may carry a deep link — surface it too.
+			if url := deeplink.SchemeURL(a.config.URLScheme, args); url != "" {
+				a.Emit("app:openURL", map[string]any{"url": url})
+			}
 		})
 		if err != nil {
 			fmt.Printf("  single-instance: %v — starting normally\n", err)
@@ -152,6 +162,21 @@ func (a *App) Run() error {
 			return nil
 		} else {
 			a.instance = inst
+		}
+	}
+
+	// Deep-link: register the custom URL scheme and capture a launch URL (the
+	// frontend reads it via goleo:initialURL; later launches arrive as app:openURL).
+	if a.config.URLScheme != "" {
+		a.initialURL = deeplink.SchemeURL(a.config.URLScheme, os.Args[1:])
+		name := a.config.AppID
+		if name == "" {
+			name = a.config.Title
+		}
+		if exe, err := os.Executable(); err == nil {
+			if rerr := deeplink.Register(a.config.URLScheme, name, exe); rerr != nil {
+				fmt.Printf("  deep-link: %v\n", rerr)
+			}
 		}
 	}
 
@@ -395,6 +420,10 @@ func (a *App) registerWindowCommands() {
 	a.bridge.Handle("goleo:quit", func(ctx context.Context, args json.RawMessage) (any, error) {
 		a.Quit()
 		return nil, nil
+	})
+
+	a.bridge.Handle("goleo:initialURL", func(ctx context.Context, args json.RawMessage) (any, error) {
+		return map[string]string{"url": a.initialURL}, nil
 	})
 
 	// Autostart (launch-on-login). App name from AppID, else Title.

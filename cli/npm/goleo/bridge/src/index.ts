@@ -99,6 +99,10 @@ export {
   disableAutostart,
   isAutostartEnabled,
 } from './autostart'
+export {
+  getInitialURL,
+  onDeepLink,
+} from './deeplink'
 export type { UpdateInfo, UpdateProgress } from './updater'
 export {
   openWindow,

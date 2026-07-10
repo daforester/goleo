@@ -70,6 +70,9 @@ var KnownCommands = []CommandDecl{
 	{Method: "goleo:autostartDisable", ReturnType: "void", Description: "Remove the launch-on-login entry"},
 	{Method: "goleo:autostartIsEnabled", ReturnType: "{ enabled: boolean }", Description: "Check if launch-on-login is registered"},
 
+	// Deep link (custom URL scheme, desktop)
+	{Method: "goleo:initialURL", ReturnType: "{ url: string }", Description: "The URL the app was launched with (deep link), or empty"},
+
 	// Updater (desktop auto-update)
 	{Method: "goleo:updaterCheck", ReturnType: "{ available: boolean; version?: string; notes?: string }", Description: "Check for an available update"},
 	{Method: "goleo:updaterApply", ReturnType: "void", Description: "Download and apply the latest update, then relaunch"},
