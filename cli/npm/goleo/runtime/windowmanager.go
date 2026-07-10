@@ -208,7 +208,15 @@ func (m *inProcWindowManager) Open(opts WindowOptions) (int, error) {
 			Center:   true,
 			URL:      url,
 			DevTools: m.app.config.DevMode,
+			OnInit:   m.app.nativeOnInit(),
 		})
+		// Native IPC: this in-process window shares the app's Bridge, so give it
+		// its own native channel + event pump (torn down when the window closes)
+		// instead of falling back to WebSocket like a child-process window.
+		if m.app.config.NativeIPC && w.sess != nil {
+			stop := w.sess.startEventPump()
+			defer stop()
+		}
 		ready <- &w
 		w.Run() // blocks this thread until the window closes
 		w.Destroy()

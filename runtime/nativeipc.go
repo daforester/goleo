@@ -17,9 +17,10 @@ import (
 // both transports and falls back to WebSocket/HTTP wherever the native channel
 // is absent (child-process windows, browser/PWA, mobile).
 //
-// The HTTP/WebSocket server stays running — it still serves the embedded assets
-// in production and remains the transport for those fallback cases. Native IPC
-// only replaces the RPC/event surface for the primary in-process window.
+// Each natively-bridged window owns a nativeSession — the primary window and,
+// under Config.InProcessWindows, each in-process window. The HTTP/WebSocket
+// server stays running: it still serves the embedded assets in production and
+// remains the transport for the fallback cases above.
 
 // nativeIPCShim is injected via WebviewWindow.Init before the first navigation.
 // It advertises the native channel (window.__GOLEO_NATIVE__) and installs an
@@ -36,32 +37,58 @@ const nativeIPCShim = `;(function(){
   window.__goleoDrain = function(){ var q = queue; queue = []; return q; };
 })();`
 
-// nativeOnInit returns the pre-navigation hook that installs the native bridge
-// on a window, or nil when NativeIPC is disabled. Wired into the primary
-// window's windowConfig.OnInit so the shim and send binding are registered
-// before the page loads.
+// nativeEvaler is the subset of a per-platform webview backend the native bridge
+// needs to push frames to the frontend. Both go-webview2 and webview_go satisfy
+// it; WebviewWindow.evaler() adapts to it (nil on the mobile stub).
+type nativeEvaler interface {
+	Dispatch(func())
+	Eval(string)
+}
+
+// nativeSession is one window's native IPC channel: it decodes frontend frames
+// into the shared Bridge and pushes results/events back over that window's
+// webview. Guarded so a push after the window closes is a no-op, not a
+// use-after-free.
+type nativeSession struct {
+	app    *App
+	ev     nativeEvaler
+	evalFn func(string) // test hook; when set, replaces the real Dispatch+Eval
+	mu     sync.Mutex
+	alive  bool
+}
+
+func (a *App) newNativeSession(ev nativeEvaler) *nativeSession {
+	return &nativeSession{app: a, ev: ev, alive: true}
+}
+
+// nativeOnInit returns the pre-navigation hook that installs a native session on
+// a window, or nil when NativeIPC is disabled. Wired through windowConfig.OnInit
+// so the shim and send binding register before the first navigation; the session
+// is stored on the window (win.sess) for the caller to drive its event pump.
 func (a *App) nativeOnInit() func(*WebviewWindow) {
 	if a == nil || !a.config.NativeIPC {
 		return nil
 	}
 	return func(win *WebviewWindow) {
+		s := a.newNativeSession(win.evaler())
+		win.sess = s
 		win.Init(nativeIPCShim)
 		// __goleoSend is fire-and-forget: the frontend never awaits its promise.
 		// Responses arrive asynchronously via window.__goleoRecv, mirroring the
 		// WebSocket model where a request's ID correlates its reply.
 		if err := win.Bind("__goleoSend", func(payload string) {
-			a.onNativeMessage(payload)
+			s.onMessage(payload)
 		}); err != nil {
 			log.Printf("goleo: native IPC bind failed, falling back to WebSocket: %v", err)
 		}
 	}
 }
 
-// onNativeMessage handles one frontend->backend frame. The envelope mirrors
+// onMessage handles one frontend->backend frame. The envelope mirrors
 // websocket.go's readPump exactly so both transports share the wire format.
 // Runs on the webview UI thread (the Bind callback), so invokes are dispatched
 // to their own goroutine — a slow handler must not stall the message loop.
-func (a *App) onNativeMessage(payload string) {
+func (s *nativeSession) onMessage(payload string) {
 	var env struct {
 		Type string          `json:"type"`
 		Data json.RawMessage `json:"data,omitempty"`
@@ -79,8 +106,8 @@ func (a *App) onNativeMessage(payload string) {
 			return
 		}
 		go func(req InvokeRequest) {
-			resp := a.bridge.HandleRequest(req)
-			a.nativePush(map[string]any{"type": "invokeResult", "data": resp})
+			resp := s.app.bridge.HandleRequest(req)
+			s.push(map[string]any{"type": "invokeResult", "data": resp})
 		}(req)
 
 	case "event":
@@ -89,49 +116,54 @@ func (a *App) onNativeMessage(payload string) {
 			log.Printf("goleo: invalid native event: %v", err)
 			return
 		}
-		a.bridge.DispatchEvent(msg.Event, msg.Data)
+		s.app.bridge.DispatchEvent(msg.Event, msg.Data)
 
 	case "ping":
-		a.nativePush(map[string]string{"type": "pong"})
+		s.push(map[string]string{"type": "pong"})
 	}
 }
 
-// nativePush delivers a backend->frontend envelope over the native channel.
-func (a *App) nativePush(env any) {
+// push delivers a backend->frontend envelope over this session's channel.
+func (s *nativeSession) push(env any) {
 	data, err := json.Marshal(env)
 	if err != nil {
 		return
 	}
-	a.nativeEvalRecv(string(data))
+	s.evalRecv(string(data))
 }
 
-// nativeEvalRecv evaluates window.__goleoRecv(<json>) on the window's UI thread.
-// The nativeEvalFn hook overrides the real Dispatch+Eval in tests. Guards
-// against a window that has been (or is being) destroyed so a late event push
-// during shutdown is a no-op rather than a use-after-free.
-func (a *App) nativeEvalRecv(jsonArg string) {
-	if a.nativeEvalFn != nil {
-		a.nativeEvalFn(jsonArg)
+// evalRecv evaluates window.__goleoRecv(<json>) on the window's UI thread. The
+// evalFn hook overrides the real Dispatch+Eval in tests. Guards against a
+// window that has been (or is being) closed.
+func (s *nativeSession) evalRecv(jsonArg string) {
+	s.mu.Lock()
+	fn, ev, alive := s.evalFn, s.ev, s.alive
+	s.mu.Unlock()
+
+	if fn != nil {
+		fn(jsonArg)
 		return
 	}
-	win := a.getNativeWin()
-	if win == nil || !win.IsValid() {
+	if !alive || ev == nil {
 		return
 	}
 	js := "window.__goleoRecv(" + jsSafeJSON(jsonArg) + ");"
-	win.Dispatch(func() {
-		if w := a.getNativeWin(); w != nil && w.IsValid() {
-			w.Eval(js)
+	ev.Dispatch(func() {
+		s.mu.Lock()
+		ok := s.alive
+		s.mu.Unlock()
+		if ok {
+			ev.Eval(js)
 		}
 	})
 }
 
-// startNativeEventPump forwards bridge events to the native window until the
+// startEventPump forwards bridge events to this session's window until the
 // returned stop func runs or the app context is cancelled — the native
-// equivalent of server.handleEvents broadcasting to WebSocket clients.
-func (a *App) startNativeEventPump(win *WebviewWindow) func() {
-	a.setNativeWin(win)
-	ch := a.bridge.Subscribe()
+// equivalent of server.handleEvents broadcasting to WebSocket clients. stop also
+// marks the session closed so no further frames are pushed to a dead window.
+func (s *nativeSession) startEventPump() func() {
+	ch := s.app.bridge.Subscribe()
 	done := make(chan struct{})
 
 	go func() {
@@ -139,13 +171,13 @@ func (a *App) startNativeEventPump(win *WebviewWindow) func() {
 			select {
 			case <-done:
 				return
-			case <-a.ctx.Done():
+			case <-s.app.ctx.Done():
 				return
 			case msg, ok := <-ch:
 				if !ok {
 					return
 				}
-				a.nativePush(map[string]any{"type": "event", "data": msg})
+				s.push(map[string]any{"type": "event", "data": msg})
 			}
 		}
 	}()
@@ -154,29 +186,19 @@ func (a *App) startNativeEventPump(win *WebviewWindow) func() {
 	return func() {
 		once.Do(func() {
 			close(done)
-			a.bridge.Unsubscribe(ch)
-			a.setNativeWin(nil)
+			s.app.bridge.Unsubscribe(ch)
+			s.mu.Lock()
+			s.alive = false
+			s.mu.Unlock()
 		})
 	}
 }
 
-func (a *App) setNativeWin(win *WebviewWindow) {
-	a.nativeMu.Lock()
-	a.nativeWin = win
-	a.nativeMu.Unlock()
-}
-
-func (a *App) getNativeWin() *WebviewWindow {
-	a.nativeMu.Lock()
-	defer a.nativeMu.Unlock()
-	return a.nativeWin
-}
-
-// jsSafeJSON escapes U+2028 (line separator) and U+2029 (paragraph
-// separator): both are valid inside JSON strings but were not valid in
-// JavaScript string literals before ES2019, so escaping them keeps the JSON
-// safe to splice into an evaluated expression on any webview engine. All
-// three code points are built from their values to keep this file ASCII-only.
+// jsSafeJSON escapes U+2028 (line separator) and U+2029 (paragraph separator):
+// both are valid inside JSON strings but were not valid in JavaScript string
+// literals before ES2019, so escaping them keeps the JSON safe to splice into an
+// evaluated expression on any webview engine. The code points are built from
+// their values to keep this file ASCII-only.
 func jsSafeJSON(s string) string {
 	ls := string(rune(0x2028))
 	ps := string(rune(0x2029))

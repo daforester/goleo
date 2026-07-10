@@ -16,10 +16,14 @@ import (
 )
 
 type WebviewWindow struct {
-	w   webview.WebView
-	cfg windowConfig
-	url string
+	w    webview.WebView
+	cfg  windowConfig
+	url  string
+	sess *nativeSession // native IPC session (Config.NativeIPC); nil otherwise
 }
+
+// evaler adapts the backend to the native IPC push interface (Dispatch + Eval).
+func (win *WebviewWindow) evaler() nativeEvaler { return win.w }
 
 func NewWebviewWindow(cfg windowConfig) WebviewWindow {
 	debug := cfg.DevTools

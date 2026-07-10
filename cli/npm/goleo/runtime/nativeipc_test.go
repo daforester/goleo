@@ -7,12 +7,13 @@ import (
 	"time"
 )
 
-// collectPush wires a.nativeEvalFn to a channel so a test can await the JSON
-// the backend would evaluate in the webview.
-func collectPush(a *App) <-chan string {
-	ch := make(chan string, 8)
-	a.nativeEvalFn = func(jsonArg string) { ch <- jsonArg }
-	return ch
+// testSession returns a native session whose pushes are captured on a channel
+// (via the evalFn hook) instead of being evaluated in a real webview.
+func testSession(a *App) (*nativeSession, <-chan string) {
+	ch := make(chan string, 16)
+	s := a.newNativeSession(nil)
+	s.evalFn = func(jsonArg string) { ch <- jsonArg }
+	return s, ch
 }
 
 func awaitPush(t *testing.T, ch <-chan string) map[string]any {
@@ -35,9 +36,9 @@ func TestNativeInvokeRoundTrip(t *testing.T) {
 	a.bridge.Handle("test:echo", func(ctx context.Context, args json.RawMessage) (any, error) {
 		return map[string]string{"got": string(args)}, nil
 	})
-	ch := collectPush(a)
+	s, ch := testSession(a)
 
-	a.onNativeMessage(`{"type":"invoke","data":{"id":"7","method":"test:echo","args":{"x":1}}}`)
+	s.onMessage(`{"type":"invoke","data":{"id":"7","method":"test:echo","args":{"x":1}}}`)
 
 	msg := awaitPush(t, ch)
 	if msg["type"] != "invokeResult" {
@@ -63,9 +64,9 @@ func TestNativeInvokePolicyDenied(t *testing.T) {
 		return "nope", nil
 	})
 	a.bridge.SetPolicy(&Policy{Allow: []string{"test:allowed"}})
-	ch := collectPush(a)
+	s, ch := testSession(a)
 
-	a.onNativeMessage(`{"type":"invoke","data":{"id":"1","method":"test:secret"}}`)
+	s.onMessage(`{"type":"invoke","data":{"id":"1","method":"test:secret"}}`)
 
 	msg := awaitPush(t, ch)
 	data, _ := msg["data"].(map[string]any)
@@ -83,8 +84,9 @@ func TestNativeEventDispatch(t *testing.T) {
 	a.bridge.On("app:ready", func(ctx context.Context, data json.RawMessage) {
 		got <- string(data)
 	})
+	s, _ := testSession(a)
 
-	a.onNativeMessage(`{"type":"event","data":{"event":"app:ready","data":{"v":42}}}`)
+	s.onMessage(`{"type":"event","data":{"event":"app:ready","data":{"v":42}}}`)
 
 	select {
 	case data := <-got:
@@ -98,9 +100,9 @@ func TestNativeEventDispatch(t *testing.T) {
 
 func TestNativePing(t *testing.T) {
 	a := New(Config{})
-	ch := collectPush(a)
+	s, ch := testSession(a)
 
-	a.onNativeMessage(`{"type":"ping"}`)
+	s.onMessage(`{"type":"ping"}`)
 
 	msg := awaitPush(t, ch)
 	if msg["type"] != "pong" {
@@ -111,9 +113,9 @@ func TestNativePing(t *testing.T) {
 func TestNativeEventPumpForwardsEmits(t *testing.T) {
 	a := New(Config{})
 	a.ctx = context.Background()
-	ch := collectPush(a)
+	s, ch := testSession(a)
 
-	stop := a.startNativeEventPump(nil) // nil window is fine: nativeEvalFn intercepts
+	stop := s.startEventPump()
 	defer stop()
 
 	a.bridge.Emit("data:updated", map[string]any{"count": 3})
@@ -125,6 +127,24 @@ func TestNativeEventPumpForwardsEmits(t *testing.T) {
 	data, _ := msg["data"].(map[string]any)
 	if data["event"] != "data:updated" {
 		t.Errorf("event = %v, want data:updated", data["event"])
+	}
+}
+
+func TestNativeEventPumpStopEndsPushes(t *testing.T) {
+	a := New(Config{})
+	a.ctx = context.Background()
+	s, ch := testSession(a)
+
+	stop := s.startEventPump()
+	stop() // marks the session closed and unsubscribes
+
+	a.bridge.Emit("data:updated", map[string]any{"count": 1})
+
+	select {
+	case s := <-ch:
+		t.Fatalf("push after stop: %s", s)
+	case <-time.After(200 * time.Millisecond):
+		// expected: no further pushes once the pump is stopped
 	}
 }
 

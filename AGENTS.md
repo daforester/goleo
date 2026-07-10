@@ -499,22 +499,38 @@ Added on top of the core bridge/feature system. Full rationale + status in
   launch URL via `goleo:initialURL`, later launches → `app:openURL` (through single-instance).
 
 ### Transport
-- **Native in-process IPC** (`runtime/nativeipc.go`, opt-in via `Config.NativeIPC`): the primary
-  in-process window (hosted by `runWebview`, incl. the `init.js` `createWindow` window) talks to
-  the `Bridge` over the webview's own channel instead of the loopback WebSocket. `nativeOnInit`
-  (wired through `windowConfig.OnInit`, pre-navigation) injects a shim (`window.__GOLEO_NATIVE__`
-  / `__goleoRecv`) and binds `__goleoSend` (Go func). `onNativeMessage` decodes the same
-  `{type,data}` envelope as `websocket.go` and funnels into `Bridge.HandleRequest` (so `Policy`
-  still applies); invokes run on their own goroutine to keep off the UI thread. Backend→frontend
-  events/results are pushed via `Eval(window.__goleoRecv(...))` on the UI thread
-  (`startNativeEventPump` replaces the WS hub for that window). `Bind`/`Init` added to all
-  `WebviewWindow` backends (`webview_windows.go`, `webview.go`, `webview_stub.go`).
-  - **Scope:** covers the primary window only in this cut. Child-process windows, browser/PWA and
-    mobile keep using WebSocket (`@goleo/bridge` auto-detects the native channel, else falls back).
-    The HTTP/WS server stays up — it still serves embedded assets and is the fallback transport.
-    Extending native IPC to in-process *additional* windows and custom-scheme asset serving (to
-    drop the asset HTTP server too) are follow-ups. Not GUI-verified interactively yet; covered by
-    `runtime/nativeipc_test.go` (transport round-trip, policy, events, ping) + `bridge` tsc.
+- **Native in-process IPC** (`runtime/nativeipc.go`, opt-in via `Config.NativeIPC`): a natively
+  hosted window talks to the `Bridge` over the webview's own channel instead of the loopback
+  WebSocket. Each such window owns a `nativeSession`. `nativeOnInit` (wired through
+  `windowConfig.OnInit`, pre-navigation) injects a shim (`window.__GOLEO_NATIVE__` / `__goleoRecv`)
+  and binds `__goleoSend` (Go func); the session is stashed on `WebviewWindow.sess`.
+  `session.onMessage` decodes the same `{type,data}` envelope as `websocket.go` and funnels into
+  `Bridge.HandleRequest` (so `Policy` still applies); invokes run on their own goroutine to keep
+  off the UI thread. Backend→frontend frames are pushed via `Eval(window.__goleoRecv(...))` on the
+  UI thread (`session.startEventPump` replaces the WS hub per window). `Bind`/`Init`/`evaler()`
+  added to all `WebviewWindow` backends (`webview_windows.go`, `webview.go`, `webview_stub.go`).
+  - **Coverage:** the primary window (`runWebview`, incl. the `init.js` `createWindow` window) **and
+    in-process additional windows** (`Config.InProcessWindows`, `windowmanager.go`) — each gets its
+    own independent session. Child-*process* windows, browser/PWA and mobile keep using WebSocket
+    (`@goleo/bridge` auto-detects the native channel, else falls back). The HTTP/WS server stays up:
+    it still serves embedded assets and is the fallback transport. Custom-scheme asset serving (to
+    drop the asset HTTP server too) is the remaining follow-up.
+  - **Verified** on real WebView2 (Windows, cgo-free): a two-window app where each window completes
+    an independent bidirectional round-trip over its own native channel, incl. `goleo:windowOpen`
+    over native IPC, then a clean `Quit`. Also `runtime/nativeipc_test.go` (round-trip, policy,
+    events, ping, pump-stop) + `bridge` tsc.
+
+### GUI lifecycle threading (fixed alongside native IPC)
+Two pre-existing defects surfaced by driving `Quit()` end-to-end:
+- **`a.ctx` was clobbered:** `Run` installed a cancellable context, then `StartServer` overwrote
+  `a.ctx` with a fresh `context.Background()`, orphaning `a.cancel()`. `Quit` cancelled a context
+  nothing watched, so shutdown hung. `StartServer` now keeps an existing `a.ctx` (only defaults to
+  `Background` when nil, i.e. the standalone/mobile entry).
+- **Main goroutine not thread-pinned:** the native webview is thread-affine (its window messages
+  and `Dispatch` target the creating thread), but the Go main goroutine can migrate OS threads
+  between window creation and `Run`, so cross-thread teardown missed. `Run` now calls
+  `runtime.LockOSThread()` up front so the whole GUI lifecycle stays on one thread (matching what
+  the in-process `WindowManager` goroutines already did).
 
 ### Security
 - **Capability ACL** (`runtime/policy.go`): `Policy` (Allow list with `prefix*` + always-safe

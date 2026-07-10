@@ -30,13 +30,6 @@ type App struct {
 	running    bool
 	cancel     context.CancelFunc
 	ctx        context.Context
-
-	// Native in-process IPC (Config.NativeIPC). nativeWin is the primary window
-	// the native bridge pushes to; nativeEvalFn overrides the real Dispatch+Eval
-	// in tests. Guarded by nativeMu. See nativeipc.go.
-	nativeWin    *WebviewWindow
-	nativeEvalFn func(jsonArg string)
-	nativeMu     sync.Mutex
 }
 
 type Config struct {
@@ -125,8 +118,14 @@ func (a *App) Config() Config {
 }
 
 func (a *App) StartServer() (int, error) {
-	ctx := context.Background()
-	a.ctx = ctx
+	// Preserve a cancellable context if Run already installed one — overwriting it
+	// with a fresh Background here would orphan a.cancel(), so Quit() would cancel
+	// a context nothing is watching and shutdown would hang. StartServer is also
+	// called standalone (mobile), where a.ctx is nil and Background is correct.
+	if a.ctx == nil {
+		a.ctx = context.Background()
+	}
+	ctx := a.ctx
 
 	if a.config.OnStartup != nil {
 		a.config.OnStartup(ctx)
@@ -149,6 +148,15 @@ func (a *App) StartServer() (int, error) {
 }
 
 func (a *App) Run() error {
+	// The native webview owns the GUI message loop and is thread-affine: the
+	// window is created and Run on the main goroutine, and cross-thread control
+	// (Quit -> Dispatch(Terminate)) posts to the thread that created the window.
+	// The Go main goroutine is not pinned by default, so it can migrate OS
+	// threads between window creation and Run — sending those messages to the
+	// wrong thread and hanging shutdown. Lock it here so the whole GUI lifecycle
+	// (init.js createWindow, runWebview, child windows, tray) stays on one thread.
+	runtime.LockOSThread()
+
 	// A child window process (spawned by WindowManager) just hosts one webview
 	// pointed at the parent's server — no server, no init script, no lifecycle.
 	if isWindowChild() {
@@ -280,9 +288,10 @@ func (a *App) runWebview(port int) error {
 	}
 
 	// Native IPC: forward bridge events to this window over the in-process
-	// channel (replacing the WS hub for it) until the window closes.
-	if a.config.NativeIPC {
-		stop := a.startNativeEventPump(win)
+	// channel (replacing the WS hub for it) until the window closes. The session
+	// is installed pre-navigation by windowConfig.OnInit (a.nativeOnInit).
+	if a.config.NativeIPC && win.sess != nil {
+		stop := win.sess.startEventPump()
 		defer stop()
 	}
 
@@ -294,6 +303,10 @@ func (a *App) runWebview(port int) error {
 		case <-sig:
 		case <-a.ctx.Done():
 		}
+		// Destroy posts WMClose to the window (thread-safe: routed by hwnd to the
+		// window's owner thread), which destroys it and quits the message loop so
+		// Run returns. Relies on the window being created and Run on the same
+		// (locked) OS thread — see runtime.LockOSThread at the top of Run.
 		win.Destroy()
 	}()
 

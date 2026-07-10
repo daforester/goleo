@@ -2,7 +2,9 @@
 
 package runtime
 
-type WebviewWindow struct{}
+type WebviewWindow struct{ sess *nativeSession }
+
+func (win *WebviewWindow) evaler() nativeEvaler { return nil }
 
 func NewWebviewWindow(cfg windowConfig) WebviewWindow {
 	return WebviewWindow{}
