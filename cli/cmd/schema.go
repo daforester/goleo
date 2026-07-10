@@ -62,6 +62,9 @@ var KnownCommands = []CommandDecl{
 	{Method: "goleo:storeKeys", ReturnType: "string[]", Description: "List all keys in the store"},
 	{Method: "goleo:storeClear", ReturnType: "void", Description: "Clear all keys from the store"},
 
+	// Lifecycle
+	{Method: "goleo:quit", ReturnType: "void", Description: "Request a graceful app shutdown (desktop)"},
+
 	// Updater (desktop auto-update)
 	{Method: "goleo:updaterCheck", ReturnType: "{ available: boolean; version?: string; notes?: string }", Description: "Check for an available update"},
 	{Method: "goleo:updaterApply", ReturnType: "void", Description: "Download and apply the latest update, then relaunch"},

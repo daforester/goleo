@@ -99,6 +99,7 @@ export {
   openWindow,
   closeWindow,
   listWindows,
+  quitApp,
   getCapabilities,
   isWindowingSupported,
   isTraySupported,

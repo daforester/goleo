@@ -28,6 +28,37 @@ type WindowOptions struct {
 	// server root plus Path (e.g. Path "/settings" → "<serverURL>/settings").
 	URL  string `json:"url"`
 	Path string `json:"path"`
+	// ExitOnClose quits the whole app when this window closes (via App.Quit).
+	// Default false: closing just closes the window; the app keeps running.
+	ExitOnClose bool `json:"exitOnClose"`
+}
+
+// resolveWindowOptions fills in defaults from the app config.
+func resolveWindowOptions(app *App, opts WindowOptions) (url, title string, width, height int) {
+	url = opts.URL
+	if url == "" {
+		url = app.serverURL(app.port) + opts.Path
+	}
+	title = opts.Title
+	if title == "" {
+		title = app.config.Title
+	}
+	width = opts.Width
+	if width == 0 {
+		width = app.config.Width
+	}
+	height = opts.Height
+	if height == 0 {
+		height = app.config.Height
+	}
+	return
+}
+
+// --- Multi-process window manager (default, cross-platform) ---
+
+type procWindow struct {
+	cmd         *exec.Cmd
+	exitOnClose bool
 }
 
 // WindowManager tracks additional webview windows, each running as a child
@@ -38,11 +69,11 @@ type WindowManager struct {
 	app  *App
 	mu   sync.Mutex
 	next int
-	wins map[int]*exec.Cmd
+	wins map[int]*procWindow
 }
 
 func newWindowManager(app *App) *WindowManager {
-	return &WindowManager{app: app, wins: make(map[int]*exec.Cmd)}
+	return &WindowManager{app: app, wins: make(map[int]*procWindow)}
 }
 
 // Open spawns a new window process and returns its id. The child connects to
@@ -53,23 +84,7 @@ func (wm *WindowManager) Open(opts WindowOptions) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("locate executable: %w", err)
 	}
-
-	url := opts.URL
-	if url == "" {
-		url = wm.app.serverURL(wm.app.port) + opts.Path
-	}
-	title := opts.Title
-	if title == "" {
-		title = wm.app.config.Title
-	}
-	width := opts.Width
-	if width == 0 {
-		width = wm.app.config.Width
-	}
-	height := opts.Height
-	if height == 0 {
-		height = wm.app.config.Height
-	}
+	url, title, width, height := resolveWindowOptions(wm.app, opts)
 
 	cmd := exec.Command(exe)
 	cmd.Env = append(os.Environ(),
@@ -89,16 +104,20 @@ func (wm *WindowManager) Open(opts WindowOptions) (int, error) {
 	wm.mu.Lock()
 	wm.next++
 	id := wm.next
-	wm.wins[id] = cmd
+	wm.wins[id] = &procWindow{cmd: cmd, exitOnClose: opts.ExitOnClose}
 	wm.mu.Unlock()
 
-	// Reap the process when its window closes and notify the frontend.
+	// Reap the process when its window closes, notify the frontend, and quit
+	// the app if this window was flagged ExitOnClose.
 	go func() {
 		cmd.Wait()
 		wm.mu.Lock()
 		delete(wm.wins, id)
 		wm.mu.Unlock()
 		wm.app.Emit("window:closed", map[string]any{"id": id})
+		if opts.ExitOnClose {
+			wm.app.Quit()
+		}
 	}()
 
 	wm.app.Emit("window:opened", map[string]any{"id": id})
@@ -109,13 +128,13 @@ func (wm *WindowManager) Open(opts WindowOptions) (int, error) {
 // unsaved state (it is pure UI), so killing the process is safe.
 func (wm *WindowManager) Close(id int) error {
 	wm.mu.Lock()
-	cmd, ok := wm.wins[id]
+	pw, ok := wm.wins[id]
 	wm.mu.Unlock()
 	if !ok {
 		return fmt.Errorf("window %d not found", id)
 	}
-	if cmd.Process != nil {
-		return cmd.Process.Kill()
+	if pw.cmd.Process != nil {
+		return pw.cmd.Process.Kill()
 	}
 	return nil
 }
@@ -135,8 +154,8 @@ func (wm *WindowManager) List() []int {
 func (wm *WindowManager) CloseAll() {
 	wm.mu.Lock()
 	cmds := make([]*exec.Cmd, 0, len(wm.wins))
-	for _, cmd := range wm.wins {
-		cmds = append(cmds, cmd)
+	for _, pw := range wm.wins {
+		cmds = append(cmds, pw.cmd)
 	}
 	wm.mu.Unlock()
 	for _, cmd := range cmds {
@@ -148,6 +167,11 @@ func (wm *WindowManager) CloseAll() {
 
 // --- In-process window manager (Windows; opt-in) ---
 
+type inprocWindow struct {
+	win         *WebviewWindow
+	exitOnClose bool
+}
+
 // inProcWindowManager hosts each additional window in-process, on its own
 // locked OS thread, instead of a child process (proven on Windows — see
 // spikes/win-multiwindow). Lower memory + the path toward native-bind IPC and
@@ -156,30 +180,15 @@ type inProcWindowManager struct {
 	app  *App
 	mu   sync.Mutex
 	next int
-	wins map[int]*WebviewWindow
+	wins map[int]*inprocWindow
 }
 
 func newInProcWindowManager(app *App) *inProcWindowManager {
-	return &inProcWindowManager{app: app, wins: make(map[int]*WebviewWindow)}
+	return &inProcWindowManager{app: app, wins: make(map[int]*inprocWindow)}
 }
 
 func (m *inProcWindowManager) Open(opts WindowOptions) (int, error) {
-	url := opts.URL
-	if url == "" {
-		url = m.app.serverURL(m.app.port) + opts.Path
-	}
-	title := opts.Title
-	if title == "" {
-		title = m.app.config.Title
-	}
-	width := opts.Width
-	if width == 0 {
-		width = m.app.config.Width
-	}
-	height := opts.Height
-	if height == 0 {
-		height = m.app.config.Height
-	}
+	url, title, width, height := resolveWindowOptions(m.app, opts)
 
 	m.mu.Lock()
 	m.next++
@@ -207,11 +216,14 @@ func (m *inProcWindowManager) Open(opts WindowOptions) (int, error) {
 		delete(m.wins, id)
 		m.mu.Unlock()
 		m.app.Emit("window:closed", map[string]any{"id": id})
+		if opts.ExitOnClose {
+			m.app.Quit()
+		}
 	}()
 
 	win := <-ready
 	m.mu.Lock()
-	m.wins[id] = win
+	m.wins[id] = &inprocWindow{win: win, exitOnClose: opts.ExitOnClose}
 	m.mu.Unlock()
 	m.app.Emit("window:opened", map[string]any{"id": id})
 	return id, nil
@@ -219,13 +231,13 @@ func (m *inProcWindowManager) Open(opts WindowOptions) (int, error) {
 
 func (m *inProcWindowManager) Close(id int) error {
 	m.mu.Lock()
-	win, ok := m.wins[id]
+	iw, ok := m.wins[id]
 	m.mu.Unlock()
 	if !ok {
 		return fmt.Errorf("window %d not found", id)
 	}
 	// Terminate must run on the window's own UI thread.
-	win.Dispatch(func() { win.Terminate() })
+	iw.win.Dispatch(func() { iw.win.Terminate() })
 	return nil
 }
 

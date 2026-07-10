@@ -221,11 +221,18 @@ func (a *App) shutdown() error {
 	return nil
 }
 
-func (a *App) Stop() {
+// Quit triggers a graceful shutdown: it unblocks the run loop, which closes all
+// managed windows (CloseAll), runs OnShutdown, and stops the server. Safe to
+// call from any goroutine — a bridge handler, an OS signal, or an ExitOnClose
+// window closing — and idempotent (context cancellation is).
+func (a *App) Quit() {
 	if a.cancel != nil {
 		a.cancel()
 	}
 }
+
+// Stop is a deprecated alias for Quit.
+func (a *App) Stop() { a.Quit() }
 
 func (a *App) Invoke(name string, fn InvokeHandler) {
 	a.bridge.Handle(name, fn)
@@ -317,5 +324,10 @@ func (a *App) registerWindowCommands() {
 			return nil, err
 		}
 		return map[string][]int{"ids": ids}, nil
+	})
+
+	a.bridge.Handle("goleo:quit", func(ctx context.Context, args json.RawMessage) (any, error) {
+		a.Quit()
+		return nil, nil
 	})
 }

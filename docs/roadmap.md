@@ -90,6 +90,14 @@
   Windows. macOS/Linux stay multi-process until their in-process bindings land (AppKit is
   main-thread-only — the per-thread trick is Windows-specific). Spike findings recorded in
   `SPIKES.md`.
+- **D4 lifecycle backbone — signal-based Quit + per-window ExitOnClose** — `App.Quit()` is the
+  single idempotent shutdown funnel (unblocks the run loop → CloseAll → OnShutdown → stop
+  server); `Stop()` is now an alias. `goleo:quit` bridge command + `quitApp()` TS. Both window
+  managers track `WindowOptions.ExitOnClose` and call `Quit()` when such a window closes.
+  Unit-tested: Quit cancels/idempotent/no-cancel-safe, ExitOnClose plumbing, both managers
+  satisfy `windowSpawner`. Cross-platform, mirror synced. **Remaining lifecycle:** the
+  `Config.Background` daemon/headless-controller mode and the tray (both main-thread-coupled,
+  come with the tray increment).
 - **D3a Capability ACL (central enforcement, complete)** — `runtime/policy.go`: a `Policy`
   (Allow list with `prefix*` wildcards + always-safe core commands) enforced **centrally in
   `Bridge.HandleRequest`** (deny-by-default when a policy is set; no policy = legacy-permissive,

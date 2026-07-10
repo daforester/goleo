@@ -9,6 +9,13 @@ export interface WindowOptions {
   url?: string
   /** Load the app's own server root plus this path (e.g. "/settings"). */
   path?: string
+  /** Quit the whole app when this window closes (default false). */
+  exitOnClose?: boolean
+}
+
+/** Request a graceful app shutdown (desktop). */
+export async function quitApp(): Promise<void> {
+  await invoke<void>('goleo:quit')
 }
 
 /** Desktop capabilities the running platform supports. */
