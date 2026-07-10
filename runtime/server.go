@@ -169,7 +169,7 @@ func (s *Server) handleInvoke(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
-	if !originAllowed(r.Header.Get("Origin"), s.allowedOrigins) {
+	if !s.originOK(r.Header.Get("Origin")) {
 		http.Error(w, "forbidden origin", http.StatusForbidden)
 		return
 	}
@@ -198,6 +198,16 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 // configured (dev mode), every request passes.
 func (s *Server) tokenOK(presented string) bool {
 	return s.token == "" || presented == s.token
+}
+
+// originOK reports whether a WS upgrade from origin is allowed. Enforced in
+// production only: in dev/emulation the frontend is loaded cross-origin by
+// design (e.g. `goleo emulate android` serves the UI from the host Vite server
+// via http://10.0.2.2:<port> while the bridge connects to the in-app localhost
+// backend), so enforcing the allow-list there would reject the legitimate
+// upgrade and drop the app into local-only mode. Dev CORS is likewise permissive.
+func (s *Server) originOK(origin string) bool {
+	return s.config.DevMode || originAllowed(origin, s.allowedOrigins)
 }
 
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
