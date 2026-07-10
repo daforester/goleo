@@ -48,6 +48,7 @@ export {
   startSensor,
   stopSensor,
   startBrowserSensor,
+  startNativeSensor,
 } from './sensors'
 export type { SensorData } from './sensors'
 export {
@@ -77,6 +78,19 @@ export {
   getSubscription as pushGetSubscription,
 } from './push'
 export type { PushSubscriptionData } from './push'
+export {
+  share,
+} from './share'
+export type { ShareData } from './share'
+export {
+  openWindow,
+  closeWindow,
+  listWindows,
+  getCapabilities,
+  isWindowingSupported,
+  isTraySupported,
+} from './window'
+export type { WindowOptions, Capabilities } from './window'
 export type {
   OSInfo,
   PlatformInfo,

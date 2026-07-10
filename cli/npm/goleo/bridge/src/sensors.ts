@@ -27,6 +27,27 @@ export async function stopSensor(type: string): Promise<void> {
   }
 }
 
+// Native sensor reading: arms the platform sensor manager (Android
+// SensorManager / iOS CoreMotion, see MainActivity.java's GoleoSensors) and
+// delivers readings as goleo:sensorReading bridge events. Throws if there's
+// no native provider registered — callers should catch and fall back to
+// startBrowserSensor.
+export async function startNativeSensor(
+  type: string,
+  callback: (data: SensorData) => void,
+): Promise<() => void> {
+  await startSensor(type)
+  const handler = (data: unknown) => {
+    const reading = data as SensorData
+    if (reading.type === type) callback(reading)
+  }
+  bridge().on('goleo:sensorReading', handler)
+  return () => {
+    bridge().off('goleo:sensorReading', handler)
+    stopSensor(type).catch(() => {})
+  }
+}
+
 // Browser-side sensor reading (only works in secure contexts)
 export function startBrowserSensor(type: string, callback: (data: SensorData) => void): () => void {
   if (typeof window === 'undefined') {

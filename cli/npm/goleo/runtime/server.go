@@ -2,6 +2,8 @@ package runtime
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,6 +11,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strings"
 )
 
 type Server struct {
@@ -16,6 +19,17 @@ type Server struct {
 	bridge   *Bridge
 	server   *http.Server
 	listener net.Listener
+
+	// token is a per-launch secret required on the bridge in production. It is
+	// delivered to the frontend out of the file server (injected into
+	// index.html as window.__GOLEO_TOKEN__) and echoed back on the WS handshake
+	// (?token=) and /api/invoke (X-Goleo-Token). Empty in dev mode, where the
+	// Vite dev server serves the HTML and localhost-only development is trusted.
+	token string
+	// allowedOrigins gates the WS upgrade and CORS: the app's own loopback
+	// origins (and, in dev, the Vite origin). Blocks a malicious page in the
+	// user's browser from driving the bridge over the loopback port.
+	allowedOrigins []string
 }
 
 func NewServer(cfg Config, bridge *Bridge) (*Server, error) {
@@ -31,32 +45,31 @@ func (s *Server) Start(ctx context.Context) (int, error) {
 	mux.HandleFunc("/ws", s.handleWebSocket)
 	mux.HandleFunc("/api/invoke", s.handleInvoke)
 
+	mode := "production"
 	if s.config.DevMode {
-		mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(`{"status":"ok","mode":"dev"}`))
-		})
-	} else {
-		mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(`{"status":"ok","mode":"production"}`))
-		})
+		mode = "dev"
+	}
+	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"status":"ok","mode":%q}`, mode)
+	})
 
-		if s.config.EmbedFS != nil {
-			if efs, ok := s.config.EmbedFS.(fs.FS); ok {
-				feFS, err := fs.Sub(efs, "frontend/dist")
-				if err != nil {
-					feFS = efs
-				}
-				fileServer := http.FileServer(http.FS(feFS))
-				mux.Handle("/", fileServer)
+	if !s.config.DevMode && s.config.EmbedFS != nil {
+		if efs, ok := s.config.EmbedFS.(fs.FS); ok {
+			feFS, err := fs.Sub(efs, "frontend/dist")
+			if err != nil {
+				feFS = efs
 			}
+			mux.Handle("/", s.staticHandler(feFS))
 		}
 	}
 
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", s.config.Port))
+	// Bind loopback-only: the bridge must never be reachable from the network,
+	// only from processes on this machine (and, in production, only with the
+	// token). Falls back to an OS-assigned port if the configured one is taken.
+	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", s.config.Port))
 	if err != nil {
-		listener, err = net.Listen("tcp", ":0")
+		listener, err = net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
 			return 0, fmt.Errorf("failed to listen: %w", err)
 		}
@@ -64,6 +77,11 @@ func (s *Server) Start(ctx context.Context) (int, error) {
 
 	s.listener = listener
 	port := listener.Addr().(*net.TCPAddr).Port
+
+	s.allowedOrigins = defaultAllowedOrigins(port, s.config)
+	if !s.config.DevMode {
+		s.token = generateToken()
+	}
 
 	s.server = &http.Server{
 		Handler: s.corsMiddleware(mux),
@@ -127,6 +145,11 @@ func (s *Server) handleInvoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !s.tokenOK(r.Header.Get("X-Goleo-Token")) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "failed to read body", http.StatusBadRequest)
@@ -146,6 +169,15 @@ func (s *Server) handleInvoke(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	if !originAllowed(r.Header.Get("Origin"), s.allowedOrigins) {
+		http.Error(w, "forbidden origin", http.StatusForbidden)
+		return
+	}
+	if !s.tokenOK(r.URL.Query().Get("token")) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("websocket upgrade error: %v", err)
@@ -162,13 +194,22 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	go c.readPump(s.bridge)
 }
 
+// tokenOK reports whether the presented token is acceptable. When no token is
+// configured (dev mode), every request passes.
+func (s *Server) tokenOK(presented string) bool {
+	return s.token == "" || presented == s.token
+}
+
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
-		if origin != "" {
+		// Dev mode reflects any origin (local development convenience). In
+		// production only the app's own allowed origins are permitted — no
+		// wildcard reflection.
+		if origin != "" && (s.config.DevMode || originAllowed(origin, s.allowedOrigins)) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Goleo-Token")
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
 		}
 
@@ -179,4 +220,76 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// staticHandler serves the embedded frontend, injecting the bridge token into
+// the root document so the frontend can authenticate without an extra request.
+func (s *Server) staticHandler(feFS fs.FS) http.Handler {
+	fileServer := http.FileServer(http.FS(feFS))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" || r.URL.Path == "/index.html" {
+			if data, err := fs.ReadFile(feFS, "index.html"); err == nil {
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				w.Write(injectToken(data, s.token))
+				return
+			}
+		}
+		fileServer.ServeHTTP(w, r)
+	})
+}
+
+// --- hardening helpers (unit-tested in server_test.go) ---
+
+func generateToken() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		// Fail open on the token (origin checks still apply) rather than crash.
+		return ""
+	}
+	return hex.EncodeToString(b)
+}
+
+func defaultAllowedOrigins(port int, cfg Config) []string {
+	origins := []string{
+		fmt.Sprintf("http://127.0.0.1:%d", port),
+		fmt.Sprintf("http://localhost:%d", port),
+	}
+	if cfg.DevMode {
+		dev := cfg.DevServer
+		if dev == "" {
+			dev = "http://localhost:5173"
+		}
+		origins = append(origins, dev)
+	}
+	return origins
+}
+
+// originAllowed permits an empty Origin (native/non-browser clients such as the
+// desktop or mobile WebView, and CLI tools) and exact matches against the
+// allow-list. A non-empty, non-matching Origin (e.g. a page in the user's
+// browser) is rejected.
+func originAllowed(origin string, allowed []string) bool {
+	if origin == "" {
+		return true
+	}
+	for _, a := range allowed {
+		if origin == a {
+			return true
+		}
+	}
+	return false
+}
+
+// injectToken inserts window.__GOLEO_TOKEN__ into the document head so the
+// bridge can read it. No-op when token is empty (dev mode).
+func injectToken(html []byte, token string) []byte {
+	if token == "" {
+		return html
+	}
+	tag := "<script>window.__GOLEO_TOKEN__='" + token + "';</script>"
+	doc := string(html)
+	if i := strings.Index(doc, "</head>"); i >= 0 {
+		return []byte(doc[:i] + tag + doc[i:])
+	}
+	return append([]byte(tag), html...)
 }
