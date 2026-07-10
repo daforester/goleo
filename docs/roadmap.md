@@ -201,7 +201,9 @@ Effort legend: S = days · M = 1–2 wk · L = 2–4 wk · XL = 1 mo+ (single-de
 - [ ] All desktop-binding/window/tray code behind `//go:build !mobilebuild` (+ GOOS). `darwin` ≠ iOS — rely on `!mobilebuild` (gomobile sets it) to keep purego out of iOS.
 - [ ] Never call window/tray/desktop-webview code from the `StartServer` (mobile) path.
 - [ ] Keep the loopback server + WS bridge as mobile's (and dev-mode's) transport, even after desktop moves to native-bind.
-- [ ] CI runs the `-tags mobilebuild` compile check.
+- [x] CI runs the mobile compile guard — **on GOOS=android *and* GOOS=ios** with
+  `-tags mobilebuild` (never the host GOOS: `linux + mobilebuild` is unreal and trips
+  cgo-only desktop files like `camera_linux.go`).
 
 ---
 

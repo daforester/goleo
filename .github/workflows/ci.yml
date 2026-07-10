@@ -15,20 +15,29 @@ jobs:
         with:
           go-version-file: go.mod
 
-      # Windows uses the cgo-free go-webview2 backend, so this builds without a
-      # C toolchain or platform libraries.
+      # Windows uses the cgo-free go-webview2 backend, so this cross-builds from
+      # Linux without a C toolchain or platform libraries.
       - name: Windows build (cgo-free)
         run: CGO_ENABLED=0 GOOS=windows go build ./runtime/...
 
-      # Mobile-safety guard: under -tags mobilebuild all desktop webview/window/
-      # tray code must be excluded (the stub is used). If any desktop-only import
-      # leaks into the mobile build set, this fails fast — protecting the gomobile
-      # (Android/iOS) deployment.
-      - name: Mobile-safety guard (desktop code excluded under mobilebuild)
-        run: CGO_ENABLED=0 go build -tags mobilebuild ./runtime/...
+      # Mobile-safety guard: replicate the gomobile compile set on the REAL
+      # mobile targets (GOOS=android/ios) with -tags mobilebuild. All desktop
+      # webview/window/tray code and desktop-only feature impls must be excluded
+      # (the stub is used); if any leaks in, this fails fast. The feature tag
+      # exercises a device-feature mobile provider path too.
+      #
+      # NOTE: this must target android/ios, not the host GOOS. `linux +
+      # mobilebuild` is an unreal combination that trips over cgo-only desktop
+      # files (e.g. camera_linux.go) and says nothing about mobile safety.
+      - name: Mobile guard — android
+        run: |
+          CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build -tags mobilebuild ./runtime/...
+          CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build -tags "mobilebuild goleo_share" ./runtime/...
 
-      - name: Vet (mobile tag)
-        run: go vet -tags mobilebuild ./runtime/...
+      - name: Mobile guard — ios
+        run: |
+          CGO_ENABLED=0 GOOS=ios GOARCH=arm64 go build -tags mobilebuild ./runtime/...
+          CGO_ENABLED=0 GOOS=ios GOARCH=arm64 go build -tags "mobilebuild goleo_share" ./runtime/...
 
       - name: CLI build
         run: go build ./cli/...
