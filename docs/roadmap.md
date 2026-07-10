@@ -98,6 +98,14 @@
   satisfy `windowSpawner`. Cross-platform, mirror synced. **Remaining lifecycle:** the
   `Config.Background` daemon/headless-controller mode and the tray (both main-thread-coupled,
   come with the tray increment).
+- **D4 single-instance (complete, cross-platform, pure Go)** — `runtime/singleinstance/`: the
+  first launch binds a per-app loopback address and becomes primary; a later launch forwards
+  its args (with an ACK handshake, so an unrelated program on the port isn't mistaken for us)
+  and **exits**. The primary emits `app:secondInstance{args}` (for focusing a window / deep
+  links). Opt-in via `Config.SingleInstance` (+ `AppID`); acquired before the server binds;
+  released on shutdown. **Fully unit-tested** with real in-process loopback IPC
+  (acquire/forward/ACK, re-acquire after close) — no GUI needed. Also the daemon "wake"
+  mechanism and the basis for deep-linking. Cross-platform; mirror synced.
 - **D3a Capability ACL (central enforcement, complete)** — `runtime/policy.go`: a `Policy`
   (Allow list with `prefix*` wildcards + always-safe core commands) enforced **centrally in
   `Bridge.HandleRequest`** (deny-by-default when a policy is set; no policy = legacy-permissive,

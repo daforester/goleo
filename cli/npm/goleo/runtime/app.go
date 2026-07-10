@@ -11,15 +11,18 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/daforester/goleo/runtime/singleinstance"
 )
 
 type App struct {
 	config  Config
 	bridge  *Bridge
 	server  *Server
-	jsr     *JSRuntime
-	windows windowSpawner
-	port    int
+	jsr      *JSRuntime
+	windows  windowSpawner
+	instance *singleinstance.Instance
+	port     int
 	mu      sync.Mutex
 	running bool
 	cancel  context.CancelFunc
@@ -39,6 +42,11 @@ type Config struct {
 	// (each on its own OS thread) instead of child processes. Windows only for
 	// now; ignored elsewhere (falls back to multi-process). See spikes/win-multiwindow.
 	InProcessWindows bool
+	// SingleInstance, when true, allows only one running instance; a second
+	// launch forwards its args to the running one (emitting app:secondInstance)
+	// and exits. AppID identifies the app for the lock (defaults to Title).
+	SingleInstance bool
+	AppID          string
 	// InitJS is the path to a JavaScript startup script that controls window
 	// creation (createWindow/getConfig API). When set, the file must exist.
 	// When empty, init.js then backend/init.js are tried; if neither exists
@@ -113,6 +121,27 @@ func (a *App) Run() error {
 	// pointed at the parent's server — no server, no init script, no lifecycle.
 	if isWindowChild() {
 		return a.runWindowChild()
+	}
+
+	// Single-instance: a second launch forwards its args to the running app
+	// and exits, rather than starting a second backend. Done before the server
+	// binds so a secondary never claims the port.
+	if a.config.SingleInstance {
+		appID := a.config.AppID
+		if appID == "" {
+			appID = a.config.Title
+		}
+		inst, primary, err := singleinstance.Acquire(appID, os.Args[1:], func(args []string) {
+			a.Emit("app:secondInstance", map[string]any{"args": args})
+		})
+		if err != nil {
+			fmt.Printf("  single-instance: %v — starting normally\n", err)
+		} else if !primary {
+			fmt.Println("  Another instance is already running — forwarded and exiting.")
+			return nil
+		} else {
+			a.instance = inst
+		}
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -212,6 +241,9 @@ func (a *App) shutdown() error {
 
 	if a.windows != nil {
 		a.windows.CloseAll()
+	}
+	if a.instance != nil {
+		a.instance.Close()
 	}
 
 	a.bridge.Emit("app:shutdown", map[string]any{})
