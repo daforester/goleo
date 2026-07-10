@@ -22,6 +22,13 @@
   `errors.ErrUnsupported`-wrapped guards on the desktop APIs, `goleo:capabilities` query,
   TS support checks. Desktop APIs refuse gracefully on mobile/PWA.
 - **Docs** — `AGENTS.md` updated (dual webview backend + multi-window); this masterplan.
+- **D3b server hardening** — loopback bind + Origin allow-list + per-launch token (see §2).
+- **Share feature (Track F, desktop-complete)** — `runtime/share/*` (native URL hand-off on
+  Win/mac/Linux, mobile provider interface, stub), `runtime/share_reexport.go`,
+  `bridge/src/share.ts` (Web Share API + clipboard fallback), `scan.go` + `schema.go`
+  registered (`goleo:share`, tag `goleo_share`). **Remaining for full mobile:** gomobile
+  provider template (`tmplMobileShareGo`), Android/iOS shell wiring, a `ShareDemo.vue`, the
+  `create-goleo-app` template mirror, and dist rebuild — all need an emulator to verify.
 
 **Feasibility proven (spikes, see Decision Log):**
 - **Windows** cgo-free build; **Linux** cgo-free `dlopen` (Spike 1); **macOS** cgo-free

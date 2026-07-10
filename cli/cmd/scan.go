@@ -106,6 +106,13 @@ var featureRegistry = []Feature{
 		BuildTag:    "goleo_push",
 		Permissions: []string{"android.permission.POST_NOTIFICATIONS"},
 	},
+	{
+		// Android shares via Intent.ACTION_SEND and iOS via
+		// UIActivityViewController — neither needs a manifest permission.
+		Name:        "Share",
+		BuildTag:    "goleo_share",
+		Permissions: []string{},
+	},
 }
 
 var scanPatterns = []struct {
@@ -127,10 +134,11 @@ var scanPatterns = []struct {
 	{Pattern: regexp.MustCompile(`RegisterVibration\(`), Feature: "Vibration", Source: "go"},
 	{Pattern: regexp.MustCompile(`RegisterBackground\(`), Feature: "Background", Source: "go"},
 	{Pattern: regexp.MustCompile(`RegisterPush\(`), Feature: "Push", Source: "go"},
+	{Pattern: regexp.MustCompile(`RegisterShare\(`), Feature: "Share", Source: "go"},
 	// Go: invoke strings containing feature names
-	{Pattern: regexp.MustCompile(`"goleo:(clipboard|nfc|ble|geolocation|camera|fs|dialog|battery|wakelock|vibration|sensor|background|push)[A-Z"']`), Feature: "StringRef", Source: "go"},
+	{Pattern: regexp.MustCompile(`"goleo:(clipboard|nfc|ble|geolocation|camera|fs|dialog|battery|wakelock|vibration|sensor|background|push|share)[A-Z"']`), Feature: "StringRef", Source: "go"},
 	// TS: convenience module imports
-	{Pattern: regexp.MustCompile(`@goleo/bridge/(clipboard|nfc|bluetooth|geolocation|camera|fs|dialog|battery|screen|vibration|sensor|background|push)`), Feature: "ImportRef", Source: "ts"},
+	{Pattern: regexp.MustCompile(`@goleo/bridge/(clipboard|nfc|bluetooth|geolocation|camera|fs|dialog|battery|screen|vibration|sensor|background|push|share)`), Feature: "ImportRef", Source: "ts"},
 	// TS: on() event listeners for feature events
 	{Pattern: regexp.MustCompile(`on\('goleo:(nfc|ble|geolocation|camera|background|push|location|battery)`), Feature: "EventRef", Source: "ts"},
 }

@@ -52,6 +52,9 @@ var KnownCommands = []CommandDecl{
 	// Battery (feature: Battery / goleo_battery)
 	{Method: "goleo:batteryGetInfo", ReturnType: "{ level: number; charging: boolean; chargingTime?: number; dischargingTime?: number }", Description: "Get battery status information", Feature: "Battery"},
 
+	// Share (feature: Share / goleo_share)
+	{Method: "goleo:share", Args: "{ title?: string; text?: string; url?: string }", ReturnType: "void", Description: "Open the native share sheet", Feature: "Share"},
+
 	// WakeLock (feature: WakeLock / goleo_wakelock)
 	{Method: "goleo:wakeLockRequest", Args: "{ type?: string }", ReturnType: "void", Description: "Request a wake lock to keep the screen on", Feature: "WakeLock"},
 	{Method: "goleo:wakeLockRelease", ReturnType: "void", Description: "Release an active wake lock", Feature: "WakeLock"},

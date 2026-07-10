@@ -79,6 +79,10 @@ export {
 } from './push'
 export type { PushSubscriptionData } from './push'
 export {
+  share,
+} from './share'
+export type { ShareData } from './share'
+export {
   openWindow,
   closeWindow,
   listWindows,
