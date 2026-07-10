@@ -64,6 +64,15 @@
   signing is **skipped with a notice**, not a failure. Unit-tested: env enable/disable logic.
   Real signing needs certs + the target OS (not verifiable here). Linux package signing is a
   follow-up.
+- **D1 closed — `goleo build --publish`** — writes the ed25519-signed update manifest the D1c
+  client consumes, closing the loop `build → bundle → sign → publish → auto-update`. Copies the
+  built binary to a platform-named artifact, SHA256s it, merges a `Release` for the current
+  platform into `dist/bundle/manifest.json`, and signs with `GOLEO_UPDATE_PRIVKEY` (repeated
+  per-OS runs accumulate). Added `updater.SignManifest` (counterpart to `VerifyManifest`) and
+  `goleo generate updater-key` (prints an ed25519 keypair). Unit-tested: `mergeAndSign`
+  round-trips through the real verifier + accumulates/overwrites platforms. Mirror synced.
+  **D1 (distribution) is now coherent end-to-end**; remaining niceties: AppImage/WiX,
+  Linux GPG signing, and running the real toolchain on each OS.
 - **Android dev secure-context fix** — `goleo emulate android` now serves the frontend over
   **`http://localhost:<vitePort>` via `adb reverse`** instead of `http://10.0.2.2` (which is
   *not* a secure context, silently disabling the WebView's secure-context-only APIs:

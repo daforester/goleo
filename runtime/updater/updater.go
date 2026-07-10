@@ -79,6 +79,21 @@ func VerifyManifest(data []byte, pubKey ed25519.PublicKey) (*Manifest, error) {
 	return &m, nil
 }
 
+// SignManifest produces a signed-manifest document: the manifest JSON plus a
+// base64 ed25519 signature over exactly those bytes. It is the counterpart to
+// VerifyManifest and is used by the publisher (goleo build --publish).
+func SignManifest(m *Manifest, priv ed25519.PrivateKey) ([]byte, error) {
+	raw, err := json.Marshal(m)
+	if err != nil {
+		return nil, err
+	}
+	sig := ed25519.Sign(priv, raw)
+	return json.Marshal(signedManifest{
+		Manifest:  raw,
+		Signature: base64.StdEncoding.EncodeToString(sig),
+	})
+}
+
 // CheckForUpdate returns the release for platform if it is newer than current.
 func CheckForUpdate(current string, m *Manifest, platform string) (*Release, bool) {
 	rel, ok := m.Releases[platform]

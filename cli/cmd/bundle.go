@@ -19,6 +19,10 @@ type bundleConfig struct {
 	IconICO    string // Windows icon path
 	IconICNS   string // macOS icon path
 	IconPNG    string // Linux icon path
+
+	// Publish (updater manifest)
+	UpdateURLBase string // base URL where update artifacts are hosted
+	ReleaseNotes  string // notes for this release
 }
 
 func loadBundleConfig(projectDir string) bundleConfig {
@@ -50,6 +54,8 @@ func loadBundleConfig(projectDir string) bundleConfig {
 		cfg.IconICO = str("icon_ico")
 		cfg.IconICNS = str("icon_icns")
 		cfg.IconPNG = str("icon_png")
+		cfg.UpdateURLBase = str("update_url_base")
+		cfg.ReleaseNotes = str("release_notes")
 	}
 	return cfg
 }

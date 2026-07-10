@@ -2,23 +2,13 @@ package updater
 
 import (
 	"crypto/ed25519"
-	"encoding/base64"
-	"encoding/json"
 	"testing"
 )
 
-// signManifest is a test helper mirroring what a publisher's signing tool does.
+// signManifest exercises the exported SignManifest used by the publisher.
 func signManifest(t *testing.T, priv ed25519.PrivateKey, m Manifest) []byte {
 	t.Helper()
-	raw, err := json.Marshal(m)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sig := ed25519.Sign(priv, raw)
-	doc, err := json.Marshal(signedManifest{
-		Manifest:  raw,
-		Signature: base64.StdEncoding.EncodeToString(sig),
-	})
+	doc, err := SignManifest(&m, priv)
 	if err != nil {
 		t.Fatal(err)
 	}

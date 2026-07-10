@@ -45,6 +45,7 @@ var (
 	androidAPI      int
 	iosDeployTarget string
 	buildBundle     bool
+	buildPublish    bool
 )
 
 func init() {
@@ -54,6 +55,7 @@ func init() {
 	buildCmd.Flags().IntVarP(&androidAPI, "android-api", "", 24, "Android API level")
 	buildCmd.Flags().StringVarP(&iosDeployTarget, "ios-target", "", "14.0", "iOS deployment target")
 	buildCmd.Flags().BoolVar(&buildBundle, "bundle", false, "Package the built desktop app into a native installer (dist/bundle/)")
+	buildCmd.Flags().BoolVar(&buildPublish, "publish", false, "Write an ed25519-signed update manifest for the built binary (needs GOLEO_UPDATE_PRIVKEY)")
 }
 
 type buildTarget struct {
@@ -123,13 +125,23 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	if err := buildForDesktop(target, frontendDist); err != nil {
 		return err
 	}
-	if buildBundle {
+	if buildBundle || buildPublish {
 		outName := buildOutput
 		if outName == "" {
 			outName = "app"
 		}
 		binPath, _ := filepath.Abs(outName + target.OutputExt)
-		return runBundle(target, binPath, loadBundleConfig("."))
+		cfg := loadBundleConfig(".")
+		if buildBundle {
+			if err := runBundle(target, binPath, cfg); err != nil {
+				return err
+			}
+		}
+		if buildPublish {
+			if err := runPublish(target, binPath, cfg); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

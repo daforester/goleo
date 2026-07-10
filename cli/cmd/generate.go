@@ -1,6 +1,9 @@
 package cmd
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -31,9 +34,32 @@ Usage:
 	RunE: runGenerateTypes,
 }
 
+var generateUpdaterKeyCmd = &cobra.Command{
+	Use:   "updater-key",
+	Short: "Generate an ed25519 keypair for signing update manifests",
+	Long: `Generate an ed25519 keypair for the auto-updater.
+
+Set the private key as GOLEO_UPDATE_PRIVKEY when running
+` + "`goleo build --publish`" + `, and embed the public key in your app's
+RegisterUpdater config (UpdaterConfig.PublicKey).`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		pub, priv, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			return fmt.Errorf("generating key: %w", err)
+		}
+		fmt.Println("Private key — keep secret; set as GOLEO_UPDATE_PRIVKEY when publishing:")
+		fmt.Println("  " + base64.StdEncoding.EncodeToString(priv))
+		fmt.Println()
+		fmt.Println("Public key — embed in RegisterUpdater(UpdaterConfig{PublicKey: ...}):")
+		fmt.Println("  " + base64.StdEncoding.EncodeToString(pub))
+		return nil
+	},
+}
+
 func init() {
 	rootCmd.AddCommand(generateCmd)
 	generateCmd.AddCommand(generateTypesCmd)
+	generateCmd.AddCommand(generateUpdaterKeyCmd)
 	generateTypesCmd.Flags().StringP("output", "o", "", "Output path for the generated types")
 }
 
