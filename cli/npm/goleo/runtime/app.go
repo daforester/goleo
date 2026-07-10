@@ -228,6 +228,12 @@ func (a *App) Emit(event string, data any) {
 	a.bridge.Emit(event, data)
 }
 
+// SetPolicy installs a capability ACL (see Policy) enforced on every invoke.
+// Call before Run. Passing nil (the default) disables enforcement.
+func (a *App) SetPolicy(p *Policy) {
+	a.bridge.SetPolicy(p)
+}
+
 // OpenWindow opens an additional native window (a child process hosting one
 // webview) and returns its id. Guarded: on platforms without native windowing
 // (mobile, wasm/PWA) it returns an errors.ErrUnsupported-wrapped error rather

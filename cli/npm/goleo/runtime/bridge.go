@@ -34,6 +34,15 @@ type Bridge struct {
 	subscribers []chan EventMessage
 	mu         sync.RWMutex
 	pending    map[string]chan InvokeResponse
+	policy     *Policy
+}
+
+// SetPolicy installs a capability ACL enforced on every invoke. Passing nil
+// disables enforcement (the default). See Policy.
+func (b *Bridge) SetPolicy(p *Policy) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.policy = p
 }
 
 func NewBridge() *Bridge {
@@ -82,8 +91,18 @@ func (b *Bridge) Emit(event string, data any) {
 
 func (b *Bridge) HandleRequest(req InvokeRequest) InvokeResponse {
 	b.mu.RLock()
+	pol := b.policy
 	fn, ok := b.handlers[req.Method]
 	b.mu.RUnlock()
+
+	// Central capability enforcement: a set policy denies any method not
+	// explicitly allowed (deny-by-default), before the handler runs.
+	if pol != nil && !pol.allowsMethod(req.Method) {
+		return InvokeResponse{
+			ID:    req.ID,
+			Error: fmt.Sprintf("permission denied: %s", req.Method),
+		}
+	}
 
 	if !ok {
 		return InvokeResponse{

@@ -73,6 +73,14 @@
   round-trips through the real verifier + accumulates/overwrites platforms. Mirror synced.
   **D1 (distribution) is now coherent end-to-end**; remaining niceties: AppImage/WiX,
   Linux GPG signing, and running the real toolchain on each OS.
+- **D3a Capability ACL (central enforcement, complete)** — `runtime/policy.go`: a `Policy`
+  (Allow list with `prefix*` wildcards + always-safe core commands) enforced **centrally in
+  `Bridge.HandleRequest`** (deny-by-default when a policy is set; no policy = legacy-permissive,
+  so nothing breaks by default). `App.SetPolicy`/`Bridge.SetPolicy`. Scope helpers
+  (`AllowsFSPath` with traversal-safe cleaning, `AllowsHTTPHost`, `AllowsShellProgram`) ready
+  for plugins. Unit-tested: method allow/deny (exact/prefix/core), fs/http/shell scopes, and
+  that a denied handler never runs. Mirror synced. **Remaining:** wire the scope checks into
+  the individual plugins (fs now; http/shell when built in D2).
 - **Android dev secure-context fix** — `goleo emulate android` now serves the frontend over
   **`http://localhost:<vitePort>` via `adb reverse`** instead of `http://10.0.2.2` (which is
   *not* a secure context, silently disabling the WebView's secure-context-only APIs:
