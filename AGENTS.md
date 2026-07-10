@@ -22,7 +22,7 @@ goleo/
 │   ├── examples.go        # Built-in sample commands
 │   └── embed.go           # Embed.FS helper for frontend assets
 ├── cli/                   # CLI tool (goleo binary)
-│   ├── main.go            # Entry point
+│   ├── goleo/main.go      # Entry point (go install .../cli/goleo@latest)
 │   └── cmd/
 │       ├── root.go        # Root cobra command
 │       ├── new.go         # goleo new - scaffold a project

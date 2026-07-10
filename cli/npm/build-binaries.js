@@ -28,7 +28,7 @@ for (const t of targets) {
   const outName = `${binaryName}-${t.goos}-${t.goarch}`
 
   console.log(`Building ${t.goos}/${t.goarch}...`)
-  execSync('go build -o ' + resolve(OUTPUT_DIR, outName) + ' ./cli/', {
+  execSync('go build -o ' + resolve(OUTPUT_DIR, outName) + ' ./cli/goleo/', {
     cwd: PROJECT_ROOT,
     env: { ...process.env, GOOS: t.goos, GOARCH: t.goarch, CGO_ENABLED: '0' },
     stdio: 'inherit',

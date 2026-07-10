@@ -54,7 +54,7 @@ Pop-Location
 Write-Host ""
 Write-Host ">> Building Go CLI binary..." -ForegroundColor Yellow
 Push-Location "$PSScriptRoot\.."
-go build -o goleo.exe .\cli\
+go build -o goleo.exe .\cli\goleo\
 if ($LASTEXITCODE -ne 0) { Write-Host "Go build failed" -ForegroundColor Red; exit 1 }
 Write-Host "   goleo.exe built" -ForegroundColor Green
 

@@ -63,7 +63,7 @@ popd > /dev/null
 step "Building Go CLI binary..."
 
 pushd "$ROOT" > /dev/null
-go build -o goleo ./cli/ || fail "Go build failed"
+go build -o goleo ./cli/goleo/ || fail "Go build failed"
 ok "goleo binary built"
 
 mkdir -p "$ROOT/cli/npm/bin"

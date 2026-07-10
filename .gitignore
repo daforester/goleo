@@ -1,5 +1,6 @@
 .idea/
 *.exe
+/goleo
 node_modules/
 dist/
 prebuilt/
