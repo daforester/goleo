@@ -80,6 +80,16 @@
   (no `edge`-layer single-loop rewrite) — the alternative to today's multi-process model.
   **Runnable on the developer's Windows desktop** (`go run .`); PASS = two independent windows.
   Outcome decides D4.0's Windows path (multi-thread vs. hidden-master single-loop).
+  **Result: ✅ PASS** (ran on the dev's Windows desktop) — see `SPIKES.md`.
+- **D4.0 in-process WindowManager (Windows, opt-in)** — built on the passing spike:
+  `inProcWindowManager` (`runtime/windowmanager.go`) hosts each extra window on its own
+  `LockOSThread` goroutine instead of a child process; close via the webview's
+  `Dispatch`+`Terminate` (new methods on `WebviewWindow`). Selected by `Config.InProcessWindows`
+  on Windows (else the multi-process manager, unchanged — non-regressive) via a `windowSpawner`
+  interface both implement. Compiles host/windows/android/mobile-stub; run to verify on
+  Windows. macOS/Linux stay multi-process until their in-process bindings land (AppKit is
+  main-thread-only — the per-thread trick is Windows-specific). Spike findings recorded in
+  `SPIKES.md`.
 - **D3a Capability ACL (central enforcement, complete)** — `runtime/policy.go`: a `Policy`
   (Allow list with `prefix*` wildcards + always-safe core commands) enforced **centrally in
   `Bridge.HandleRequest`** (deny-by-default when a policy is set; no policy = legacy-permissive,

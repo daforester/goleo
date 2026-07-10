@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"runtime"
 	"strconv"
 	"sync"
 	"syscall"
@@ -17,7 +18,7 @@ type App struct {
 	bridge  *Bridge
 	server  *Server
 	jsr     *JSRuntime
-	windows *WindowManager
+	windows windowSpawner
 	port    int
 	mu      sync.Mutex
 	running bool
@@ -34,6 +35,10 @@ type Config struct {
 	Port       int
 	WindowMode WindowMode
 	EmbedFS    any
+	// InProcessWindows opts additional windows into the in-process model
+	// (each on its own OS thread) instead of child processes. Windows only for
+	// now; ignored elsewhere (falls back to multi-process). See spikes/win-multiwindow.
+	InProcessWindows bool
 	// InitJS is the path to a JavaScript startup script that controls window
 	// creation (createWindow/getConfig API). When set, the file must exist.
 	// When empty, init.js then backend/init.js are tried; if neither exists
@@ -121,7 +126,13 @@ func (a *App) Run() error {
 
 	// Multi-window is a desktop-only capability driven from Run (mobile enters
 	// through StartServer instead), so wire it up here once the port is known.
-	a.windows = newWindowManager(a)
+	// In-process windows are opt-in and (for now) Windows-only; everything else
+	// uses the cross-platform multi-process manager.
+	if a.config.InProcessWindows && runtime.GOOS == "windows" {
+		a.windows = newInProcWindowManager(a)
+	} else {
+		a.windows = newWindowManager(a)
+	}
 	a.registerWindowCommands()
 
 	if a.jsr == nil {

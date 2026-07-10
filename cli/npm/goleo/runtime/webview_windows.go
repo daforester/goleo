@@ -92,6 +92,21 @@ func (win *WebviewWindow) Destroy() {
 	}
 }
 
+// Dispatch runs f on the window's own UI thread (safe to call from any
+// goroutine). Terminate ends the window's Run loop. Used by the in-process
+// WindowManager to close a window from the backend goroutine.
+func (win *WebviewWindow) Dispatch(f func()) {
+	if win.w != nil {
+		win.w.Dispatch(f)
+	}
+}
+
+func (win *WebviewWindow) Terminate() {
+	if win.w != nil {
+		win.w.Terminate()
+	}
+}
+
 func (win *WebviewWindow) IsValid() bool {
 	return win.w != nil
 }
