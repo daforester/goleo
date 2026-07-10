@@ -16,6 +16,8 @@ import android.bluetooth.BluetoothProfile;
 import android.bluetooth.le.BluetoothLeScanner;
 import android.bluetooth.le.ScanCallback;
 import android.bluetooth.le.ScanResult;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.hardware.Sensor;
@@ -72,6 +74,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import gomobile.BackgroundProvider;
 import gomobile.BatteryProvider;
 import gomobile.BLEProvider;
+import gomobile.ClipboardProvider;
 import gomobile.Gomobile;
 import gomobile.NFCProvider;
 import gomobile.Notifier;
@@ -137,6 +140,7 @@ public class MainActivity extends AppCompatActivity {
         Gomobile.setBackgroundProvider(new GoleoBackground());
         Gomobile.setNFCProvider(goleoNfc);
         Gomobile.setBLEProvider(new GoleoBle());
+        Gomobile.setClipboardProvider(new GoleoClipboard());
 
         nfcAdapter = NfcAdapter.getDefaultAdapter(this);
         if (nfcAdapter != null) {
@@ -287,6 +291,7 @@ public class MainActivity extends AppCompatActivity {
         Gomobile.setBackgroundProvider(null);
         Gomobile.setNFCProvider(null);
         Gomobile.setBLEProvider(null);
+        Gomobile.setClipboardProvider(null);
         Gomobile.stopServer();
         super.onDestroy();
     }
@@ -417,6 +422,47 @@ public class MainActivity extends AppCompatActivity {
 
     // FLAG_KEEP_SCREEN_ON needs no permission and no wakelock service — it's
     // a window flag the OS honors only while this Activity is in front.
+    private class GoleoClipboard implements ClipboardProvider {
+        @Override
+        public String readText() {
+            final String[] result = {""};
+            final CountDownLatch latch = new CountDownLatch(1);
+            runOnUiThread(() -> {
+                try {
+                    ClipboardManager cm = getSystemService(ClipboardManager.class);
+                    if (cm != null && cm.hasPrimaryClip() && cm.getPrimaryClip().getItemCount() > 0) {
+                        CharSequence text = cm.getPrimaryClip().getItemAt(0).coerceToText(MainActivity.this);
+                        if (text != null) result[0] = text.toString();
+                    }
+                } catch (Exception e) {
+                    // leave empty on failure
+                } finally {
+                    latch.countDown();
+                }
+            });
+            try {
+                latch.await(2, java.util.concurrent.TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return result[0];
+        }
+
+        @Override
+        public void writeText(String text) {
+            runOnUiThread(() -> {
+                try {
+                    ClipboardManager cm = getSystemService(ClipboardManager.class);
+                    if (cm != null) {
+                        cm.setPrimaryClip(ClipData.newPlainText("goleo", text));
+                    }
+                } catch (Exception e) {
+                    // best effort
+                }
+            });
+        }
+    }
+
     private class GoleoWakeLock implements WakeLockProvider {
         @Override
         public void request(String typeName) {

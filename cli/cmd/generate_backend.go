@@ -65,6 +65,7 @@ func generateBackendEntrypoints(projectDir string) error {
 	static := map[string]string{
 		"backend/gomobile/notifier.go":   tmplMobileNotifierGo,
 		"backend/gomobile/features.go":   tmplMobileFeaturesGo,
+		"backend/gomobile/clipboard.go":  tmplMobileClipboardGo,
 		"backend/gomobile/battery.go":    tmplMobileBatteryGo,
 		"backend/gomobile/wakelock.go":   tmplMobileWakeLockGo,
 		"backend/gomobile/sensors.go":    tmplMobileSensorsGo,

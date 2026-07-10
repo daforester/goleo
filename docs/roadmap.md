@@ -29,6 +29,13 @@
   registered (`goleo:share`, tag `goleo_share`). **Remaining for full mobile:** gomobile
   provider template (`tmplMobileShareGo`), Android/iOS shell wiring, a `ShareDemo.vue`, the
   `create-goleo-app` template mirror, and dist rebuild — all need an emulator to verify.
+- **Clipboard Android native provider (bug fix)** — clipboard was half-wired: the Go
+  `Provider`/`SetClipboardProvider` existed, but there was no `tmplMobileClipboardGo` and no
+  `GoleoClipboard` in the shells, so on Android it hit the `GOOS` default ("not supported") and
+  the `navigator.clipboard` fallback fails in the WebView (insecure `10.0.2.2` in dev). Added
+  the gomobile `ClipboardProvider` template + generator entry + `GoleoClipboard`
+  (`ClipboardManager`, UI-thread-marshaled) in both android shells. **Remaining:** iOS
+  `AppDelegate` (`UIPasteboard`), `cli/npm` mirror + dist rebuild.
 - **D2 KV Store (complete)** — `runtime/store/` (JSON-file KV in the app-data dir, atomic
   writes, unit-tested; self-contained pure Go, **no build tag / permission / mobile shell** —
   works on every target incl. android/ios), `runtime/store_reexport.go` (`goleo:store*`),
