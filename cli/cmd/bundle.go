@@ -68,13 +68,14 @@ func runBundle(target buildTarget, binaryPath string, cfg bundleConfig) error {
 	}
 
 	fmt.Printf("\n  Bundling %s installer...\n", target.Label)
+	sc := loadSignConfig()
 	switch target.GOOS {
 	case "windows":
-		return bundleWindows(binaryPath, cfg, outDir)
+		return bundleWindows(binaryPath, cfg, outDir, sc)
 	case "darwin":
-		return bundleDarwin(binaryPath, cfg, outDir)
+		return bundleDarwin(binaryPath, cfg, outDir, sc)
 	case "linux":
-		return bundleLinux(binaryPath, cfg, outDir)
+		return bundleLinux(binaryPath, cfg, outDir, sc)
 	default:
 		return fmt.Errorf("bundle: unsupported target %s (desktop only)", target.GOOS)
 	}
@@ -89,9 +90,13 @@ func requireTool(name, hint string) (string, error) {
 
 // --- Windows (NSIS) ---
 
-func bundleWindows(binaryPath string, cfg bundleConfig, outDir string) error {
+func bundleWindows(binaryPath string, cfg bundleConfig, outDir string, sc signConfig) error {
 	tool, err := requireTool("makensis", "https://nsis.sourceforge.io")
 	if err != nil {
+		return err
+	}
+	// Sign the app binary first so the installed executable is trusted.
+	if err := signWindows(sc, binaryPath); err != nil {
 		return err
 	}
 	binBase := filepath.Base(binaryPath)
@@ -106,6 +111,10 @@ func bundleWindows(binaryPath string, cfg bundleConfig, outDir string) error {
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("bundle: makensis failed: %w", err)
+	}
+	// Sign the installer itself.
+	if err := signWindows(sc, outFile); err != nil {
+		return err
 	}
 	fmt.Printf("  Created %s\n", outFile)
 	return nil
@@ -132,7 +141,7 @@ func nsisScript(cfg bundleConfig, binaryPath, binBase, outFile string) string {
 
 // --- macOS (.app bundle + .dmg) ---
 
-func bundleDarwin(binaryPath string, cfg bundleConfig, outDir string) error {
+func bundleDarwin(binaryPath string, cfg bundleConfig, outDir string, sc signConfig) error {
 	// The .app bundle is pure file operations (no external tool).
 	appDir := filepath.Join(outDir, cfg.AppName+".app")
 	os.RemoveAll(appDir)
@@ -160,6 +169,11 @@ func bundleDarwin(binaryPath string, cfg bundleConfig, outDir string) error {
 	}
 	fmt.Printf("  Created %s\n", appDir)
 
+	// Code-sign the .app (hardened runtime) before packaging it into the .dmg.
+	if err := codesignMac(sc, appDir); err != nil {
+		return err
+	}
+
 	// The .dmg needs hdiutil, which is macOS-only.
 	tool, err := requireTool("hdiutil", "part of macOS; run this on macOS")
 	if err != nil {
@@ -174,6 +188,10 @@ func bundleDarwin(binaryPath string, cfg bundleConfig, outDir string) error {
 		return fmt.Errorf("bundle: hdiutil failed: %w", err)
 	}
 	fmt.Printf("  Created %s\n", dmg)
+	// Notarize + staple the .dmg (Apple requires notarization for distribution).
+	if err := notarizeMac(sc, dmg); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -197,7 +215,8 @@ func infoPlist(cfg bundleConfig, binBase string) string {
 
 // --- Linux (nfpm → .deb/.rpm) ---
 
-func bundleLinux(binaryPath string, cfg bundleConfig, outDir string) error {
+func bundleLinux(binaryPath string, cfg bundleConfig, outDir string, sc signConfig) error {
+	_ = sc // Linux package signing (dpkg-sig / rpm --addsign, GPG) is a follow-up
 	tool, err := requireTool("nfpm", "go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest")
 	if err != nil {
 		return err

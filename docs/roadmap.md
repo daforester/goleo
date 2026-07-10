@@ -56,6 +56,14 @@
   + target OS to emit real installers); AppImage/WiX(.msi) and `--publish` (write the signed
   updater manifest) are follow-ups. CLI-only — reaches npm users via a rebuilt `goleo` binary,
   not the runtime mirror.
+- **D1b Code signing & notarization (plumbing complete)** — `cli/cmd/signing.go`, hooked into
+  the bundler: Windows Authenticode (`signtool`, timestamped SHA-256 — signs app binary +
+  installer), macOS `codesign` (deep, hardened runtime) + `notarytool` submit/`stapler`.
+  **Env-driven** (`GOLEO_WIN_CERT[_PASSWORD]`, `GOLEO_MAC_IDENTITY`, `GOLEO_APPLE_ID`/
+  `_TEAM_ID`/`_PASSWORD`) so secrets stay out of the repo and CI injects them; unset →
+  signing is **skipped with a notice**, not a failure. Unit-tested: env enable/disable logic.
+  Real signing needs certs + the target OS (not verifiable here). Linux package signing is a
+  follow-up.
 - **Android dev secure-context fix** — `goleo emulate android` now serves the frontend over
   **`http://localhost:<vitePort>` via `adb reverse`** instead of `http://10.0.2.2` (which is
   *not* a secure context, silently disabling the WebView's secure-context-only APIs:
