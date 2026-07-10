@@ -262,7 +262,8 @@ use `gomobile`; iOS requires macOS + Xcode.
   native WebView.
 
 Deeper docs: [`AGENTS.md`](AGENTS.md) (architecture), [`docs/roadmap.md`](docs/roadmap.md)
-(masterplan + status), [`SPIKES.md`](SPIKES.md) (feasibility findings).
+(masterplan + status), [`SPIKES.md`](SPIKES.md) (feasibility findings),
+[`docs/comparison.md`](docs/comparison.md) (vs Tauri v2 & Wails v3).
 
 ---
 
