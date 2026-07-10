@@ -73,6 +73,13 @@
   round-trips through the real verifier + accumulates/overwrites platforms. Mirror synced.
   **D1 (distribution) is now coherent end-to-end**; remaining niceties: AppImage/WiX,
   Linux GPG signing, and running the real toolchain on each OS.
+- **D4 kickoff — Windows in-process multi-window spike** — `spikes/win-multiwindow/`: two
+  `go-webview2` windows in one process, each on its own locked OS thread (Windows gives each
+  thread a message queue), distinct WebView2 data dirs. Cross-compiles cgo-free
+  (`CGO_ENABLED=0 GOOS=windows`). Tests whether in-process multi-window is *cheap* on Windows
+  (no `edge`-layer single-loop rewrite) — the alternative to today's multi-process model.
+  **Runnable on the developer's Windows desktop** (`go run .`); PASS = two independent windows.
+  Outcome decides D4.0's Windows path (multi-thread vs. hidden-master single-loop).
 - **D3a Capability ACL (central enforcement, complete)** — `runtime/policy.go`: a `Policy`
   (Allow list with `prefix*` wildcards + always-safe core commands) enforced **centrally in
   `Bridge.HandleRequest`** (deny-by-default when a policy is set; no policy = legacy-permissive,
