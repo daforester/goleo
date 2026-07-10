@@ -29,6 +29,11 @@
   registered (`goleo:share`, tag `goleo_share`). **Remaining for full mobile:** gomobile
   provider template (`tmplMobileShareGo`), Android/iOS shell wiring, a `ShareDemo.vue`, the
   `create-goleo-app` template mirror, and dist rebuild — all need an emulator to verify.
+- **D2 KV Store (complete)** — `runtime/store/` (JSON-file KV in the app-data dir, atomic
+  writes, unit-tested; self-contained pure Go, **no build tag / permission / mobile shell** —
+  works on every target incl. android/ios), `runtime/store_reexport.go` (`goleo:store*`),
+  `bridge/src/store.ts` (localStorage fallback), `schema.go` typed overloads. Fully verified
+  here (no emulator needed).
 
 **Feasibility proven (spikes, see Decision Log):**
 - **Windows** cgo-free build; **Linux** cgo-free `dlopen` (Spike 1); **macOS** cgo-free

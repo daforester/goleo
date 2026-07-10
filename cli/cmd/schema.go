@@ -55,6 +55,13 @@ var KnownCommands = []CommandDecl{
 	// Share (feature: Share / goleo_share)
 	{Method: "goleo:share", Args: "{ title?: string; text?: string; url?: string }", ReturnType: "void", Description: "Open the native share sheet", Feature: "Share"},
 
+	// Store (persistent key/value — universal, no build tag / permission)
+	{Method: "goleo:storeGet", Args: "{ key: string }", ReturnType: "{ value: unknown; found: boolean }", Description: "Read a value from the key/value store"},
+	{Method: "goleo:storeSet", Args: "{ key: string; value: unknown }", ReturnType: "void", Description: "Write a value to the key/value store"},
+	{Method: "goleo:storeDelete", Args: "{ key: string }", ReturnType: "void", Description: "Delete a key from the store"},
+	{Method: "goleo:storeKeys", ReturnType: "string[]", Description: "List all keys in the store"},
+	{Method: "goleo:storeClear", ReturnType: "void", Description: "Clear all keys from the store"},
+
 	// WakeLock (feature: WakeLock / goleo_wakelock)
 	{Method: "goleo:wakeLockRequest", Args: "{ type?: string }", ReturnType: "void", Description: "Request a wake lock to keep the screen on", Feature: "WakeLock"},
 	{Method: "goleo:wakeLockRelease", ReturnType: "void", Description: "Release an active wake lock", Feature: "WakeLock"},
