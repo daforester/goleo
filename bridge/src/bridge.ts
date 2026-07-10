@@ -14,8 +14,13 @@ class Bridge {
   private readyResolve!: () => void
   private reconnectAttempts = 0
   private config: Required<BridgeConfig>
+  private token: string
 
   constructor(config: BridgeConfig = {}) {
+    // Per-launch bridge token injected by the Go server into index.html
+    // (window.__GOLEO_TOKEN__). Empty in dev / PWA, where no token is required.
+    this.token =
+      (typeof window !== 'undefined' && (window as unknown as { __GOLEO_TOKEN__?: string }).__GOLEO_TOKEN__) || ''
     this.config = {
       serverUrl: config.serverUrl || 'http://localhost:9842',
       wsUrl: config.wsUrl || 'ws://localhost:9842/ws',
@@ -44,7 +49,10 @@ class Bridge {
 
     return new Promise((resolve) => {
       try {
-        this.ws = new WebSocket(this.wsUrl)
+        const wsUrl = this.token
+          ? `${this.wsUrl}${this.wsUrl.includes('?') ? '&' : '?'}token=${encodeURIComponent(this.token)}`
+          : this.wsUrl
+        this.ws = new WebSocket(wsUrl)
       } catch {
         this.enterLocalMode()
         resolve()
@@ -257,9 +265,12 @@ class Bridge {
     const id = String(++this.requestId)
     const request: InvokeRequest = { id, method, args }
 
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (this.token) headers['X-Goleo-Token'] = this.token
+
     const response = await fetch(`${this.httpUrl}/api/invoke`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(request),
     })
 

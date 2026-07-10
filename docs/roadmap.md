@@ -99,9 +99,13 @@ per-OS cgo model.
 ### D3 — Security (M)
 - **3a Capability ACL** — declarative permissions in `goleo.json` (origin/window → allowed
   methods + scopes), enforced centrally in `Bridge` dispatch; deny-by-default for scoped plugins.
-- **3b Server hardening (interim B1)** — loopback-only bind, drop wildcard CORS in prod,
-  per-launch bridge token (passed to child windows via env), `Origin` check on WS upgrade.
-  Ship early; remains the dev/mobile posture after native-bind lands.
+- **3b Server hardening (interim B1)** — ✅ **DONE.** Loopback-only bind (`127.0.0.1`),
+  prod-strict Origin allow-list on WS upgrade + CORS (dev permissive), per-launch crypto token
+  injected into served `index.html` and validated on WS (`?token=`) + `/api/invoke`
+  (`X-Goleo-Token`), enforced in production only. Mobile hardened for free (loads injected
+  HTML). `runtime/server.go` + `server_test.go`; `bridge/src/bridge.ts` reads/sends the token.
+  Known interim limitation: a local process that scrapes `/` can read the injected token — the
+  real fix is the native-bind transport (D4), which removes the socket entirely.
 - **3c CSP** — configurable Content-Security-Policy for embedded assets.
 
 ### D4 — In-process binding, native-bind transport, multi-window & OS integration (XL)
