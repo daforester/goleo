@@ -48,6 +48,16 @@ type Config struct {
 	// and exits. AppID identifies the app for the lock (defaults to Title).
 	SingleInstance bool
 	AppID          string
+	// Background runs the app as a headless controller: no auto primary window
+	// (open windows on demand via OpenWindow / the tray), and the main thread
+	// runs the tray (if Tray is set) or blocks until Quit.
+	Background bool
+	// Tray adds a system tray icon + menu (used with Background). Desktop only.
+	Tray *TrayConfig
+	// OnReady runs (in a goroutine) once the server + window manager are up and
+	// the port is known — where OpenWindow works. Unlike OnStartup, which runs
+	// before the server binds.
+	OnReady func(ctx context.Context)
 	// InitJS is the path to a JavaScript startup script that controls window
 	// creation (createWindow/getConfig API). When set, the file must exist.
 	// When empty, init.js then backend/init.js are tried; if neither exists
@@ -171,6 +181,29 @@ func (a *App) Run() error {
 	a.jsr.port = port
 	if err := a.jsr.Run(); err != nil {
 		fmt.Printf("  Warning: init script: %v\n", err)
+	}
+
+	// Ready hook: server + window manager are up and the port is known, so
+	// OpenWindow works here (run in a goroutine — the main thread is about to be
+	// claimed by the webview/tray loop).
+	if a.config.OnReady != nil {
+		go a.config.OnReady(ctx)
+	}
+
+	// Background: headless controller — no in-process primary window. The main
+	// thread runs the tray (if configured) or blocks until Quit.
+	if a.config.Background {
+		if a.config.Tray != nil {
+			a.runTrayLoop() // blocks; Quit tears down + exits via the ctx watcher
+			return nil
+		}
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+		select {
+		case <-ctx.Done():
+		case <-sig:
+		}
+		return a.shutdown()
 	}
 
 	if a.config.WindowMode == WindowModeWebview {
