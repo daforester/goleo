@@ -28,7 +28,7 @@ meaningful differences are **language**, **build / cross-compile posture**, the
 | Bundled runtime | No (system webview) | No | No |
 | **cgo posture** | **Windows cgo-free (shipping); mac/Linux still cgo today** — cgo-free purego path *proven in spikes, not yet integrated* | Not cgo, but **Rust toolchain + per-OS C deps** required | **Windows cgo-free; mac & Linux require cgo** (Xcode / libwebkit2gtk) |
 | Cross-compilation | Windows builds+cross-compiles `CGO_ENABLED=0`; darwin cross-built from Windows *in the spike*. Full 3-OS cross-compile is the thesis, **not fully shipped** | Discouraged — msi=Windows-only, deb/appimage=Linux-only → **use per-OS CI** | mac/Linux cross-compile only **via Docker** (~800 MB image w/ Zig + macOS SDK) |
-| Frontend↔backend | **WebSocket-first + HTTP POST fallback** — a real localhost server | In-process IPC (custom-protocol JSON-RPC) — no port | In-process in-memory bindings — no port |
+| Frontend↔backend | **Native in-process IPC (opt-in `Config.NativeIPC`) → WebSocket → HTTP** — portless for the primary window when enabled, server-backed otherwise | In-process IPC (custom-protocol JSON-RPC) — no port | In-process in-memory bindings — no port |
 | Typed bindings | `goleo generate types` → `goleo.d.ts` overloads | `invoke()` + plugin typings | `wails3 generate bindings` (static analyzer, TS) |
 | Multi-window | **Multi-process children by default**; opt-in in-process on Windows | In-process (TAO/WRY) | In-process, first-class in v3 |
 | Mobile | gomobile `.aar` / `.xcframework`, WebView shell | **First-class, stable-ish** (parity still closing) | **New in v3, alpha** (same `main.go`) |
@@ -62,11 +62,15 @@ meaningful differences are **language**, **build / cross-compile posture**, the
 - **Maturity & ecosystem.** Tauri (~109k★, audited, large plugin workspace) and
   even Wails v2 (stable, ~35k★) are years and communities ahead. Goleo is
   single-author and pre-release.
-- **The server model is double-edged.** Tauri and Wails have *no localhost port* —
-  IPC is in-process, so there is no network attack surface at all. Goleo runs a
-  real WebSocket/HTTP server, which is exactly why it *needs* its loopback-bind +
-  origin-allow-list + per-launch-token hardening. That mitigates a surface the
-  other two simply don't expose.
+- **The server model is double-edged** (now partly addressed). Tauri and Wails
+  have *no localhost port* — IPC is in-process, so there is no network attack
+  surface at all. Goleo runs a real WebSocket/HTTP server, which is why it needs
+  its loopback-bind + origin-allow-list + per-launch-token hardening. **`Config.NativeIPC`
+  (opt-in) now gives the primary window a portless in-process channel** (webview
+  `Bind`/`Eval`, `runtime/nativeipc.go`), closing that surface for it — but the
+  HTTP server still runs to serve embedded assets and to back child-process
+  windows / browser / PWA / mobile. Full parity (custom-scheme asset serving to
+  drop the asset server too, and native IPC for additional windows) is a follow-up.
 - **Multi-window default is multi-process** (extra RAM/startup per window) where
   both competitors are in-process. Goleo's in-process path closes this on Windows
   only.

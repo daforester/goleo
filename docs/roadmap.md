@@ -201,6 +201,14 @@ tray. Signal-based quit. Mobile stays on its own path, fully insulated.
 - **Native-bind IPC** (`go-webview2 Bind` / WKScriptMessageHandler / WebKit message handler) —
   **no loopback socket in production**. Socket retained only for **dev-mode HMR** and **mobile**.
   Custom `goleo://` scheme serves embedded assets.
+  - **Shipped (opt-in, `Config.NativeIPC`):** `runtime/nativeipc.go` — the primary in-process
+    window uses the webview channel (`Bind` for →Go, `Eval(window.__goleoRecv)` for →JS); the
+    `@goleo/bridge` transport ladder is native → WebSocket → HTTP with transparent fallback, so
+    child-process windows / browser / PWA / mobile keep the socket. Same `{type,data}` envelope +
+    `Bridge.HandleRequest` (ACL applies). Tested in `runtime/nativeipc_test.go`.
+  - **Remaining:** custom `goleo://`/scheme asset serving (to drop the HTTP asset server, not just
+    the WS RPC surface); native IPC for in-process *additional* windows; making it the default once
+    the purego mac/Linux backends land; interactive GUI verification.
 - **Lifecycle:** `Config.Background` (headless controller, windows optional/on-demand — daemon
   shape), optional `Config.Tray`, per-window `WindowOptions.ExitOnClose`. A single idempotent
   `Quit()` funnel (Go `App.Quit()`, JS `quitApp()`, OS signal, tray item, `ExitOnClose`) fans

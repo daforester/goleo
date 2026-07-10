@@ -47,11 +47,20 @@ func NewWebviewWindow(cfg windowConfig) WebviewWindow {
 		w.SetSize(cfg.MinWidth, cfg.MinHeight, webview.HintMin)
 	}
 
-	if cfg.URL != "" {
-		w.Navigate(cfg.URL)
+	win := WebviewWindow{w: w, cfg: cfg, url: cfg.URL}
+
+	// OnInit must run before the first navigation: init scripts and JS bindings
+	// (e.g. the native IPC bridge) are only guaranteed to apply to pages loaded
+	// after they are registered.
+	if cfg.OnInit != nil {
+		cfg.OnInit(&win)
 	}
 
-	return WebviewWindow{w: w, cfg: cfg, url: cfg.URL}
+	if cfg.URL != "" {
+		win.Navigate(cfg.URL)
+	}
+
+	return win
 }
 
 func (win *WebviewWindow) Navigate(url string) {
@@ -77,6 +86,25 @@ func (win *WebviewWindow) Eval(js string) {
 	if win.w != nil {
 		win.w.Eval(js)
 	}
+}
+
+// Init injects JavaScript that runs at the start of every page load, before the
+// page's own scripts. Used to install the native IPC shim. Must be called
+// before Navigate (see NewWebviewWindow / windowConfig.OnInit).
+func (win *WebviewWindow) Init(js string) {
+	if win.w != nil {
+		win.w.Init(js)
+	}
+}
+
+// Bind exposes a Go function as a global JS function of the given name (callable
+// as window[name](...), returning a Promise). Used for the native IPC send
+// channel. Must be called before Navigate.
+func (win *WebviewWindow) Bind(name string, fn any) error {
+	if win.w != nil {
+		return win.w.Bind(name, fn)
+	}
+	return nil
 }
 
 func (win *WebviewWindow) Run() {

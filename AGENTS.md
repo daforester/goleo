@@ -47,10 +47,22 @@ goleo/
 
 ### Communication Flow
 
-The frontend (browser/webview) communicates with the Go backend via WebSocket (preferred) or HTTP POST (fallback).
+The frontend (browser/webview) communicates with the Go backend over one of three
+transports, selected automatically by `@goleo/bridge` in this priority order:
 
-- **WebSocket** (preferred): Persistent bidirectional connection. Used in both dev and production. Low latency, supports server push events.
-- **HTTP POST** (fallback): Calls /api/invoke endpoint when WebSocket is unavailable. No event push support.
+- **Native in-process IPC** (opt-in, `Config.NativeIPC`; preferred when present):
+  the desktop webview host injects a message channel (a bound Go function for
+  frontend→backend, evaluated JS for backend→frontend) so the primary in-process
+  window talks to the `Bridge` directly — no socket, no port. See "Native IPC"
+  under Desktop subsystems.
+- **WebSocket**: Persistent bidirectional connection. The default transport, and
+  the mandatory backbone for child-process windows, browser/PWA, and mobile. Low
+  latency, supports server push events.
+- **HTTP POST** (fallback): Calls /api/invoke when WebSocket is unavailable. No event push support.
+
+All three carry the same `{id, method, args}` / `{id, result|error}` envelopes and
+funnel through the same `Bridge.HandleRequest` (so the `Policy` ACL applies
+uniformly); the bridge falls back down the list transparently.
 
 ### Request/Response Flow
 
@@ -486,12 +498,32 @@ Added on top of the core bridge/feature system. Full rationale + status in
   `x-scheme-handler` .desktop, macOS via the bundler's `CFBundleURLTypes`). `Config.URLScheme`;
   launch URL via `goleo:initialURL`, later launches → `app:openURL` (through single-instance).
 
+### Transport
+- **Native in-process IPC** (`runtime/nativeipc.go`, opt-in via `Config.NativeIPC`): the primary
+  in-process window (hosted by `runWebview`, incl. the `init.js` `createWindow` window) talks to
+  the `Bridge` over the webview's own channel instead of the loopback WebSocket. `nativeOnInit`
+  (wired through `windowConfig.OnInit`, pre-navigation) injects a shim (`window.__GOLEO_NATIVE__`
+  / `__goleoRecv`) and binds `__goleoSend` (Go func). `onNativeMessage` decodes the same
+  `{type,data}` envelope as `websocket.go` and funnels into `Bridge.HandleRequest` (so `Policy`
+  still applies); invokes run on their own goroutine to keep off the UI thread. Backend→frontend
+  events/results are pushed via `Eval(window.__goleoRecv(...))` on the UI thread
+  (`startNativeEventPump` replaces the WS hub for that window). `Bind`/`Init` added to all
+  `WebviewWindow` backends (`webview_windows.go`, `webview.go`, `webview_stub.go`).
+  - **Scope:** covers the primary window only in this cut. Child-process windows, browser/PWA and
+    mobile keep using WebSocket (`@goleo/bridge` auto-detects the native channel, else falls back).
+    The HTTP/WS server stays up — it still serves embedded assets and is the fallback transport.
+    Extending native IPC to in-process *additional* windows and custom-scheme asset serving (to
+    drop the asset HTTP server too) are follow-ups. Not GUI-verified interactively yet; covered by
+    `runtime/nativeipc_test.go` (transport round-trip, policy, events, ping) + `bridge` tsc.
+
 ### Security
 - **Capability ACL** (`runtime/policy.go`): `Policy` (Allow list with `prefix*` + always-safe
   core) enforced centrally in `Bridge.HandleRequest` — deny-by-default when set, permissive when
   not. `App.SetPolicy`. Scope helpers `AllowsFSPath/AllowsHTTPHost/AllowsShellProgram`.
 - **Server hardening** (`runtime/server.go`): production loopback-only bind, origin allow-list on
   the WS upgrade + CORS (dev/emulation permissive), per-launch token injected into `index.html`.
+  Native IPC (above) sidesteps this surface entirely for the window that uses it — no WS upgrade,
+  no token needed — while `Policy` still gates every call.
 
 ### Distribution (CLI, `cli/cmd/`)
 - `bundle.go` — `goleo build --bundle`: NSIS (Windows), `.app`+`.dmg` (macOS), `.deb`/`.rpm`

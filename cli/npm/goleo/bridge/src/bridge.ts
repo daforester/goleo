@@ -4,6 +4,11 @@ class Bridge {
   private ws: WebSocket | null = null
   private httpUrl: string
   private wsUrl: string
+  // Native in-process channel (desktop webview). When present it is preferred
+  // over WebSocket/HTTP: lower latency and no open port. Installed by the Go
+  // webview host's injected shim (window.__GOLEO_NATIVE__ / __goleoSend).
+  private native = false
+  private nativeSend: ((payload: string) => void) | null = null
   private pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>()
   private eventHandlers = new Map<string, Set<EventCallback>>()
   private localHandlers = new Map<string, (args?: Record<string, unknown>) => Promise<unknown>>()
@@ -41,6 +46,15 @@ class Bridge {
 
   async connect(): Promise<void> {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) return
+    if (this.native) return
+
+    // Prefer the native in-process bridge when the desktop webview host has
+    // injected it — no WebSocket, no port. Absent everywhere else (child-process
+    // windows, browser, PWA, mobile), where we fall through to WS/HTTP/local.
+    if (typeof window !== 'undefined' && (window as unknown as { __GOLEO_NATIVE__?: boolean }).__GOLEO_NATIVE__) {
+      this.setupNative()
+      return
+    }
 
     if (!this.config.backend) {
       this.enterLocalMode()
@@ -103,6 +117,27 @@ class Bridge {
         }
       }
     })
+  }
+
+  private setupNative(): void {
+    const w = window as unknown as {
+      __goleoSend?: (payload: string) => void
+      __goleoOnMessage?: (msg: { type: string; data?: unknown }) => void
+      __goleoDrain?: () => Array<{ type: string; data?: unknown }>
+    }
+    // Register the inbox the Go host pushes to (invokeResult / event / pong),
+    // then drain any frames buffered by the shim before we attached.
+    w.__goleoOnMessage = (msg) => this.handleMessage(msg)
+    this.nativeSend = w.__goleoSend ?? null
+    if (typeof w.__goleoDrain === 'function') {
+      for (const m of w.__goleoDrain()) this.handleMessage(m)
+    }
+    this.native = true
+    this.connected = true
+    this.ready = true
+    this.readyResolve()
+    this.emitEvent('bridge:connected', {})
+    console.log('[goleo] using native in-process bridge')
   }
 
   private enterLocalMode(): void {
@@ -221,6 +256,10 @@ class Bridge {
   async invoke<T = unknown>(method: string, args?: Record<string, unknown>): Promise<T> {
     await this.readyPromise
 
+    if (this.native && this.nativeSend) {
+      return this.invokeNative<T>(method, args)
+    }
+
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       return this.invokeWS<T>(method, args)
     }
@@ -235,6 +274,25 @@ class Bridge {
     }
 
     throw new Error(`backend not connected: cannot invoke "${method}"`)
+  }
+
+  private invokeNative<T>(method: string, args?: Record<string, unknown>): Promise<T> {
+    return new Promise((resolve, reject) => {
+      const id = String(++this.requestId)
+      this.pending.set(id, { resolve: (v) => resolve(v as T), reject })
+
+      // Same {type, data} envelope the WebSocket transport sends, so the Go host
+      // routes both identically. Fire-and-forget: the reply arrives via
+      // __goleoOnMessage keyed by this id.
+      this.nativeSend!(JSON.stringify({ type: 'invoke', data: { id, method, args } }))
+
+      setTimeout(() => {
+        if (this.pending.has(id)) {
+          this.pending.delete(id)
+          reject(new Error(`invoke timeout: ${method}`))
+        }
+      }, 30000)
+    })
   }
 
   private invokeWS<T>(method: string, args?: Record<string, unknown>): Promise<T> {
@@ -324,6 +382,10 @@ class Bridge {
   }
 
   sendEvent(event: string, data?: Record<string, unknown>): void {
+    if (this.native && this.nativeSend) {
+      this.nativeSend(JSON.stringify({ type: 'event', data: { event, data } }))
+      return
+    }
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({
         type: 'event',

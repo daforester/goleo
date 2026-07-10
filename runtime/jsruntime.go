@@ -37,6 +37,11 @@ type windowConfig struct {
 	Center    bool
 	URL       string
 	DevTools  bool
+	// OnInit, if set, runs against the window after the webview is created but
+	// before its first navigation — the point at which init scripts and JS
+	// bindings must be registered. Used to install the native IPC bridge
+	// (see App.nativeOnInit); nil for windows that use the WebSocket transport.
+	OnInit func(*WebviewWindow)
 }
 
 // defaultInitCandidates are tried in order when Config.InitJS is not set.
@@ -130,6 +135,7 @@ func (jsr *JSRuntime) provideAPI() {
 			Center:    getJSBool(obj, "center", true),
 			DevTools:  getJSBool(obj, "devTools", jsr.config.DevMode),
 			URL:       getJSString(obj, "url", jsr.serverURL()),
+			OnInit:    jsr.app.nativeOnInit(),
 		}
 
 		win := NewWebviewWindow(cfg)

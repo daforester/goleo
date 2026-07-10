@@ -18,18 +18,25 @@ import (
 )
 
 type App struct {
-	config  Config
-	bridge  *Bridge
-	server  *Server
-	jsr      *JSRuntime
+	config     Config
+	bridge     *Bridge
+	server     *Server
+	jsr        *JSRuntime
 	windows    windowSpawner
 	instance   *singleinstance.Instance
 	initialURL string
 	port       int
-	mu      sync.Mutex
-	running bool
-	cancel  context.CancelFunc
-	ctx     context.Context
+	mu         sync.Mutex
+	running    bool
+	cancel     context.CancelFunc
+	ctx        context.Context
+
+	// Native in-process IPC (Config.NativeIPC). nativeWin is the primary window
+	// the native bridge pushes to; nativeEvalFn overrides the real Dispatch+Eval
+	// in tests. Guarded by nativeMu. See nativeipc.go.
+	nativeWin    *WebviewWindow
+	nativeEvalFn func(jsonArg string)
+	nativeMu     sync.Mutex
 }
 
 type Config struct {
@@ -45,6 +52,14 @@ type Config struct {
 	// (each on its own OS thread) instead of child processes. Windows only for
 	// now; ignored elsewhere (falls back to multi-process). See spikes/win-multiwindow.
 	InProcessWindows bool
+	// NativeIPC routes the primary window's frontend<->backend calls over the
+	// webview's in-process message channel (Bind/Eval) instead of the loopback
+	// WebSocket, when a native webview hosts the UI. The WebSocket/HTTP server
+	// stays up and remains the transport for child-process windows, browser/PWA,
+	// and mobile — so the @goleo/bridge auto-detects the native channel and
+	// falls back transparently. Lower latency and no WS surface for that window.
+	// See nativeipc.go. Desktop (WindowModeWebview) only.
+	NativeIPC bool
 	// SingleInstance, when true, allows only one running instance; a second
 	// launch forwards its args to the running one (emitting app:secondInstance)
 	// and exits. AppID identifies the app for the lock (defaults to Title).
@@ -259,8 +274,16 @@ func (a *App) runWebview(port int) error {
 			Height: a.config.Height,
 			Center: true,
 			URL:    url,
+			OnInit: a.nativeOnInit(),
 		})
 		win = &w
+	}
+
+	// Native IPC: forward bridge events to this window over the in-process
+	// channel (replacing the WS hub for it) until the window closes.
+	if a.config.NativeIPC {
+		stop := a.startNativeEventPump(win)
+		defer stop()
 	}
 
 	sig := make(chan os.Signal, 1)
