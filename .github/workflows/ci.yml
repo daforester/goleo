@@ -1,0 +1,34 @@
+name: ci
+
+on:
+  push:
+    branches-ignore: [ "spike/**" ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # Windows uses the cgo-free go-webview2 backend, so this builds without a
+      # C toolchain or platform libraries.
+      - name: Windows build (cgo-free)
+        run: CGO_ENABLED=0 GOOS=windows go build ./runtime/...
+
+      # Mobile-safety guard: under -tags mobilebuild all desktop webview/window/
+      # tray code must be excluded (the stub is used). If any desktop-only import
+      # leaks into the mobile build set, this fails fast — protecting the gomobile
+      # (Android/iOS) deployment.
+      - name: Mobile-safety guard (desktop code excluded under mobilebuild)
+        run: CGO_ENABLED=0 go build -tags mobilebuild ./runtime/...
+
+      - name: Vet (mobile tag)
+        run: go vet -tags mobilebuild ./runtime/...
+
+      - name: CLI build
+        run: go build ./cli/...

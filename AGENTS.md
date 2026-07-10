@@ -333,12 +333,61 @@ goleo build      # Build for current platform
 
 ## WebView / Native Window
 
-Currently, Goleo runs the frontend in a web browser (browser mode). Future versions will integrate native webview libraries for desktop:
-- Windows: WebView2 (Edge Chromium)
-- Linux: WebKitGTK
-- macOS: WKWebView
+Goleo renders the desktop frontend in a **native OS webview**, with a
+per-platform backend selected by build tag:
+- **Windows: WebView2 (Edge Chromium)** via `github.com/jchv/go-webview2`
+  (`runtime/webview_windows.go`) — **cgo-free** (COM/syscall), so Windows builds
+  and cross-compiles with `CGO_ENABLED=0`.
+- **Linux: WebKitGTK** / **macOS: WKWebView** via `github.com/webview/webview_go`
+  (`runtime/webview.go`) — these link the system webview through **cgo**, so
+  `buildForDesktop` sets `CGO_ENABLED=1` for those targets and they must be built
+  on their own OS. (Dropping their cgo requirement via purego is roadmapped in
+  `docs/roadmap.md`.)
 
-Mobile platforms use the platform's built-in WebView component via gomobile bindings.
+### Window modes (`Config.WindowMode`)
+
+- `WindowModeWebview` — native OS webview window. This is the **default for
+  scaffolded desktop builds** (the generated `main.go` sets it). `App.Run()`
+  calls `runWebview()`, which either reuses the window created by `init.js`'s
+  `createWindow()` or opens one pointed at the embedded server (prod) / Vite
+  dev URL.
+- `WindowModeBrowser` — no native window; the app serves its UI and you open it
+  in a browser. Used for PWA builds and `goleo emulate`/dev tooling. In this
+  mode `createWindow()` in `init.js` is a no-op.
+- `WindowModeMobile` — mobile hosting.
+
+The webview auto-grants OS permission prompts (camera/mic/geolocation) so the
+frontend's browser-API fallbacks resolve instead of hanging. The real
+implementation is WebKitGTK-specific on Linux (`webview_permissions_linux.go`);
+it is a no-op elsewhere (`webview_permissions_other.go`).
+
+On mobile, the native Android/iOS shell hosts the platform WebView (Android
+WebView / WKWebView) and loads the Go server, so mobile entry points use
+`WindowModeBrowser`; the desktop webview is compiled out under the
+`mobilebuild` build tag (`webview_stub.go`).
+
+Window creation can also be scripted from `init.js` through the embedded JS
+engine (`createWindow`/`getConfig`); see `runtime/jsruntime.go`.
+
+### Multi-window (desktop)
+
+Native OS webviews are single-window and own the GUI thread, so **additional
+windows run as child processes** of the same binary — each hosts one webview
+pointed at the shared backend server, reusing the existing WebSocket hub for
+cross-window IPC. The main process stays the sole backend/controller; the
+primary window is still hosted in-process by `runWebview`.
+
+- `runtime/windowmanager.go` — `WindowManager` spawns/tracks/kills child window
+  processes; `App.OpenWindow(WindowOptions)` is the Go entry point.
+- `runtime/window_child.go` — a process launched with `GOLEO_WINDOW=1` (+ URL/
+  title/size env vars) is detected at the top of `App.Run` and hosts one webview
+  instead of starting a server.
+- Bridge commands `goleo:windowOpen` / `goleo:windowClose` / `goleo:windowList`
+  (registered in `App.registerWindowCommands`) drive it from the frontend;
+  `bridge/src/window.ts` wraps them (`openWindow`/`closeWindow`/`listWindows`).
+  Events `window:opened` / `window:closed` are emitted on the bridge.
+
+This is cgo-free and binding-agnostic (works with either webview backend).
 
 ## Session Summary (Jul 8, 2026)
 

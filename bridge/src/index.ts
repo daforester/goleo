@@ -78,6 +78,15 @@ export {
   getSubscription as pushGetSubscription,
 } from './push'
 export type { PushSubscriptionData } from './push'
+export {
+  openWindow,
+  closeWindow,
+  listWindows,
+  getCapabilities,
+  isWindowingSupported,
+  isTraySupported,
+} from './window'
+export type { WindowOptions, Capabilities } from './window'
 export type {
   OSInfo,
   PlatformInfo,

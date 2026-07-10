@@ -58,6 +58,7 @@ goleo build
 - In production, frontend is embedded in the Go binary via `//go:embed`
 - In development, Vite dev server runs with HMR, proxying API calls to Go
 - Mobile builds use `gomobile` for Android (.aar) and iOS (.xcframework)
+- Desktop builds open a native OS webview window (WebView2 / WebKitGTK / WKWebView); browser and PWA modes serve the same UI with no native window
 
 ## License
 

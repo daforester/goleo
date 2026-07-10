@@ -173,6 +173,16 @@ func registerCore(b *Bridge) {
 		return GetPlatformInfo(), nil
 	})
 
+	// goleo:capabilities lets the frontend check which desktop features the
+	// running platform supports before calling them. Registered for every
+	// target (desktop, mobile, PWA) so the check is always answerable.
+	b.Handle("goleo:capabilities", func(ctx context.Context, args json.RawMessage) (any, error) {
+		return map[string]bool{
+			"windowing": WindowingSupported(),
+			"tray":      TraySupported(),
+		}, nil
+	})
+
 	b.Handle("goleo:getArch", func(ctx context.Context, args json.RawMessage) (any, error) {
 		return GetArchInfo(), nil
 	})

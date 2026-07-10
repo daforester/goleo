@@ -1,4 +1,10 @@
-//go:build !mobilebuild
+//go:build !windows && !mobilebuild
+
+// Non-Windows desktop (macOS, Linux) webview backend. This wraps
+// github.com/webview/webview_go, which links the system webview via cgo
+// (WebKitGTK on Linux, WKWebView on macOS). Windows uses a separate,
+// cgo-free backend in webview_windows.go (WebView2 via COM/syscall), so this
+// file is constrained to non-Windows targets.
 
 package runtime
 
@@ -80,11 +86,9 @@ func (win *WebviewWindow) IsValid() bool {
 }
 
 func init() {
-	if runtime.GOOS == "windows" {
-		fmt.Println("Goleo webview: using WebView2 (Edge Chromium)")
-	} else if runtime.GOOS == "linux" {
-		fmt.Println("Goleo webview: using WebKitGTK")
+	if runtime.GOOS == "linux" {
+		fmt.Println("Goleo webview: using WebKitGTK (cgo)")
 	} else if runtime.GOOS == "darwin" {
-		fmt.Println("Goleo webview: using WKWebView")
+		fmt.Println("Goleo webview: using WKWebView (cgo)")
 	}
 }

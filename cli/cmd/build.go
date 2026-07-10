@@ -159,7 +159,16 @@ func buildForDesktop(target buildTarget, distDir string) error {
 	env := os.Environ()
 	env = append(env, fmt.Sprintf("GOOS=%s", target.GOOS))
 	env = append(env, fmt.Sprintf("GOARCH=%s", target.GOARCH))
-	env = append(env, "CGO_ENABLED=0")
+	// The webview backend decides whether cgo is required. Windows uses a
+	// cgo-free WebView2 binding (runtime/webview_windows.go), so it builds and
+	// cross-compiles with CGO_ENABLED=0. macOS/Linux link the system webview
+	// through cgo (runtime/webview.go), so they require CGO_ENABLED=1 and must
+	// be built on their own OS with the platform toolchain present.
+	if target.GOOS == "windows" {
+		env = append(env, "CGO_ENABLED=0")
+	} else {
+		env = append(env, "CGO_ENABLED=1")
+	}
 
 	// The main package embeds frontend/dist relative to its own directory;
 	// copy the built frontend there when the backend lives in backend/.
