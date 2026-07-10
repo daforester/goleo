@@ -90,6 +90,12 @@ export {
   storeClear,
 } from './store'
 export {
+  checkForUpdate,
+  applyUpdate,
+  onUpdateProgress,
+} from './updater'
+export type { UpdateInfo, UpdateProgress } from './updater'
+export {
   openWindow,
   closeWindow,
   listWindows,

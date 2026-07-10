@@ -40,6 +40,13 @@
 - **npm mirror synced** — `cli/npm/goleo/` (runtime + bridge src/dist + `go.mod`) resynced
   with all recent work; mirror module verified to build on host, windows (cgo-free), and the
   android mobile guard, and the store test passes there.
+- **D1c Auto-updater (client core, complete + tested)** — `runtime/updater/`: signed-manifest
+  **ed25519** verification, numeric version compare, HTTP fetch + SHA256-checked download, and
+  self-replace/relaunch (`ApplyAndRelaunch`). Reexport `goleo:updater{Check,Apply}` +
+  `updater:progress` event; `bridge/src/updater.ts`; typed schema. Unit-tested: sign→verify
+  round-trip, tamper + wrong-key rejection, version compare, check logic. Synced to the npm
+  mirror. **Remaining:** self-replace/relaunch needs real-app validation; the manifest-publish
+  side belongs to the bundler (**D1a**, not yet built) + signing (**D1b**).
 - **Android dev secure-context fix** — `goleo emulate android` now serves the frontend over
   **`http://localhost:<vitePort>` via `adb reverse`** instead of `http://10.0.2.2` (which is
   *not* a secure context, silently disabling the WebView's secure-context-only APIs:
