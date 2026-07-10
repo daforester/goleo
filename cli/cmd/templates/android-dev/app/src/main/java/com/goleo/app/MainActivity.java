@@ -175,7 +175,7 @@ public class MainActivity extends AppCompatActivity {
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onPermissionRequest(PermissionRequest request) {
-                if (!request.getOrigin().toString().startsWith("http://10.0.2.2")) {
+                if (!request.getOrigin().toString().startsWith("http://localhost")) {
                     request.deny();
                     return;
                 }
@@ -228,7 +228,7 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        webView.loadUrl("http://10.0.2.2:{{.DevPort}}");
+        webView.loadUrl("http://localhost:{{.DevPort}}");
         setContentView(webView);
     }
 

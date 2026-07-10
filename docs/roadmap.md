@@ -29,6 +29,14 @@
   registered (`goleo:share`, tag `goleo_share`). **Remaining for full mobile:** gomobile
   provider template (`tmplMobileShareGo`), Android/iOS shell wiring, a `ShareDemo.vue`, the
   `create-goleo-app` template mirror, and dist rebuild — all need an emulator to verify.
+- **Android dev secure-context fix** — `goleo emulate android` now serves the frontend over
+  **`http://localhost:<vitePort>` via `adb reverse`** instead of `http://10.0.2.2` (which is
+  *not* a secure context, silently disabling the WebView's secure-context-only APIs:
+  `getUserMedia`/camera, clipboard, geolocation). This makes dev match production
+  (`127.0.0.1`, already secure), so those demos work in emulation. `emulate.go` (adb reverse)
+  + `android-dev` `MainActivity` (loadUrl + permission-origin → `localhost`). Root-cause fix
+  for the whole class of secure-context features; the clipboard native provider (below) stays
+  as the more robust path.
 - **Clipboard Android native provider (bug fix)** — clipboard was half-wired: the Go
   `Provider`/`SetClipboardProvider` existed, but there was no `tmplMobileClipboardGo` and no
   `GoleoClipboard` in the shells, so on Android it hit the `GOOS` default ("not supported") and

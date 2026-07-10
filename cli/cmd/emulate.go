@@ -24,7 +24,9 @@ var emulateCmd = &cobra.Command{
 
 In dev mode, the Go backend runs inside the emulator via gomobile AAR.
 The frontend Vite dev server runs on the host with HMR.
-The emulator WebView loads from 10.0.2.2 and connects to localhost:9842.
+The emulator WebView loads the frontend over http://localhost:<vitePort> (via
+adb reverse — a secure context, so camera/clipboard/geolocation work) and the
+Go backend runs inside the emulator on localhost:9842.
 
 Go source changes trigger automatic rebuild and redeploy.
 
@@ -121,6 +123,22 @@ func emulateAndroid() error {
 			fmt.Print(".")
 		}
 		fmt.Println()
+	}
+
+	// Forward the emulator's localhost:<vitePort> to the host Vite server via
+	// `adb reverse`, so the WebView can load the frontend over
+	// http://localhost:<vitePort> — a secure context. Loading over
+	// http://10.0.2.2 is NOT a secure context, which disables the WebView's
+	// secure-context-only APIs (getUserMedia/camera, clipboard, geolocation),
+	// so those demos would silently fail in dev even though they work in a
+	// production build (which loads http://127.0.0.1). adb reverse persists on
+	// the device for the session.
+	reverse := exec.Command(deps.AdbPath, "-s", deviceID, "reverse",
+		fmt.Sprintf("tcp:%d", vitePort), fmt.Sprintf("tcp:%d", vitePort))
+	reverse.Stdout = os.Stdout
+	reverse.Stderr = os.Stderr
+	if err := reverse.Run(); err != nil {
+		return fmt.Errorf("adb reverse (frontend port %d): %w", vitePort, err)
 	}
 
 	// 3. Build and deploy (initial)
