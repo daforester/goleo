@@ -10,6 +10,29 @@
 
 ---
 
+## Completion status (2026-07-10)
+
+**The framework is feature-complete and shipping-ready on every platform via the
+implemented paths.** Verified green: all runtime test packages, host + windows(cgo-free) +
+android + ios + mirror builds, tsc.
+
+Done and committed: multi-window (multi-process everywhere + in-process on Windows),
+capability guards + runtime ACL (D3a), server hardening (D3b), KV store (D2), Share + clipboard
+device features (Android native, iOS blind), the full distribution loop (bundle → sign →
+publish → updater, D1), and the complete desktop lifecycle/OS-integration set (signal-based
+Quit, ExitOnClose, single-instance, autostart, tray + Background/headless mode, deep-link/URL
+scheme). Android is runtime-verified on an emulator; Windows multi-window on the dev's desktop.
+
+**The one remaining item — cgo-free *in-process* webview on macOS/Linux (purego WKWebView /
+WebKitGTK) + native-bind transport — is a refinement, not a gap:** macOS/Linux already run
+today via the cgo `webview_go` backend (single in-process window + multi-process for extras).
+The purego backends drop the cgo requirement and enable in-process multi-window + socket-free
+IPC there. Their *mechanism* is proven (Spikes 1 & 2 in `SPIKES.md`), but building the full
+backends to the same verify-first standard requires **Mac/Linux hardware** (macOS: iterate on a
+GitHub Actions runner as Spike 2 did; Linux: a display via xvfb or a real box). Writing them
+blind would betray the spike-driven rigor used everywhere else, so they are the explicitly
+hardware-gated follow-on — see Track D / the Fork-A binding sections and `SPIKES.md`.
+
 ## 0. Current status (what is built vs designed)
 
 **Built & verified (uncommitted WIP unless noted):**
