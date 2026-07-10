@@ -94,6 +94,11 @@ export {
   applyUpdate,
   onUpdateProgress,
 } from './updater'
+export {
+  enableAutostart,
+  disableAutostart,
+  isAutostartEnabled,
+} from './autostart'
 export type { UpdateInfo, UpdateProgress } from './updater'
 export {
   openWindow,

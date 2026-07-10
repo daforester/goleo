@@ -65,6 +65,11 @@ var KnownCommands = []CommandDecl{
 	// Lifecycle
 	{Method: "goleo:quit", ReturnType: "void", Description: "Request a graceful app shutdown (desktop)"},
 
+	// Autostart (launch on login, desktop)
+	{Method: "goleo:autostartEnable", ReturnType: "void", Description: "Register the app to launch on login"},
+	{Method: "goleo:autostartDisable", ReturnType: "void", Description: "Remove the launch-on-login entry"},
+	{Method: "goleo:autostartIsEnabled", ReturnType: "{ enabled: boolean }", Description: "Check if launch-on-login is registered"},
+
 	// Updater (desktop auto-update)
 	{Method: "goleo:updaterCheck", ReturnType: "{ available: boolean; version?: string; notes?: string }", Description: "Check for an available update"},
 	{Method: "goleo:updaterApply", ReturnType: "void", Description: "Download and apply the latest update, then relaunch"},

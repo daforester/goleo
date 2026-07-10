@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/daforester/goleo/runtime/autostart"
 	"github.com/daforester/goleo/runtime/singleinstance"
 )
 
@@ -361,5 +362,28 @@ func (a *App) registerWindowCommands() {
 	a.bridge.Handle("goleo:quit", func(ctx context.Context, args json.RawMessage) (any, error) {
 		a.Quit()
 		return nil, nil
+	})
+
+	// Autostart (launch-on-login). App name from AppID, else Title.
+	autoName := a.config.AppID
+	if autoName == "" {
+		autoName = a.config.Title
+	}
+	a.bridge.Handle("goleo:autostartEnable", func(ctx context.Context, args json.RawMessage) (any, error) {
+		exe, err := os.Executable()
+		if err != nil {
+			return nil, err
+		}
+		return nil, autostart.Enable(autoName, exe)
+	})
+	a.bridge.Handle("goleo:autostartDisable", func(ctx context.Context, args json.RawMessage) (any, error) {
+		return nil, autostart.Disable(autoName)
+	})
+	a.bridge.Handle("goleo:autostartIsEnabled", func(ctx context.Context, args json.RawMessage) (any, error) {
+		enabled, err := autostart.IsEnabled(autoName)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]bool{"enabled": enabled}, nil
 	})
 }
