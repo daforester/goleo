@@ -44,6 +44,7 @@ var (
 	buildAndroid    string
 	androidAPI      int
 	iosDeployTarget string
+	buildBundle     bool
 )
 
 func init() {
@@ -52,6 +53,7 @@ func init() {
 	buildCmd.Flags().StringVarP(&buildAndroid, "android-ndk", "", "", "Path to Android NDK")
 	buildCmd.Flags().IntVarP(&androidAPI, "android-api", "", 24, "Android API level")
 	buildCmd.Flags().StringVarP(&iosDeployTarget, "ios-target", "", "14.0", "iOS deployment target")
+	buildCmd.Flags().BoolVar(&buildBundle, "bundle", false, "Package the built desktop app into a native installer (dist/bundle/)")
 }
 
 type buildTarget struct {
@@ -118,7 +120,18 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		return buildForPWA(frontendDist)
 	}
 
-	return buildForDesktop(target, frontendDist)
+	if err := buildForDesktop(target, frontendDist); err != nil {
+		return err
+	}
+	if buildBundle {
+		outName := buildOutput
+		if outName == "" {
+			outName = "app"
+		}
+		binPath, _ := filepath.Abs(outName + target.OutputExt)
+		return runBundle(target, binPath, loadBundleConfig("."))
+	}
+	return nil
 }
 
 func buildFrontendProject(frontendDir, distDir string, extraEnv []string) error {

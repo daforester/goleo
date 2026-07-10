@@ -46,7 +46,16 @@
   `updater:progress` event; `bridge/src/updater.ts`; typed schema. Unit-tested: sign→verify
   round-trip, tamper + wrong-key rejection, version compare, check logic. Synced to the npm
   mirror. **Remaining:** self-replace/relaunch needs real-app validation; the manifest-publish
-  side belongs to the bundler (**D1a**, not yet built) + signing (**D1b**).
+  side belongs to the bundler (**D1a**, below) + signing (**D1b**).
+- **D1a Bundler (`goleo build --bundle`, plumbing complete)** — `cli/cmd/bundle.go`: per-OS
+  installer packaging into `dist/bundle/`, config from `goleo.json` (`app_name`/`version`/
+  `bundle`{identifier,publisher,icons}). Windows → NSIS (`makensis`, generated `.nsi`);
+  macOS → `.app` bundle (**pure Go**) + `.dmg` (`hdiutil`); Linux → `.deb`/`.rpm` (`nfpm`).
+  Missing tools yield a clear install-hint error, not a cryptic failure. Unit-tested: `slug`
+  + generated Info.plist/NSIS/nfpm content. **Not verifiable here** (needs the packaging tools
+  + target OS to emit real installers); AppImage/WiX(.msi) and `--publish` (write the signed
+  updater manifest) are follow-ups. CLI-only — reaches npm users via a rebuilt `goleo` binary,
+  not the runtime mirror.
 - **Android dev secure-context fix** — `goleo emulate android` now serves the frontend over
   **`http://localhost:<vitePort>` via `adb reverse`** instead of `http://10.0.2.2` (which is
   *not* a secure context, silently disabling the WebView's secure-context-only APIs:
