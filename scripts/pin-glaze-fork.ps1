@@ -22,6 +22,7 @@ foreach ($mod in @("$root", "$root/cli/npm/goleo")) {
   try {
     & go mod edit -replace "github.com/crgimenes/glaze=$Fork@$Version"
     & go mod tidy
+    & go mod vendor
   } finally { Pop-Location }
 }
 Write-Host "Pinned glaze -> $Fork@$Version in root + cli/npm/goleo. Review go.mod/go.sum and commit." -ForegroundColor Green

@@ -305,7 +305,30 @@ goleo build      # Build for current platform
 ### Go Dependencies
 - github.com/spf13/cobra - CLI framework
 - github.com/gorilla/websocket - WebSocket support
-- golang.org/x/mobile - Mobile platform support (gomobile)
+- github.com/crgimenes/glaze - cgo-free WKWebView/WebKitGTK backend (default macOS/Linux)
+- github.com/jchv/go-webview2 - cgo-free WebView2 backend (Windows)
+- github.com/webview/webview_go - cgo WKWebView/WebKitGTK (legacy fallback, `goleo_cgo_webview`)
+- github.com/ebitengine/purego - dlopen/FFI used by the cgo-free webview backends
+- github.com/gogpu/systray - cgo-free system tray
+- github.com/dop251/goja - JS engine for `init.js`
+- golang.org/x/sys / golang.org/x/mobile - platform + gomobile support
+
+### Vendoring (third-party code is committed)
+
+All third-party Go dependencies are **vendored** (`vendor/` in the root module and
+in `cli/npm/goleo/`) and committed, so builds never break if an upstream repo
+disappears — important because some deps are pre-1.0 / single-maintainer (notably
+`crgimenes/glaze`). Go automatically builds with `-mod=vendor` when `vendor/` is
+present; CI fails if `vendor/` drifts from `go.mod`.
+
+- **Update a dep:** `scripts/update-vendor.{sh,ps1} github.com/crgimenes/glaze@v0.0.32`
+  (bumps it in both modules, then re-runs `go mod tidy && go mod vendor`).
+- **Update everything:** `scripts/update-vendor.{sh,ps1} -u ./...`
+- **Just refresh after editing go.mod:** `scripts/update-vendor.{sh,ps1}` (no args).
+- **Pin glaze to your own fork** (extra insulation): `scripts/pin-glaze-fork.{sh,ps1} github.com/<you>/glaze`.
+
+The `spikes/` directories are separate throwaway proof modules and are intentionally
+not vendored.
 
 ### npm Dependencies (bridge)
 - 	ypescript - Build tool

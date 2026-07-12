@@ -15,6 +15,16 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # All third-party deps are committed under vendor/ so builds never depend
+      # on upstream repos staying online. Fail if vendor/ has drifted from go.mod
+      # (a dep bumped without re-running scripts/update-vendor).
+      - name: Vendor is consistent (root + cli/npm/goleo)
+        run: |
+          go mod vendor && git diff --exit-code -- vendor go.mod go.sum \
+            || { echo "::error::root vendor/ is stale — run scripts/update-vendor"; exit 1; }
+          ( cd cli/npm/goleo && go mod vendor && git diff --exit-code -- vendor go.mod go.sum ) \
+            || { echo "::error::cli/npm/goleo/vendor is stale — run scripts/update-vendor"; exit 1; }
+
       # Windows uses the cgo-free go-webview2 backend, so this cross-builds from
       # Linux without a C toolchain or platform libraries.
       - name: Windows build (cgo-free)

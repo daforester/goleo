@@ -16,6 +16,6 @@ FORK="${1:?usage: pin-glaze-fork.sh <fork-module-path> [version]}"
 VER="${2:-v0.0.31}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 for mod in "$ROOT" "$ROOT/cli/npm/goleo"; do
-  ( cd "$mod" && go mod edit -replace "github.com/crgimenes/glaze=${FORK}@${VER}" && go mod tidy )
+  ( cd "$mod" && go mod edit -replace "github.com/crgimenes/glaze=${FORK}@${VER}" && go mod tidy && go mod vendor )
 done
 echo "Pinned glaze -> ${FORK}@${VER} in root + cli/npm/goleo. Review go.mod/go.sum and commit."

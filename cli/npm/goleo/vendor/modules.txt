@@ -1,0 +1,107 @@
+# github.com/crgimenes/glaze v0.0.31
+## explicit; go 1.26
+github.com/crgimenes/glaze
+# github.com/dlclark/regexp2/v2 v2.2.1
+## explicit; go 1.25
+github.com/dlclark/regexp2/v2
+github.com/dlclark/regexp2/v2/helpers
+github.com/dlclark/regexp2/v2/syntax
+# github.com/dop251/goja v0.0.0-20260701091749-b07b74453ea9
+## explicit; go 1.25
+github.com/dop251/goja
+github.com/dop251/goja/ast
+github.com/dop251/goja/file
+github.com/dop251/goja/ftoa
+github.com/dop251/goja/ftoa/internal/fast
+github.com/dop251/goja/parser
+github.com/dop251/goja/token
+github.com/dop251/goja/unistring
+# github.com/ebitengine/purego v0.10.1
+## explicit; go 1.18
+github.com/ebitengine/purego
+github.com/ebitengine/purego/internal/cgo
+github.com/ebitengine/purego/internal/fakecgo
+github.com/ebitengine/purego/internal/strings
+github.com/ebitengine/purego/internal/xreflect
+github.com/ebitengine/purego/objc
+# github.com/fsnotify/fsnotify v1.10.1
+## explicit; go 1.23
+# github.com/go-sourcemap/sourcemap v2.1.3+incompatible
+## explicit
+github.com/go-sourcemap/sourcemap
+github.com/go-sourcemap/sourcemap/internal/base64vlq
+# github.com/go-webgpu/goffi v0.5.5
+## explicit; go 1.25
+github.com/go-webgpu/goffi/ffi
+github.com/go-webgpu/goffi/internal/arch
+github.com/go-webgpu/goffi/internal/arch/amd64
+github.com/go-webgpu/goffi/internal/arch/arm64
+github.com/go-webgpu/goffi/internal/dl
+github.com/go-webgpu/goffi/internal/fakecgo
+github.com/go-webgpu/goffi/internal/syscall
+github.com/go-webgpu/goffi/types
+# github.com/godbus/dbus/v5 v5.2.2
+## explicit; go 1.20
+github.com/godbus/dbus/v5
+github.com/godbus/dbus/v5/introspect
+github.com/godbus/dbus/v5/prop
+# github.com/gogpu/systray v0.1.1
+## explicit; go 1.25.0
+github.com/gogpu/systray
+github.com/gogpu/systray/internal
+github.com/gogpu/systray/internal/darwin
+# github.com/google/pprof v0.0.0-20230207041349-798e818bf904
+## explicit; go 1.19
+github.com/google/pprof/profile
+# github.com/gorilla/websocket v1.5.1
+## explicit; go 1.20
+github.com/gorilla/websocket
+# github.com/inconshreveable/mousetrap v1.1.0
+## explicit; go 1.18
+# github.com/jchv/go-webview2 v0.0.0-20260205173254-56598839c808
+## explicit; go 1.16
+github.com/jchv/go-webview2
+github.com/jchv/go-webview2/internal/w32
+github.com/jchv/go-webview2/pkg/edge
+github.com/jchv/go-webview2/webviewloader
+# github.com/jchv/go-winloader v0.0.0-20250406163304-c1995be93bd1
+## explicit; go 1.14
+github.com/jchv/go-winloader
+github.com/jchv/go-winloader/internal/loader
+github.com/jchv/go-winloader/internal/memloader
+github.com/jchv/go-winloader/internal/pe
+github.com/jchv/go-winloader/internal/vmem
+github.com/jchv/go-winloader/internal/winloader
+# github.com/spf13/cobra v1.8.0
+## explicit; go 1.15
+# github.com/spf13/pflag v1.0.5
+## explicit; go 1.12
+# github.com/webview/webview_go v0.0.0-20240831120633-6173450d4dd6
+## explicit; go 1.13
+github.com/webview/webview_go
+github.com/webview/webview_go/libs/mswebview2
+github.com/webview/webview_go/libs/mswebview2/include
+github.com/webview/webview_go/libs/webview
+github.com/webview/webview_go/libs/webview/include
+# golang.org/x/net v0.17.0
+## explicit; go 1.17
+golang.org/x/net/internal/socks
+golang.org/x/net/proxy
+# golang.org/x/sys v0.46.0
+## explicit; go 1.25.0
+golang.org/x/sys/unix
+golang.org/x/sys/windows
+golang.org/x/sys/windows/registry
+# golang.org/x/text v0.13.0
+## explicit; go 1.17
+golang.org/x/text/cases
+golang.org/x/text/collate
+golang.org/x/text/internal
+golang.org/x/text/internal/colltab
+golang.org/x/text/internal/language
+golang.org/x/text/internal/language/compact
+golang.org/x/text/internal/tag
+golang.org/x/text/language
+golang.org/x/text/transform
+golang.org/x/text/unicode/norm
+golang.org/x/text/unicode/rangetable
