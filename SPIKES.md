@@ -194,7 +194,16 @@ a `WebviewWindow` reference wrapper builds `CGO_ENABLED=0` for darwin/{amd64,arm
 linux/{amd64,arm64}, windows/amd64; **`runtime/cgo` absent from every dep tree; zero `import "C"`
 in glaze** → genuinely cgo-free and cross-compilable from one machine. The wrapper includes a
 compile-time assertion that `glaze.WebView` satisfies `runtime/nativeipc.go`'s `nativeEvaler`, so
-native IPC needs no per-backend change. (Interactive GUI/UX **not** proven — still hardware-gated.)
+native IPC needs no per-backend change.
+
+**Live hardware verification (`.github/workflows/glaze-verify.yml`) — ✅ PASS on real macOS +
+Linux.** A headed JS↔Go round-trip (`spikes/glaze-webview/verify`, glaze `Bind` + `SetHtml` + a
+bound Go func the page calls back into) ran green on **`macos-14` (Apple-Silicon/arm64, real
+WKWebView)** and **`ubuntu-latest` (WebKitGTK under xvfb)**, both `CGO_ENABLED=0`. So the cgo-free
+backend is proven end-to-end, not just at compile time. `macos-13` (Intel/amd64) was **not** run —
+GitHub is retiring Intel macOS runners (the job queues indefinitely); amd64-macOS is the same
+purego/objc code path as arm64 and stays compile-guarded in `ci.yml` (darwin/{amd64,arm64} +
+linux/{amd64,arm64}).
 
 **Impact on the estimate:** Phase 1 (flip darwin/linux to pure Go, single-window) drops from
 ~2–3 weeks of hand-writing+hardening the FFI/objc/GObject binding to **~1 week** of thin wrappers

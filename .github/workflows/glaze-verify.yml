@@ -15,12 +15,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14        # Apple Silicon (arm64)
-            display: false
-          - os: macos-13        # Intel (amd64)
+          - os: macos-14        # Apple Silicon (arm64) — real WKWebView
             display: false
           - os: ubuntu-latest   # WebKitGTK under xvfb
             display: true
+          # macos-13 (Intel/amd64) is intentionally omitted: GitHub is retiring
+          # Intel macOS runners, so that job queues indefinitely. amd64-macOS is
+          # the same purego/objc code path as arm64 (verified here) and stays
+          # compile-guarded in ci.yml. Re-add `- {os: macos-13, display: false}`
+          # if/when an Intel runner is available and you want the live check.
     runs-on: ${{ matrix.os }}
     name: glaze-${{ matrix.os }}
     steps:
