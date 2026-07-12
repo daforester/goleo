@@ -213,8 +213,13 @@ tray. Signal-based quit. Mobile stays on its own path, fully insulated.
     `glaze-verify.yml` — pending the hardware run). Remaining: a macOS `windowSpawner` (design in
     the spike README) selected by `Config.InProcessWindows` on darwin. Until then macOS stays on
     the multi-process default.
-  - **Still separate:** `goleo://` custom-scheme asset serving (now unblocked — glaze is ours to
-    extend). android/ios stay cgo (gomobile).
+  - **`goleo://` asset serving — deferred, low priority (see `SPIKES.md`).** Native IPC already
+    removed the RPC surface; the residual is a loopback-only, embedded-assets-only static server.
+    The only portless option that keeps a *secure context* (localStorage/getUserMedia/routing) is a
+    native scheme registered as secure — which requires **forking glaze** (macOS `WKURLSchemeHandler`
+    is config-time, not externally attachable). `file://` and inline-`SetHtml` are cgo-free + portless
+    but lose the secure context, so they're inadequate as a default. Sequence when pursued: scheme
+    handlers inside the glaze fork → register secure → opt-in `Config`. android/ios stay cgo (gomobile).
 - **In-process multi-window** under the master's run loop (Tauri/Wails model). Multi-process is
   the interim/fallback (works today with minimal bindings; the reason it can't be the end state
   is macOS dock/menu fragmentation + memory).
