@@ -214,11 +214,16 @@ func (a *App) Run() error {
 
 	// Multi-window is a desktop-only capability driven from Run (mobile enters
 	// through StartServer instead), so wire it up here once the port is known.
-	// In-process windows are opt-in and (for now) Windows-only; everything else
-	// uses the cross-platform multi-process manager.
-	if a.config.InProcessWindows && runtime.GOOS == "windows" {
+	// In-process windows are opt-in (Config.InProcessWindows): Windows gives each
+	// window its own OS-thread message loop (inProcWindowManager); macOS/Linux are
+	// main-thread-only, so extra windows share the primary's single loop
+	// (mainLoopWindowManager). Everything else uses the multi-process manager.
+	switch {
+	case a.config.InProcessWindows && runtime.GOOS == "windows":
 		a.windows = newInProcWindowManager(a)
-	} else {
+	case a.config.InProcessWindows && (runtime.GOOS == "darwin" || runtime.GOOS == "linux"):
+		a.windows = newMainLoopWindowManager(a)
+	default:
 		a.windows = newWindowManager(a)
 	}
 	a.registerWindowCommands()
@@ -287,6 +292,13 @@ func (a *App) runWebview(port int) error {
 		win = &w
 	}
 
+	// On macOS/Linux the primary window owns the single main-thread run loop that
+	// every in-process window shares; hand it to the manager so OpenWindow can
+	// Dispatch new windows onto it. (No-op with the other managers.)
+	if m, ok := a.windows.(*mainLoopWindowManager); ok {
+		m.setPrimary(win)
+	}
+
 	// Native IPC: forward bridge events to this window over the in-process
 	// channel (replacing the WS hub for it) until the window closes. The session
 	// is installed pre-navigation by windowConfig.OnInit (a.nativeOnInit).
@@ -303,11 +315,18 @@ func (a *App) runWebview(port int) error {
 		case <-sig:
 		case <-a.ctx.Done():
 		}
-		// Destroy posts WMClose to the window (thread-safe: routed by hwnd to the
-		// window's owner thread), which destroys it and quits the message loop so
-		// Run returns. Relies on the window being created and Run on the same
-		// (locked) OS thread — see runtime.LockOSThread at the top of Run.
-		win.Destroy()
+		// Unblock Run so shutdown can proceed. On Windows (go-webview2) Destroy
+		// posts WMClose (thread-safe, routed by hwnd) to end the primary's loop;
+		// the multi-process/in-proc managers close other windows in shutdown. On
+		// macOS/Linux (glaze) there is ONE shared loop, so Terminate — which glaze
+		// makes safe to call from any goroutine — stops the whole app (all windows)
+		// so Run returns; Destroy would only close the primary and leave the loop
+		// running if other windows were open.
+		if runtime.GOOS == "windows" {
+			win.Destroy()
+		} else {
+			win.Terminate()
+		}
 	}()
 
 	win.Run()
