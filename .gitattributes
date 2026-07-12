@@ -1,0 +1,7 @@
+# Vendored third-party code is committed verbatim. Treat it as binary-exact
+# (`-text`) so Git never rewrites line endings on checkout: the bytes stay
+# identical to what `go mod vendor` produces (LF) on every platform, so the
+# CI vendor drift-check (`go mod vendor` + `git diff`) can't be tripped by
+# autocrlf on Windows, and any binary assets inside a dependency stay intact.
+vendor/** -text
+cli/npm/goleo/vendor/** -text
