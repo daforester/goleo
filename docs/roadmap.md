@@ -27,11 +27,13 @@ scheme). Android is runtime-verified on an emulator; Windows multi-window on the
 WebKitGTK) + native-bind transport — is a refinement, not a gap:** macOS/Linux already run
 today via the cgo `webview_go` backend (single in-process window + multi-process for extras).
 The purego backends drop the cgo requirement and enable in-process multi-window + socket-free
-IPC there. Their *mechanism* is proven (Spikes 1 & 2 in `SPIKES.md`), but building the full
-backends to the same verify-first standard requires **Mac/Linux hardware** (macOS: iterate on a
-GitHub Actions runner as Spike 2 did; Linux: a display via xvfb or a real box). Writing them
-blind would betray the spike-driven rigor used everywhere else, so they are the explicitly
-hardware-gated follow-on — see Track D / the Fork-A binding sections and `SPIKES.md`.
+IPC there. Their *mechanism* is proven (Spikes 1 & 2 in `SPIKES.md`), and — per the 2026-07-12
+spike — an **importable cgo-free binding already exists** (`crgimenes/glaze`: WKWebView +
+WebKitGTK + WebView2 on `ebitengine/purego`), so this is now *wrap a binding*, not *write one*
+(≈1 week for Phase 1). What remains genuinely gated is **real-hardware verification** — macOS via
+a GitHub Actions runner (as Spike 2 did), Linux via xvfb or a real box — since interactive GUI/UX
+can't be proven headless. See Track D / the Fork-A binding sections, `SPIKES.md`, and
+`spikes/glaze-webview/`.
 
 ## 0. Current status (what is built vs designed)
 
@@ -192,9 +194,10 @@ anchor (the controller); visible windows are created under it. Optional, develop
 tray. Signal-based quit. Mobile stays on its own path, fully insulated.
 
 - **cgo-free native webview on every desktop OS** (proven): Windows `go-webview2` (`edge`
-  layer), macOS `purego`+WKWebView, Linux `purego`+WebKitGTK. Reference implementation for the
-  ObjC/GTK call surface = **Wails v3** source (its `.m`/`.c` files are the API spec; Wails is
-  cgo, we port cgo-free).
+  layer), macOS `purego`+WKWebView, Linux `purego`+WebKitGTK. As of 2026-07-12, `crgimenes/glaze`
+  provides all three cgo-free behind one `WebView` interface (verified cross-compiling in
+  `spikes/glaze-webview/`), so the plan is to **wrap glaze** (vendor/fork + pin) rather than port
+  by hand; **Wails v3** / `webview/webview` source remain the API spec if we ever own the glue.
 - **In-process multi-window** under the master's run loop (Tauri/Wails model). Multi-process is
   the interim/fallback (works today with minimal bindings; the reason it can't be the end state
   is macOS dock/menu fragmentation + memory).

@@ -175,6 +175,42 @@ server. Dropping that too needs a native scheme/asset handler per OS. **Finding 
 
 ---
 
+## Spike — `crgimenes/glaze`: cgo-free mac/Linux webview already exists (2026-07-12) ✅ PASS
+
+**Question:** does the cgo-free macOS (WKWebView) / Linux (WebKitGTK) webview binding that the
+purego milestone would otherwise write from scratch **already exist as an importable library** —
+the way `go-webview2` handed Windows its cgo-free path?
+
+**Finding: YES — `github.com/crgimenes/glaze`** (v0.0.31, MIT, sole dep `ebitengine/purego`
+v0.10.1). A purego/`dlopen` reimplementation of WKWebView, WebKitGTK **and** WebView2 behind one
+`WebView` interface — the same `New/Navigate/SetTitle/SetSize/Eval/Init/Bind/Run/Destroy/Dispatch/
+Terminate` shape Goleo already wraps in `webview_windows.go`. Built on the exact purego stack
+Goleo's Spikes 1 & 2 validated. It even solves the two remaining Linux items this doc flagged:
+**GTK3/4 mutual exclusion** and **WebKitGTK version fragmentation** (4.0/4.1/6.0) via runtime
+single-stack detection.
+
+**Verified** (`spikes/glaze-webview/`, from a Windows host): a program exercising the full API +
+a `WebviewWindow` reference wrapper builds `CGO_ENABLED=0` for darwin/{amd64,arm64},
+linux/{amd64,arm64}, windows/amd64; **`runtime/cgo` absent from every dep tree; zero `import "C"`
+in glaze** → genuinely cgo-free and cross-compilable from one machine. The wrapper includes a
+compile-time assertion that `glaze.WebView` satisfies `runtime/nativeipc.go`'s `nativeEvaler`, so
+native IPC needs no per-backend change. (Interactive GUI/UX **not** proven — still hardware-gated.)
+
+**Impact on the estimate:** Phase 1 (flip darwin/linux to pure Go, single-window) drops from
+~2–3 weeks of hand-writing+hardening the FFI/objc/GObject binding to **~1 week** of thin wrappers
++ `build.go` `CGO_ENABLED=0` wiring + dropping `webview_go`. The expensive, risky part is largely
+eliminated; real-hardware verification remains the dominant remaining cost.
+
+**Decision / caveats:** adopt by **vendor-or-fork + pin a commit** (pre-1.0, single maintainer —
+don't float a tag). Before trusting it, run Goleo's native-IPC `{type,data}` round-trip through
+glaze's `Bind` against `Bridge.HandleRequest` (the Spike 2 test) on real macOS + Linux. glaze's
+Linux native menu bar is `ErrUnsupported`; its asset-serving must be checked against Goleo's
+loopback/token model; macOS multi-window still needs the single-loop master (glaze gives the
+binding, not that architecture). Runner-up if we'd rather own the glue: `puregotk` (raw purego
+GTK4 + WebKit-6.0 bindings, GTK4-only, experimental). Full write-up: `spikes/glaze-webview/README.md`.
+
+---
+
 ## Cross-cutting testing learnings (not "spikes" but hard-won)
 
 - **CI mobile guard must target GOOS=android/ios, never the host.** `linux + mobilebuild` is an
