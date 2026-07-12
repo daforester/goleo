@@ -353,8 +353,17 @@ per-platform backend selected by build tag:
 - **Linux: WebKitGTK** / **macOS: WKWebView** via `github.com/webview/webview_go`
   (`runtime/webview.go`) — these link the system webview through **cgo**, so
   `buildForDesktop` sets `CGO_ENABLED=1` for those targets and they must be built
-  on their own OS. (Dropping their cgo requirement via purego is roadmapped in
-  `docs/roadmap.md`.)
+  on their own OS. This is the **default**.
+- **Linux/macOS cgo-free (opt-in, `-tags goleo_glaze`):** `runtime/webview_glaze.go`
+  wraps `github.com/crgimenes/glaze` (purego WKWebView + WebKitGTK), so darwin/linux
+  also build `CGO_ENABLED=0` and cross-compile from any host. The tag excludes
+  `webview.go` and the cgo `webview_permissions_linux.go`; `goleo build` selects it
+  when `GOLEO_PURE_WEBVIEW=1`. **Opt-in until validated on real macOS/Linux hardware**
+  (`.github/workflows/glaze-verify.yml`); source-level compile is guarded in `ci.yml`
+  and proven in `spikes/glaze-webview/`. Flipping it to the default (and dropping the
+  cgo backend) is the plan once the hardware round-trip passes — see `docs/roadmap.md`.
+  Note: a `CGO_ENABLED=0` Linux build also needs `runtime/camera`'s cgo V4L2 impl
+  excluded — hence `camera_linux.go` is now `cgo`-tagged with a pure-Go stub fallback.
 
 ### Window modes (`Config.WindowMode`)
 

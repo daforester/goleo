@@ -20,6 +20,15 @@ jobs:
       - name: Windows build (cgo-free)
         run: CGO_ENABLED=0 GOOS=windows go build ./runtime/...
 
+      # Opt-in pure-Go macOS/Linux webview backend (crgimenes/glaze, -tags
+      # goleo_glaze) must keep compiling CGO_ENABLED=0 and cross-compiling from
+      # Linux. This guards the source only; interactive UX is verified on real
+      # hardware by glaze-verify.yml.
+      - name: Pure-Go webview build (glaze, cgo-free)
+        run: |
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -tags goleo_glaze ./runtime/...
+          CGO_ENABLED=0 GOOS=linux  GOARCH=amd64 go build -tags goleo_glaze ./runtime/...
+
       # Mobile-safety guard: replicate the gomobile compile set on the REAL
       # mobile targets (GOOS=android/ios) with -tags mobilebuild. All desktop
       # webview/window/tray code and desktop-only feature impls must be excluded

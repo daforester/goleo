@@ -1,0 +1,55 @@
+name: glaze-webview-verify
+
+# Validates the cgo-free (purego) glaze WKWebView / WebKitGTK backend with a live
+# JS<->Go round-trip on real macOS + Linux hardware — the hardware-gated step
+# before flipping the pure-Go webview from opt-in (-tags goleo_glaze) to default.
+# Runs on its spike branch and on manual dispatch (it opens a GUI window).
+on:
+  push:
+    branches: [ "spike/glaze-webview" ]
+  workflow_dispatch:
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14        # Apple Silicon (arm64)
+            display: false
+          - os: macos-13        # Intel (amd64)
+            display: false
+          - os: ubuntu-latest   # WebKitGTK under xvfb
+            display: true
+    runs-on: ${{ matrix.os }}
+    name: glaze-${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: spikes/glaze-webview/go.mod
+
+      # Linux: glaze dlopens the system WebKitGTK/GTK at runtime, so the shared
+      # libraries must be present (no C toolchain needed — build stays cgo-free).
+      # Package names drift across Ubuntu releases; adjust if a lib is missing.
+      - name: Linux runtime deps
+        if: matrix.display
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgtk-3-0 libglib2.0-0 \
+            libwebkit2gtk-4.1-0 || sudo apt-get install -y libwebkit2gtk-4.0-37 || true
+
+      - name: Build verify (CGO_ENABLED=0)
+        working-directory: spikes/glaze-webview/verify
+        run: CGO_ENABLED=0 go build -o glazeverify .
+
+      - name: Run verify (JS<->Go round-trip)
+        working-directory: spikes/glaze-webview/verify
+        timeout-minutes: 3
+        run: |
+          if [ "${{ matrix.display }}" = "true" ]; then
+            xvfb-run -a ./glazeverify
+          else
+            ./glazeverify
+          fi

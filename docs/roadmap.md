@@ -198,6 +198,13 @@ tray. Signal-based quit. Mobile stays on its own path, fully insulated.
   provides all three cgo-free behind one `WebView` interface (verified cross-compiling in
   `spikes/glaze-webview/`), so the plan is to **wrap glaze** (vendor/fork + pin) rather than port
   by hand; **Wails v3** / `webview/webview` source remain the API spec if we ever own the glue.
+  - **Phase 1 landed (opt-in):** `runtime/webview_glaze.go` (build tag `goleo_glaze`) wraps glaze;
+    `goleo build` uses it when `GOLEO_PURE_WEBVIEW=1`. `CGO_ENABLED=0` cross-compile of the whole
+    `./runtime/...` tree verified for darwin+linux (also unblocked `runtime/camera` via a `cgo`/
+    `!cgo` split). CI guards the compile (`ci.yml`); `glaze-verify.yml` runs the live JS↔Go
+    round-trip on real macOS + Linux. **Remaining:** run that hardware verify, then flip the
+    default (drop `webview.go` + `webview/webview_go`, make `CGO_ENABLED=0` unconditional in
+    `build.go`). In-process multi-window on macOS (single-loop master) is still separate.
 - **In-process multi-window** under the master's run loop (Tauri/Wails model). Multi-process is
   the interim/fallback (works today with minimal bindings; the reason it can't be the end state
   is macOS dock/menu fragmentation + memory).

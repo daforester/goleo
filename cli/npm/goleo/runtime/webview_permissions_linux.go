@@ -1,4 +1,4 @@
-//go:build linux && !mobilebuild
+//go:build linux && !mobilebuild && !goleo_glaze
 
 package runtime
 

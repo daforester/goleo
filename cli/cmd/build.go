@@ -187,9 +187,14 @@ func buildForDesktop(target buildTarget, distDir string) error {
 	// The webview backend decides whether cgo is required. Windows uses a
 	// cgo-free WebView2 binding (runtime/webview_windows.go), so it builds and
 	// cross-compiles with CGO_ENABLED=0. macOS/Linux link the system webview
-	// through cgo (runtime/webview.go), so they require CGO_ENABLED=1 and must
-	// be built on their own OS with the platform toolchain present.
-	if target.GOOS == "windows" {
+	// through cgo (runtime/webview.go) by default and require CGO_ENABLED=1 on
+	// their own OS with the platform toolchain present — UNLESS GOLEO_PURE_WEBVIEW=1
+	// opts into the cgo-free glaze backend (runtime/webview_glaze.go), which builds
+	// CGO_ENABLED=0 and cross-compiles from any host. That path is opt-in until
+	// glaze is validated on real macOS/Linux hardware (see spikes/glaze-webview).
+	pureWebview := os.Getenv("GOLEO_PURE_WEBVIEW") == "1" &&
+		(target.GOOS == "darwin" || target.GOOS == "linux")
+	if target.GOOS == "windows" || pureWebview {
 		env = append(env, "CGO_ENABLED=0")
 	} else {
 		env = append(env, "CGO_ENABLED=1")
@@ -209,7 +214,11 @@ func buildForDesktop(target buildTarget, distDir string) error {
 
 	ldflags := fmt.Sprintf("-s -w -X main.Version=%s", "0.1.0")
 
-	args := []string{"build", "-ldflags", ldflags, "-o", outputName + target.OutputExt, pkgDir}
+	args := []string{"build", "-ldflags", ldflags}
+	if pureWebview {
+		args = append(args, "-tags", "goleo_glaze")
+	}
+	args = append(args, "-o", outputName+target.OutputExt, pkgDir)
 
 	build := exec.Command("go", args...)
 	build.Env = env

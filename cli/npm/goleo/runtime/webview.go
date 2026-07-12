@@ -1,4 +1,4 @@
-//go:build !windows && !mobilebuild
+//go:build !windows && !mobilebuild && !goleo_glaze
 
 // Non-Windows desktop (macOS, Linux) webview backend. This wraps
 // github.com/webview/webview_go, which links the system webview via cgo
