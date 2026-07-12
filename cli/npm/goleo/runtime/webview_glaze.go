@@ -23,6 +23,8 @@ import (
 	"github.com/crgimenes/glaze"
 )
 
+// (permission auto-grant lives in webview_glaze_permissions_{linux,other}.go)
+
 type WebviewWindow struct {
 	w    glaze.WebView
 	cfg  windowConfig
@@ -42,6 +44,11 @@ func NewWebviewWindow(cfg windowConfig) WebviewWindow {
 		log.Printf("Goleo webview (glaze): %v", err)
 		return WebviewWindow{cfg: cfg}
 	}
+
+	// Auto-grant WebKitGTK permission requests (camera/mic/geolocation) so the
+	// app's getUserMedia/geolocation fallbacks resolve instead of hanging. No-op
+	// off Linux (macOS handles it via the WKUIDelegate).
+	enableGlazePermissions(w.Window())
 
 	w.SetTitle(cfg.Title)
 	w.SetSize(cfg.Width, cfg.Height, glaze.HintNone)

@@ -61,6 +61,25 @@ delete the cgo `runtime/webview.go`, drop `webview/webview_go`, and remove the
 - macOS multi-window still needs the single-loop master (AppKit is
   main-thread-only) — glaze gives the binding, not that architecture.
 
+## Permission auto-grant (Linux)
+
+glaze auto-grants webview permissions only on Windows; it does not connect
+WebKitGTK's `permission-request` signal, so on Linux `getUserMedia`/geolocation
+from the app's own content would hang or be denied. Goleo adds a cgo-free purego
+shim for this — `runtime/webview_glaze_permissions_linux.go` (the pure-Go analog
+of the old cgo `webview_permissions_linux.go`) — which finds the `WebKitWebView`
+(the GtkWindow's child) and connects `permission-request` → allow, using
+`RTLD_NOLOAD` so it never loads a second GTK major into the process. The verify
+program above exercises this via `getUserMedia` over a secure `127.0.0.1` origin;
+a `NotFoundError` on a camera-less CI runner still proves the grant fired
+(only `NotAllowedError` = grant failed).
+
+## Forking / pinning glaze
+
+`go.mod` already pins `v0.0.31` (immutable via `go.sum`). For extra insulation
+against a pre-1.0, single-maintainer upstream, fork it and repoint with
+`scripts/pin-glaze-fork.{ps1,sh} github.com/<you>/glaze` (see the script header).
+
 ## Run it
 
 ```

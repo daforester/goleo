@@ -205,6 +205,22 @@ GitHub is retiring Intel macOS runners (the job queues indefinitely); amd64-macO
 purego/objc code path as arm64 and stays compile-guarded in `ci.yml` (darwin/{amd64,arm64} +
 linux/{amd64,arm64}).
 
+**Permission auto-grant (added after the round-trip PASS, pending re-verify):** glaze does not
+connect WebKitGTK's `permission-request` signal, so a straight default-flip would regress Linux
+`getUserMedia`/geolocation (hang/deny). Added a cgo-free purego shim
+(`runtime/webview_glaze_permissions_linux.go`) — the pure-Go analog of the cgo
+`webview_permissions_linux.go` — that grabs the `WebKitWebView` (the GtkWindow child) and connects
+`permission-request` → allow, using `RTLD_NOLOAD` so it never pulls a second GTK major into the
+process. The `glaze-verify.yml` smoke was upgraded to exercise `getUserMedia` over a secure
+`127.0.0.1` origin (a camera-less runner's `NotFoundError` still proves the grant fired; only
+`NotAllowedError` fails). This shim is **written but not yet hardware-verified** — re-run
+`glaze-verify` on Linux before flipping the default. macOS grants via the WKUIDelegate (shim is a
+no-op there).
+
+**Sequencing decision (2026-07-12):** shim first → re-verify on Linux → *then* flip the default
+(delete `webview.go` + drop `webview/webview_go`, make `CGO_ENABLED=0` unconditional, remove the
+`goleo_glaze` tag). Not flipping until the permission path is green, to avoid a Linux regression.
+
 **Impact on the estimate:** Phase 1 (flip darwin/linux to pure Go, single-window) drops from
 ~2–3 weeks of hand-writing+hardening the FFI/objc/GObject binding to **~1 week** of thin wrappers
 + `build.go` `CGO_ENABLED=0` wiring + dropping `webview_go`. The expensive, risky part is largely
