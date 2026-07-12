@@ -210,8 +210,14 @@ tray. Signal-based quit. Mobile stays on its own path, fully insulated.
     Quit) and `runtime/nativeipc_test.go`. Fixed two GUI-lifecycle bugs it exposed: the `a.ctx`
     clobber in `StartServer` (Quit hung) and the unpinned main goroutine (`Run` now
     `LockOSThread`s).
-  - **Remaining:** custom `goleo://`/scheme asset serving (to drop the HTTP asset server, not just
-    the WS RPC surface); making native IPC the default once the purego mac/Linux backends land.
+  - **Remaining — custom `goleo://` asset serving (deferred to the purego milestone):** would drop
+    the loopback HTTP asset server too, not just the WS RPC surface. Deferred by decision
+    (2026-07-12): the cgo `webview_go` backend exposes no scheme-handler API, and `jchv/go-webview2`
+    only exposes `WebResourceRequested`/virtual-host mapping on its lower-level `edge.Chromium`
+    (hidden behind the high-level `webview.WebView`), so a native scheme today would be a
+    Windows-only ~200-line edge-layer rewrite. The purego mac/Linux backends are Goleo's own code
+    and can add `goleo://` uniformly across all three OSes. Full finding + API pointers in
+    [`SPIKES.md`](../SPIKES.md). Also then: make native IPC the default.
 - **Lifecycle:** `Config.Background` (headless controller, windows optional/on-demand — daemon
   shape), optional `Config.Tray`, per-window `WindowOptions.ExitOnClose`. A single idempotent
   `Quit()` funnel (Go `App.Quit()`, JS `quitApp()`, OS signal, tray item, `ExitOnClose`) fans

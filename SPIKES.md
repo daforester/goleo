@@ -137,6 +137,44 @@ need the single-loop richer binding (not the per-thread trick).
 
 ---
 
+## Spike — native IPC transport + custom-scheme asset serving (2026-07-12)
+
+**Native IPC (`Config.NativeIPC`) — ✅ SHIPPED + verified on real WebView2.** The frontend can
+talk to the `Bridge` over the webview's own channel (`Bind` for JS→Go, `Eval(window.__goleoRecv)`
+for Go→JS) instead of the loopback WebSocket, using the same `{type,data}` envelope. Verified on
+the dev's Windows desktop (cgo-free): a two-window app where each window (primary + an in-process
+`InProcessWindows` window) completed an independent bidirectional round-trip over its own
+`nativeSession`, incl. `goleo:windowOpen` invoked *over* native IPC, then a clean `Quit`/exit.
+`@goleo/bridge` auto-detects the native channel and falls back native → WebSocket → HTTP, so
+child-*process* windows, browser/PWA and mobile are unaffected. See `runtime/nativeipc.go`.
+- **Two GUI-lifecycle bugs this exposed (both fixed):** (1) `StartServer` overwrote the cancellable
+  `a.ctx` that `Run` installed with a fresh `context.Background()`, orphaning `a.cancel()` so
+  `Quit` hung — `StartServer` now preserves an existing `a.ctx`. (2) The Go main goroutine isn't
+  thread-pinned, but the native webview is thread-affine (window messages + `Dispatch` target the
+  creating thread), so cross-thread teardown missed — `Run` now `runtime.LockOSThread()`s.
+
+**Custom-scheme asset serving (`goleo://`) — ⏸ DEFERRED to the purego milestone.** Native IPC
+removes the WS/RPC surface, but the primary window still loads its assets over the loopback HTTP
+server. Dropping that too needs a native scheme/asset handler per OS. **Finding (why not now):**
+- **Windows (`jchv/go-webview2`, cgo-free):** the `pkg/edge` layer *has* the machinery —
+  `Chromium.WebResourceRequested`, `AddWebResourceRequestedFilter(filter, ctx)`, `Environment()`,
+  and `SetVirtualHostNameToFolderMapping` via `ICoreWebView2_3` — **but** the high-level
+  `webview.WebView` we wrap keeps `edge.Chromium` in an unexported `browser` field with no hook.
+  Using it means reconstructing the window directly on `edge.Chromium` (own hwnd + message loop +
+  WndProc + DPI/permissions) — a ~200-line Win32/COM rewrite, **Windows-only**.
+- **macOS/Linux (`webview/webview_go`, cgo):** exposes **no** scheme-handler API at all
+  (`WKURLSchemeHandler` / `webkit_web_context_register_uri_scheme` are not surfaced).
+- **Decision:** don't fragment the codebase with a Windows-only edge rewrite. The purego mac/Linux
+  backends (Spikes 1 & 2) are Goleo's own code, so `goleo://` can be added **uniformly across all
+  three OSes** there — WebView2 `WebResourceRequested`/virtual-host mapping, `WKURLSchemeHandler`,
+  and `register_uri_scheme` — serving the embedded FS over a virtual (secure-context) origin. Until
+  then the loopback asset server stays (127.0.0.1-only, embedded assets, no bridge under native
+  IPC — a small residual surface). A cgo-free stopgap exists if ever needed — a single inlined
+  bundle via `SetHtml` — but its `about:blank`/opaque origin (no `localStorage`, hash-only routing)
+  makes it unsuitable as a default.
+
+---
+
 ## Cross-cutting testing learnings (not "spikes" but hard-won)
 
 - **CI mobile guard must target GOOS=android/ios, never the host.** `linux + mobilebuild` is an

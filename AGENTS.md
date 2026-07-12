@@ -513,8 +513,10 @@ Added on top of the core bridge/feature system. Full rationale + status in
     in-process additional windows** (`Config.InProcessWindows`, `windowmanager.go`) — each gets its
     own independent session. Child-*process* windows, browser/PWA and mobile keep using WebSocket
     (`@goleo/bridge` auto-detects the native channel, else falls back). The HTTP/WS server stays up:
-    it still serves embedded assets and is the fallback transport. Custom-scheme asset serving (to
-    drop the asset HTTP server too) is the remaining follow-up.
+    it still serves embedded assets and is the fallback transport. Dropping it too via custom-scheme
+    (`goleo://`) asset serving is **deferred to the purego milestone** — the current bindings don't
+    expose a scheme handler cleanly (Windows-only edge rewrite otherwise); the purego backends add
+    it uniformly. See `SPIKES.md` (2026-07-12 finding).
   - **Verified** on real WebView2 (Windows, cgo-free): a two-window app where each window completes
     an independent bidirectional round-trip over its own native channel, incl. `goleo:windowOpen`
     over native IPC, then a clean `Quit`. Also `runtime/nativeipc_test.go` (round-trip, policy,
