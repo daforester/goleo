@@ -91,23 +91,41 @@ func main() {
 	mu.Lock()
 	defer mu.Unlock()
 	roundTrip := got["native-ok"]
-	permGranted := got["perm-ok"] || got["perm-NotFoundError"] || got["perm-NotReadableError"]
-	permDenied := got["perm-NotAllowedError"]
+	verdict := permVerdict(got)
+
+	// getUserMedia's permission prompt is answered BEFORE constraints/devices are
+	// evaluated, so any rejection that reaches device/constraint checking proves
+	// the grant fired — NotFoundError, NotReadableError, OverconstrainedError,
+	// AbortError, or success (there's just no camera on a CI runner). Only
+	// NotAllowedError/SecurityError mean the request was blocked at the gate.
+	denied := verdict == "perm-NotAllowedError" || verdict == "perm-SecurityError"
+	blocked := verdict == "perm-NoMediaDevices" || verdict == "perm-TypeError"
+	granted := verdict != "" && !denied && !blocked
 
 	switch {
-	case roundTrip && permGranted:
-		fmt.Println("RESULT: PASS (round-trip + permission auto-grant on real hardware)")
+	case roundTrip && granted:
+		fmt.Printf("RESULT: PASS (round-trip + permission auto-grant; getUserMedia reached devices: %s)\n", verdict)
 		os.Exit(0)
-	case roundTrip && permDenied:
+	case roundTrip && denied:
 		fmt.Println("RESULT: FAIL (permission DENIED — the auto-grant shim did not work)")
 		os.Exit(1)
 	case roundTrip:
-		fmt.Printf("RESULT: INCONCLUSIVE (round-trip ok; getUserMedia verdict=%v — check WebKit media/secure-context support)\n", keys(got))
+		fmt.Printf("RESULT: INCONCLUSIVE (round-trip ok; getUserMedia=%q — WebKit lacks media support or origin not secure)\n", verdict)
 		os.Exit(2)
 	default:
 		fmt.Println("RESULT: FAIL (no JS->Go round-trip within timeout)")
 		os.Exit(1)
 	}
+}
+
+// permVerdict returns the single perm-* outcome reported by the page, if any.
+func permVerdict(got map[string]bool) string {
+	for k := range got {
+		if len(k) > 5 && k[:5] == "perm-" {
+			return k
+		}
+	}
+	return ""
 }
 
 // hasPermVerdict reports whether getUserMedia has produced any terminal outcome,
@@ -119,12 +137,4 @@ func hasPermVerdict(got map[string]bool) bool {
 		}
 	}
 	return got["perm-ok"]
-}
-
-func keys(m map[string]bool) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	return out
 }

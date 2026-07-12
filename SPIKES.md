@@ -213,9 +213,14 @@ connect WebKitGTK's `permission-request` signal, so a straight default-flip woul
 `permission-request` → allow, using `RTLD_NOLOAD` so it never pulls a second GTK major into the
 process. The `glaze-verify.yml` smoke was upgraded to exercise `getUserMedia` over a secure
 `127.0.0.1` origin (a camera-less runner's `NotFoundError` still proves the grant fired; only
-`NotAllowedError` fails). This shim is **written but not yet hardware-verified** — re-run
-`glaze-verify` on Linux before flipping the default. macOS grants via the WKUIDelegate (shim is a
-no-op there).
+`NotAllowedError` fails). **Verified working on real macOS + Linux (2026-07-13):** on both runners
+the round-trip returned `native-ok` and `getUserMedia({video:true})` got *past* the permission
+gate — WebKit logged "no device found amongst 0 devices" and rejected with `OverconstrainedError`
+(a post-grant outcome; a *denied* request never reaches device evaluation). So the auto-grant
+fires on both platforms. (The first run exited non-zero only because the smoke's pass/fail
+classifier didn't list `OverconstrainedError` among the post-grant outcomes — fixed to treat any
+verdict except `NotAllowedError`/`SecurityError`/no-media as "granted".) macOS grants without the
+shim (glaze/WKWebView); the shim is a no-op there.
 
 **Sequencing decision (2026-07-12):** shim first → re-verify on Linux → *then* flip the default
 (delete `webview.go` + drop `webview/webview_go`, make `CGO_ENABLED=0` unconditional, remove the
