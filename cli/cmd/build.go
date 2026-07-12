@@ -184,20 +184,19 @@ func buildForDesktop(target buildTarget, distDir string) error {
 	env := os.Environ()
 	env = append(env, fmt.Sprintf("GOOS=%s", target.GOOS))
 	env = append(env, fmt.Sprintf("GOARCH=%s", target.GOARCH))
-	// The webview backend decides whether cgo is required. Windows uses a
-	// cgo-free WebView2 binding (runtime/webview_windows.go), so it builds and
-	// cross-compiles with CGO_ENABLED=0. macOS/Linux link the system webview
-	// through cgo (runtime/webview.go) by default and require CGO_ENABLED=1 on
-	// their own OS with the platform toolchain present — UNLESS GOLEO_PURE_WEBVIEW=1
-	// opts into the cgo-free glaze backend (runtime/webview_glaze.go), which builds
-	// CGO_ENABLED=0 and cross-compiles from any host. That path is opt-in until
-	// glaze is validated on real macOS/Linux hardware (see spikes/glaze-webview).
-	pureWebview := os.Getenv("GOLEO_PURE_WEBVIEW") == "1" &&
+	// All desktop targets are cgo-free by default: Windows via WebView2
+	// (runtime/webview_windows.go), macOS/Linux via the purego glaze backend
+	// (runtime/webview_glaze.go). So every desktop build is CGO_ENABLED=0 and
+	// cross-compiles from any host. GOLEO_CGO_WEBVIEW=1 opts macOS/Linux back onto
+	// the legacy cgo webview_go backend (runtime/webview.go, -tags
+	// goleo_cgo_webview), which needs CGO_ENABLED=1 and its own-OS toolchain —
+	// kept as a fallback for one release.
+	cgoWebview := os.Getenv("GOLEO_CGO_WEBVIEW") == "1" &&
 		(target.GOOS == "darwin" || target.GOOS == "linux")
-	if target.GOOS == "windows" || pureWebview {
-		env = append(env, "CGO_ENABLED=0")
-	} else {
+	if cgoWebview {
 		env = append(env, "CGO_ENABLED=1")
+	} else {
+		env = append(env, "CGO_ENABLED=0")
 	}
 
 	// The main package embeds frontend/dist relative to its own directory;
@@ -215,8 +214,8 @@ func buildForDesktop(target buildTarget, distDir string) error {
 	ldflags := fmt.Sprintf("-s -w -X main.Version=%s", "0.1.0")
 
 	args := []string{"build", "-ldflags", ldflags}
-	if pureWebview {
-		args = append(args, "-tags", "goleo_glaze")
+	if cgoWebview {
+		args = append(args, "-tags", "goleo_cgo_webview")
 	}
 	args = append(args, "-o", outputName+target.OutputExt, pkgDir)
 

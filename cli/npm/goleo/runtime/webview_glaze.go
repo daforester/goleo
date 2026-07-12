@@ -1,19 +1,17 @@
-//go:build (darwin || linux) && !mobilebuild && goleo_glaze
+//go:build (darwin || linux) && !mobilebuild && !goleo_cgo_webview
 
-// Opt-in cgo-free macOS/Linux webview backend (build tag `goleo_glaze`).
+// Default cgo-free macOS/Linux webview backend.
 //
-// This replaces the default cgo webview_go backend (webview.go) with
-// github.com/crgimenes/glaze — a purego reimplementation of WKWebView (macOS)
-// and WebKitGTK (Linux) — so darwin/linux desktop binaries build with
+// Uses github.com/crgimenes/glaze — a purego reimplementation of WKWebView
+// (macOS) and WebKitGTK (Linux) — so darwin/linux desktop binaries build with
 // CGO_ENABLED=0 and cross-compile from any host, exactly like the Windows
-// WebView2 backend (webview_windows.go).
+// WebView2 backend (webview_windows.go). Verified cgo-free (spikes/glaze-webview)
+// and on real macOS + Linux hardware (glaze-verify.yml: JS<->Go round-trip +
+// permission auto-grant). glaze's WebView interface matches webview_windows.go's,
+// so this wrapper is intentionally near-identical to it.
 //
-// Status: cross-compile-verified cgo-free (see spikes/glaze-webview); NOT yet
-// validated on real macOS/Linux hardware, which is why it is opt-in behind
-// `goleo_glaze` rather than the default. Flip the default (drop webview.go, make
-// this unconditional) once the hardware round-trip passes. glaze's WebView
-// interface matches webview_windows.go's, so this wrapper is intentionally
-// near-identical to it.
+// The legacy cgo webview_go backend (webview.go) remains available behind the
+// opt-in `goleo_cgo_webview` build tag as a one-release fallback.
 
 package runtime
 

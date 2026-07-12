@@ -1,4 +1,4 @@
-//go:build !linux && !mobilebuild
+//go:build darwin && !mobilebuild && goleo_cgo_webview
 
 package runtime
 

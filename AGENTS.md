@@ -350,20 +350,18 @@ per-platform backend selected by build tag:
 - **Windows: WebView2 (Edge Chromium)** via `github.com/jchv/go-webview2`
   (`runtime/webview_windows.go`) — **cgo-free** (COM/syscall), so Windows builds
   and cross-compiles with `CGO_ENABLED=0`.
-- **Linux: WebKitGTK** / **macOS: WKWebView** via `github.com/webview/webview_go`
-  (`runtime/webview.go`) — these link the system webview through **cgo**, so
-  `buildForDesktop` sets `CGO_ENABLED=1` for those targets and they must be built
-  on their own OS. This is the **default**.
-- **Linux/macOS cgo-free (opt-in, `-tags goleo_glaze`):** `runtime/webview_glaze.go`
-  wraps `github.com/crgimenes/glaze` (purego WKWebView + WebKitGTK), so darwin/linux
-  also build `CGO_ENABLED=0` and cross-compile from any host. The tag excludes
-  `webview.go` and the cgo `webview_permissions_linux.go`; `goleo build` selects it
-  when `GOLEO_PURE_WEBVIEW=1`. **Opt-in until validated on real macOS/Linux hardware**
-  (`.github/workflows/glaze-verify.yml`); source-level compile is guarded in `ci.yml`
-  and proven in `spikes/glaze-webview/`. Flipping it to the default (and dropping the
-  cgo backend) is the plan once the hardware round-trip passes — see `docs/roadmap.md`.
+- **Linux: WebKitGTK** / **macOS: WKWebView** via `github.com/crgimenes/glaze`
+  (`runtime/webview_glaze.go`) — a **cgo-free** purego binding, so darwin/linux now
+  build `CGO_ENABLED=0` and cross-compile from any host, like Windows. This is the
+  **default**. Permission auto-grant on Linux is a purego shim
+  (`runtime/webview_glaze_permissions_linux.go`, the analog of the old cgo one);
+  verified on real macOS + Linux via `.github/workflows/glaze-verify.yml`.
+- **Legacy cgo backend (opt-in, `-tags goleo_cgo_webview`):** `runtime/webview.go`
+  (`github.com/webview/webview_go`, cgo WebKitGTK/WKWebView) is kept one release as a
+  fallback; `goleo build` selects it (with `CGO_ENABLED=1`) when `GOLEO_CGO_WEBVIEW=1`.
   Note: a `CGO_ENABLED=0` Linux build also needs `runtime/camera`'s cgo V4L2 impl
-  excluded — hence `camera_linux.go` is now `cgo`-tagged with a pure-Go stub fallback.
+  excluded — hence `camera_linux.go` is `cgo`-tagged with a pure-Go stub fallback.
+  So **every desktop target is now pure-Go and cross-compilable from one machine.**
 
 ### Window modes (`Config.WindowMode`)
 

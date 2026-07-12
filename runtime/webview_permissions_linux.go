@@ -1,4 +1,4 @@
-//go:build linux && !mobilebuild && !goleo_glaze
+//go:build linux && !mobilebuild && goleo_cgo_webview
 
 package runtime
 

@@ -1,4 +1,4 @@
-//go:build linux && !mobilebuild && goleo_glaze
+//go:build linux && !mobilebuild && !goleo_cgo_webview
 
 // Pure-Go (purego) WebKitGTK permission auto-grant for the glaze backend — the
 // cgo-free analog of webview_permissions_linux.go (which is compiled out under

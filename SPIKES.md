@@ -222,9 +222,16 @@ classifier didn't list `OverconstrainedError` among the post-grant outcomes — 
 verdict except `NotAllowedError`/`SecurityError`/no-media as "granted".) macOS grants without the
 shim (glaze/WKWebView); the shim is a no-op there.
 
-**Sequencing decision (2026-07-12):** shim first → re-verify on Linux → *then* flip the default
-(delete `webview.go` + drop `webview/webview_go`, make `CGO_ENABLED=0` unconditional, remove the
-`goleo_glaze` tag). Not flipping until the permission path is green, to avoid a Linux regression.
+**Sequencing decision (2026-07-12):** shim first → re-verify on Linux → *then* flip the default.
+Followed exactly.
+
+**Default flipped (2026-07-13): glaze is now the default macOS/Linux backend.** After the
+round-trip + permission grant verified on real macOS + Linux, made `webview_glaze.go` the default
+(tag `!goleo_cgo_webview`) and `build.go` `CGO_ENABLED=0` for all desktop targets. Verified: every
+desktop target (windows + darwin/{amd64,arm64} + linux/{amd64,arm64}) builds `CGO_ENABLED=0` with
+no tags, `runtime/cgo`=0 — **all desktops pure-Go, cross-compilable from one machine.** The legacy
+cgo `webview_go` backend (`webview.go`) is retained one release behind `-tags goleo_cgo_webview` /
+`GOLEO_CGO_WEBVIEW=1`, then removable.
 
 **Impact on the estimate:** Phase 1 (flip darwin/linux to pure Go, single-window) drops from
 ~2–3 weeks of hand-writing+hardening the FFI/objc/GObject binding to **~1 week** of thin wrappers

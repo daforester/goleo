@@ -1,10 +1,11 @@
-//go:build !windows && !mobilebuild && !goleo_glaze
+//go:build (darwin || linux) && !mobilebuild && goleo_cgo_webview
 
-// Non-Windows desktop (macOS, Linux) webview backend. This wraps
-// github.com/webview/webview_go, which links the system webview via cgo
-// (WebKitGTK on Linux, WKWebView on macOS). Windows uses a separate,
-// cgo-free backend in webview_windows.go (WebView2 via COM/syscall), so this
-// file is constrained to non-Windows targets.
+// Legacy cgo macOS/Linux webview backend (opt-in, build tag `goleo_cgo_webview`).
+// Wraps github.com/webview/webview_go, which links the system webview via cgo
+// (WebKitGTK on Linux, WKWebView on macOS) and thus needs CGO_ENABLED=1 + the
+// platform toolchain. The DEFAULT macOS/Linux backend is now the cgo-free
+// glaze wrapper (webview_glaze.go); this is kept one release as a fallback.
+// Windows always uses the cgo-free WebView2 backend (webview_windows.go).
 
 package runtime
 
