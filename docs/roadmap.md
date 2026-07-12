@@ -206,8 +206,14 @@ tray. Signal-based quit. Mobile stays on its own path, fully insulated.
     `runtime/camera` via a `cgo`/`!cgo` split. The legacy cgo `webview_go` backend
     (`runtime/webview.go`) is kept **one release** behind `-tags goleo_cgo_webview` /
     `GOLEO_CGO_WEBVIEW=1` as a fallback, then removable.
-  - **Still separate:** in-process multi-window on macOS (single-loop master; AppKit is
-    main-thread-only) and `goleo://` custom-scheme asset serving (now unblocked — glaze is ours to
+  - **macOS in-process multi-window — mechanism proven, integration next.** glaze already does the
+    single-loop master (shared `NSApplication` + `windowCount`), so extra windows are opened by
+    `Dispatch`-ing `glaze.New()` onto the main-thread `[NSApp run]` loop (spike:
+    `spikes/glaze-multiwindow/`, cross-compiles cgo-free; runs on `macos-14`/`ubuntu` via
+    `glaze-verify.yml` — pending the hardware run). Remaining: a macOS `windowSpawner` (design in
+    the spike README) selected by `Config.InProcessWindows` on darwin. Until then macOS stays on
+    the multi-process default.
+  - **Still separate:** `goleo://` custom-scheme asset serving (now unblocked — glaze is ours to
     extend). android/ios stay cgo (gomobile).
 - **In-process multi-window** under the master's run loop (Tauri/Wails model). Multi-process is
   the interim/fallback (works today with minimal bindings; the reason it can't be the end state

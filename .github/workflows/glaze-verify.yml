@@ -56,3 +56,20 @@ jobs:
           else
             ./glazeverify
           fi
+
+      # Multi-window: two live windows under one run loop (the model macOS needs,
+      # since AppKit is main-thread-only). Proves the 2nd window can be opened
+      # dynamically via Dispatch after the primary loop is running.
+      - name: Build multi-window spike (CGO_ENABLED=0)
+        working-directory: spikes/glaze-multiwindow
+        run: CGO_ENABLED=0 go build -o glazemw .
+
+      - name: Run multi-window spike (2 windows, 1 loop)
+        working-directory: spikes/glaze-multiwindow
+        timeout-minutes: 3
+        run: |
+          if [ "${{ matrix.display }}" = "true" ]; then
+            xvfb-run -a ./glazemw
+          else
+            ./glazemw
+          fi

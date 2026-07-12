@@ -248,6 +248,33 @@ GTK4 + WebKit-6.0 bindings, GTK4-only, experimental). Full write-up: `spikes/gla
 
 ---
 
+## Spike — macOS/Linux in-process multi-window via glaze (2026-07-13)
+
+**Question:** can goleo do in-process multi-window on macOS? The Windows path
+(`inProcWindowManager`, one `LockOSThread` goroutine + `Run()` per window) can't port —
+**AppKit is main-thread-only**, so a second run loop on another thread is impossible. macOS needs
+the *single-loop master*: one `[NSApp run]` on the main thread owning all windows.
+
+**Finding: glaze already supports it.** Its darwin backend shares one `NSApplication`; the second
+`NewWindow()` skips the launch handshake (`getAndSetIsFirstInstance()` → false) and just creates
+another `NSWindow`, `incWindowCount()`; the app terminates only when the last window closes
+(`decWindowCount() <= 0`). Linux (GTK, also main-thread-only) behaves the same. So: create the
+primary + `Run()` on the main thread; open extra windows by `Dispatch`-ing `glaze.New()` onto that
+thread — **never** call `Run()` on them; close one via its `Destroy()` (decrements the count,
+leaves the app running).
+
+**Proof:** `spikes/glaze-multiwindow/` opens window 2 *dynamically* (after the primary loop is
+already running, via `Dispatch` once window 1 round-trips) and confirms **both** windows complete
+a JS→Go round-trip. Cross-compiles cgo-free (verified from Windows for darwin/{amd64,arm64} +
+linux/amd64); runs on `macos-14` + `ubuntu-latest` (xvfb) via `glaze-verify.yml`. **Pending the
+hardware run** — this is the macOS-threading behavior that can't be checked headless from Windows.
+
+**goleo integration (next):** a third `windowSpawner` for macOS in-process — `runWebview`
+registers the primary window as the main-thread dispatcher; `Open` marshals `NewWebviewWindow`
+onto it (channel-synced), `Close` dispatches `win.Destroy()`, and window-count→0 drives the normal
+`shutdown()`. Full design in `spikes/glaze-multiwindow/README.md`. macOS in-process multi-window
+stays multi-process (the shipped default) until this lands + verifies.
+
 ## Cross-cutting testing learnings (not "spikes" but hard-won)
 
 - **CI mobile guard must target GOOS=android/ios, never the host.** `linux + mobilebuild` is an
