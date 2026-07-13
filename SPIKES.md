@@ -439,6 +439,36 @@ on Linux (Docker/systray). (Dedup of the two byte-identical fakecgo copies was r
 goffi's exports breaks its FFI.) So the system tray is now cgo-free and hardware-verified on all
 three desktops.
 
+## Windows → glaze migration: unify on one webview binding (2026-07-14) ✅ DONE + verified
+
+**Decision (revisited):** with the glaze scheme PR forked/pinned anyway, keeping a *second*
+webview binding (`jchv/go-webview2`) on Windows costs more than it saves. Moved Windows onto the
+**glaze** backend (WebView2 via purego, same fork as macOS/Linux) so goleo carries ONE cgo-free
+binding for all three desktops. go-webview2 kept one release behind `-tags goleo_webview2`.
+
+**De-risked first (local, real Windows):**
+- **`_cgo_init`/fakecgo link:** an exe linking glaze (purego) + `gogpu/systray` (goffi) — the
+  collision that fails on macOS Mach-O — **links fine on Windows PE** (like Linux ELF). Windows was
+  previously the one platform free of purego; now it has it, and PE tolerates the dup.
+- **glaze WebView2 `Bind` round-trip** works on real WebView2 (the native-IPC primitive).
+
+**Migration + verification (all on real Windows, glaze backend):**
+- Native IPC ✅; **in-process multi-window** (`inProcWindowManager`, per-`LockOSThread` goroutine)
+  ✅ (2nd window opened via `OpenWindow` round-tripped over its own native channel); **scheme
+  assets** ✅ (`https://goleo.localhost` secure — see the goleo:// section); **tray** ✅
+  (`glaze-tray-verify`); **clean Quit** ✅.
+- **Lifecycle bug fixed:** `App.Run` unblocked the primary window by `runtime.GOOS=="windows" →
+  Destroy()`, which was really a *backend* assumption (go-webview2's Destroy posts WMClose). glaze's
+  Destroy doesn't post WM_QUIT, so on glaze-Windows Quit hung ~30s. Replaced with a per-backend
+  `endRunLoop()` (glaze/cgo `Terminate()`, go-webview2 `Destroy()`).
+- **Not a permission regression:** neither go-webview2 nor glaze auto-grants WebView2
+  media/geolocation on Windows today. glaze's vtbl exposes `AddPermissionRequested`, so wiring an
+  auto-grant (the Windows analog of the Linux permission shim) is a possible follow-up.
+
+**Remaining:** functional/visual check of the native menu bar on glaze-Windows (install didn't crash
+in the scheme-verify run; WndProc subclass hooks glaze's HWND); Windows permission auto-grant;
+dropping go-webview2 next release.
+
 ## Cross-cutting testing learnings (not "spikes" but hard-won)
 
 - **CI mobile guard must target GOOS=android/ios, never the host.** `linux + mobilebuild` is an

@@ -305,8 +305,8 @@ goleo build      # Build for current platform
 ### Go Dependencies
 - github.com/spf13/cobra - CLI framework
 - github.com/gorilla/websocket - WebSocket support
-- github.com/crgimenes/glaze - cgo-free WKWebView/WebKitGTK backend (default macOS/Linux)
-- github.com/jchv/go-webview2 - cgo-free WebView2 backend (Windows)
+- github.com/crgimenes/glaze - cgo-free WKWebView/WebKitGTK/WebView2 backend (default, ALL desktops; pinned to the daforester/glaze fork)
+- github.com/jchv/go-webview2 - cgo-free WebView2 backend (opt-in Windows fallback, `-tags goleo_webview2`)
 - github.com/webview/webview_go - cgo WKWebView/WebKitGTK (legacy fallback, `goleo_cgo_webview`)
 - github.com/ebitengine/purego - dlopen/FFI used by the cgo-free webview backends
 - github.com/gogpu/systray - cgo-free system tray
@@ -368,23 +368,31 @@ not vendored.
 
 ## WebView / Native Window
 
-Goleo renders the desktop frontend in a **native OS webview**, with a
-per-platform backend selected by build tag:
-- **Windows: WebView2 (Edge Chromium)** via `github.com/jchv/go-webview2`
-  (`runtime/webview_windows.go`) — **cgo-free** (COM/syscall), so Windows builds
-  and cross-compiles with `CGO_ENABLED=0`.
-- **Linux: WebKitGTK** / **macOS: WKWebView** via `github.com/crgimenes/glaze`
-  (`runtime/webview_glaze.go`) — a **cgo-free** purego binding, so darwin/linux now
-  build `CGO_ENABLED=0` and cross-compile from any host, like Windows. This is the
-  **default**. Permission auto-grant on Linux is a purego shim
-  (`runtime/webview_glaze_permissions_linux.go`, the analog of the old cgo one);
-  verified on real macOS + Linux via `.github/workflows/glaze-verify.yml`.
-- **Legacy cgo backend (opt-in, `-tags goleo_cgo_webview`):** `runtime/webview.go`
-  (`github.com/webview/webview_go`, cgo WebKitGTK/WKWebView) is kept one release as a
-  fallback; `goleo build` selects it (with `CGO_ENABLED=1`) when `GOLEO_CGO_WEBVIEW=1`.
-  Note: a `CGO_ENABLED=0` Linux build also needs `runtime/camera`'s cgo V4L2 impl
-  excluded — hence `camera_linux.go` is `cgo`-tagged with a pure-Go stub fallback.
-  So **every desktop target is now pure-Go and cross-compilable from one machine.**
+Goleo renders the desktop frontend in a **native OS webview**. As of the glaze
+unification, **all three desktops use ONE cgo-free binding by default**:
+- **Default (all desktops): `github.com/crgimenes/glaze`** (`runtime/webview_glaze.go`,
+  pinned to the `daforester/glaze` fork) — a **cgo-free** purego binding to
+  **WKWebView (macOS)**, **WebKitGTK (Linux)** and **WebView2 (Windows)** behind one
+  interface. So every desktop builds `CGO_ENABLED=0` and cross-compiles from any host,
+  and goleo carries a single webview binding. Permission auto-grant on Linux is a
+  purego shim (`runtime/webview_glaze_permissions_linux.go`); no-op on macOS
+  (WKUIDelegate) and Windows (WebView2 handles its own prompts — auto-grant wiring via
+  glaze's `AddPermissionRequested` is a possible follow-up). Verified on real macOS +
+  Linux (`.github/workflows/glaze-verify.yml`) and Windows (local: native IPC, scheme
+  assets, in-process multi-window, tray, clean Quit).
+- **Opt-in fallbacks (one release, then removed):**
+  - **Windows go-webview2 (`-tags goleo_webview2`):** `runtime/webview_windows.go`
+    (`github.com/jchv/go-webview2`, cgo-free WebView2 via COM/syscall) — the previous
+    default, kept as an escape hatch.
+  - **macOS/Linux cgo webview_go (`-tags goleo_cgo_webview`):** `runtime/webview.go`
+    (`github.com/webview/webview_go`, cgo WebKitGTK/WKWebView); `goleo build` selects it
+    (with `CGO_ENABLED=1`) when `GOLEO_CGO_WEBVIEW=1`. Note: a `CGO_ENABLED=0` Linux
+    build also excludes `runtime/camera`'s cgo V4L2 impl — hence `camera_linux.go` is
+    `cgo`-tagged with a pure-Go stub fallback.
+
+So **every desktop target is pure-Go and cross-compilable from one machine**, on a
+single binding. Shutdown unblocks the run loop via a per-backend `endRunLoop()`
+(glaze/cgo `Terminate()`, go-webview2 `Destroy()`) — not a GOOS check.
 
 ### Window modes (`Config.WindowMode`)
 
@@ -575,14 +583,16 @@ Added on top of the core bridge/feature system. Full rationale + status in
   window's embedded UI from a portless, secure custom origin (`Config.AssetScheme`, default
   `goleo://`) instead of the loopback HTTP server. With `NativeIPC` on, that window opens **no TCP
   port at all** while keeping a secure context (localStorage / crypto.subtle / getUserMedia /
-  history routing). Takes effect only in production (embedded FS, not `DevMode`) on backends where
-  `webviewSupportsSchemeAssets()` is true — **macOS + Linux** via the glaze `SchemeHandlers` API
-  (`newGlazeWebView` in `webview_glaze.go`); **Windows** returns false and transparently falls back
-  to the loopback URL (its `go-webview2` wrapper doesn't yet expose the vhost API — a follow-up). A
-  shared `buildAssetServer` resolves request paths to bytes+MIME from `frontend/dist` with SPA
-  index fallback and bridge-token injection. The loopback server stays up as the fallback transport.
-  Verified end-to-end on Linux (`spikes/goleo-scheme-verify`, `goleo://app` secure over native IPC)
-  + `macos-14`. **Requires the glaze fork** (`NewWithOptions`): goleo pins
+  history routing). Takes effect only in production (embedded FS, not `DevMode`) via the glaze
+  `SchemeHandlers` API (`newGlazeWebView` in `webview_glaze.go`) — now on **all three desktops**
+  since the Windows→glaze migration: macOS/Linux serve the literal `goleo://` scheme, **Windows**
+  serves it over a secure `https://<scheme>.localhost` virtual host (WebView2 has no per-scheme
+  secure flag; `Navigate` rewrites `goleo://` to the vhost so callers are platform-agnostic). The
+  opt-in `goleo_webview2` fallback returns `webviewSupportsSchemeAssets()==false` and uses the
+  loopback URL. A shared `buildAssetServer` resolves request paths to bytes+MIME from
+  `frontend/dist` with SPA index fallback and bridge-token injection. The loopback server stays up
+  as the fallback transport. Verified end-to-end on Linux + `macos-14` (`goleo://app`) and Windows
+  (`https://goleo.localhost`) via `spikes/goleo-scheme-verify`. **Requires the glaze fork** (`NewWithOptions`): goleo pins
   `crgimenes/glaze => daforester/glaze` via `replace`, and because Go `replace` directives don't
   transit, **any downstream module importing goleo's runtime needs the same replace** — `goleo new`
   and `create-goleo-app` scaffold it into the generated `go.mod`. See `SPIKES.md` (2026-07-13).
