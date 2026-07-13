@@ -348,6 +348,19 @@ var classNamePtr = utf16("glaze_webview")
 // New creates a new window and a web view.
 func New(debug bool) (WebView, error) { return NewWindow(debug, nil) }
 
+// NewWithOptions creates a web view configured by opts.
+//
+// NOTE (upstream TODO): the WebView2 backend does not yet honor
+// opts.SchemeHandlers. The mechanism is ICoreWebView2.AddWebResourceRequestedFilter
+// + the WebResourceRequested event, served over an https:// virtual host
+// (SetVirtualHostNameToFolderMapping) for a secure context — reachable through
+// this backend's existing COM plumbing but not yet wired. goleo drives WebView2
+// via jchv/go-webview2 (which already exposes these), so this gap does not block
+// goleo; it is listed for a complete cross-platform glaze contribution.
+func NewWithOptions(opts Options) (WebView, error) {
+	return NewWindow(opts.Debug, opts.Window)
+}
+
 // NewWindow creates a web view. If window is non-nil it must be an existing
 // HWND to embed into; otherwise a new window is created and owned by this
 // WebView. The first successful call pins the calling goroutine to its OS
