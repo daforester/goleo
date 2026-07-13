@@ -44,10 +44,22 @@ docker run --rm -v "${root}:/work" -w /work/spikes/glaze-menu-verify $image bash
   "CGO_ENABLED=0 go build -o /tmp/bin . && timeout 40 xvfb-run -a /tmp/bin"
 if ($LASTEXITCODE -ne 0) { $script:rc = 1 }
 
+# Custom-scheme SECURE CONTEXT: goleoapp:// registered as a secure scheme via the
+# purego shim (no glaze fork). The macOS arm (the gating one) runs on the runner.
+Write-Host ">> custom-scheme secure context (GTK3, register_uri_scheme_as_secure)"
+docker run --rm -v "${root}:/work" -w /work/spikes/glaze-scheme-secure $image bash -c `
+  "CGO_ENABLED=0 go build -o /tmp/bin . && timeout 40 xvfb-run -a /tmp/bin"
+if ($LASTEXITCODE -ne 0) { $script:rc = 1 }
+
 # GTK4 / webkitgtk-6.0: exercises menu_linux.go's GMenu/GtkPopoverMenuBar path.
 Write-Host ">> native menu bar (GTK4 / webkitgtk-6.0)"
 docker build -q -f "$root\scripts\linux-verify-gtk4.Dockerfile" -t goleo-linux-verify-gtk4 "$root\scripts" | Out-Null
 docker run --rm -e WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1 -v "${root}:/work" -w /work/spikes/glaze-menu-verify goleo-linux-verify-gtk4 bash -c `
+  "CGO_ENABLED=0 go build -o /tmp/bin . && timeout 40 dbus-run-session -- xvfb-run -a /tmp/bin"
+if ($LASTEXITCODE -ne 0) { $script:rc = 1 }
+
+Write-Host ">> custom-scheme secure context (GTK4 / webkitgtk-6.0)"
+docker run --rm -e WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1 -v "${root}:/work" -w /work/spikes/glaze-scheme-secure goleo-linux-verify-gtk4 bash -c `
   "CGO_ENABLED=0 go build -o /tmp/bin . && timeout 40 dbus-run-session -- xvfb-run -a /tmp/bin"
 if ($LASTEXITCODE -ne 0) { $script:rc = 1 }
 

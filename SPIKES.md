@@ -338,6 +338,36 @@ when pursued: add scheme handlers **inside the glaze fork** (the fork tooling al
 have goleo serve the embedded FS through it behind an opt-in `Config`. Spike per platform
 (Linux/macOS on the CI runners) before wiring. Until then the loopback asset server stays.
 
+### Secure-context gating spike (`spikes/glaze-scheme-secure/`, 2026-07-13)
+
+**Refinement of the above:** serving bytes over a custom scheme is the easy part; the property that
+actually gates a `goleo://` is whether the custom origin is a **secure context** (what
+`http://127.0.0.1` gives today — `localStorage` / `crypto.subtle` / `getUserMedia` / history
+routing). The three backends are **not equal** here, and macOS is the only genuine unknown — so a
+spike was built to probe exactly that: load the *same* page from the custom origin on each backend
+and have it report `isSecureContext` + a real `localStorage` write + a real `crypto.subtle.digest`.
+
+| Backend | Secure-context mechanism | Fork? | Result |
+|---------|--------------------------|-------|--------|
+| **Windows/WebView2** | `SetVirtualHostNameToFolderMapping` over `https://` (via `go-webview2` `edge.Chromium`, already a dep) | **No** | ✅ **PASS — real hardware (dev desktop)** |
+| **Linux/WebKitGTK GTK3 (webkit2gtk-4.1)** | `webkit_security_manager_register_uri_scheme_as_secure` on the view's context, attached via an **external purego shim** (like the permission shim) | **No** | ✅ **PASS — Docker+xvfb** |
+| **Linux/WebKitGTK GTK4 (webkitgtk-6.0)** | same | **No** | ✅ **PASS — Docker+xvfb+dbus** |
+| **macOS/WKWebView** | `WKURLSchemeHandler` set on the config **before** init — **no public "register as secure" API** | **Yes** (config frozen at init) | ⏳ **pending `macos-14` runner** — the gating result |
+
+**So the earlier "Linux possibly attachable externally … fragile" is now settled: it works, on both
+GTK3 and GTK4, with no glaze fork.** Windows also needs no fork (its `edge.Chromium` already exposes
+the vhost API). **macOS is the sole fork requirement, and its secure-context behavior for a custom
+`WKURLSchemeHandler` scheme is genuinely unknown** — WKWebView has no API to mark a scheme secure,
+and custom schemes have historically reported `isSecureContext === false`. The spike's raw
+purego/objc WKWebView arm (which does exactly what a glaze fork would) cross-compiles `CGO_ENABLED=0`
+and runs on `macos-14` via `glaze-verify.yml`.
+
+**Decision rule:** macOS PASS → the uniform all-platforms `goleo://` PR is viable (Windows = goleo's
+own wrapper reaching `edge.Chromium`; Linux = a runtime purego shim; macOS = a small, upstreamable
+glaze change). macOS FAIL → all-platforms is impossible today, so it is **not** done and the
+loopback asset server stays (a small residual, since native IPC already removed the RPC/WS surface).
+Verified locally: Windows (native) + Linux GTK3/GTK4 (Docker) via `scripts/verify-linux-docker.*`.
+
 ## Finding — macOS: glaze + gogpu/systray `fakecgo` link collision (2026-07-13)
 
 **Symptom (found by the `macos-14` runner):** linking any executable that pulls in **both** glaze

@@ -37,11 +37,22 @@ echo ">> native menu bar (GTK3, cgo-free)"
 docker run --rm -v "$ROOT:/work" -w /work/spikes/glaze-menu-verify "$IMAGE" bash -c \
   "CGO_ENABLED=0 go build -o /tmp/bin . && timeout 40 xvfb-run -a /tmp/bin" || rc=1
 
+# Custom-scheme SECURE CONTEXT: goleoapp:// registered as a secure scheme via the
+# purego shim (no glaze fork). Confirms localStorage + WebCrypto over a portless
+# origin. The macOS arm (the gating one) runs on the runner, not here.
+echo ">> custom-scheme secure context (GTK3, register_uri_scheme_as_secure)"
+docker run --rm -v "$ROOT:/work" -w /work/spikes/glaze-scheme-secure "$IMAGE" bash -c \
+  "CGO_ENABLED=0 go build -o /tmp/bin . && timeout 40 xvfb-run -a /tmp/bin" || rc=1
+
 # GTK4 / webkitgtk-6.0: exercises menu_linux.go's GMenu/GtkPopoverMenuBar path.
 # WebKitGTK 6.0 needs a session bus + its sandbox disabled in a container.
 echo ">> native menu bar (GTK4 / webkitgtk-6.0)"
 docker build -q -f "$ROOT/scripts/linux-verify-gtk4.Dockerfile" -t goleo-linux-verify-gtk4 "$ROOT/scripts" >/dev/null || rc=1
 docker run --rm -e WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1 -v "$ROOT:/work" -w /work/spikes/glaze-menu-verify goleo-linux-verify-gtk4 bash -c \
+  "CGO_ENABLED=0 go build -o /tmp/bin . && timeout 40 dbus-run-session -- xvfb-run -a /tmp/bin" || rc=1
+
+echo ">> custom-scheme secure context (GTK4 / webkitgtk-6.0)"
+docker run --rm -e WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1 -v "$ROOT:/work" -w /work/spikes/glaze-scheme-secure goleo-linux-verify-gtk4 bash -c \
   "CGO_ENABLED=0 go build -o /tmp/bin . && timeout 40 dbus-run-session -- xvfb-run -a /tmp/bin" || rc=1
 
 [ "$rc" = 0 ] && echo "ALL LINUX SMOKES PASSED" || echo "SOME LINUX SMOKES FAILED"

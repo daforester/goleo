@@ -126,6 +126,44 @@ jobs:
             ./glazemenu
           fi
 
+      # Custom-scheme SECURE CONTEXT: does a portless custom origin still get a
+      # secure context? macOS (WKURLSchemeHandler) is the gating unknown — there
+      # is no public "register scheme as secure" API, unlike Linux
+      # (register_uri_scheme_as_secure) and Windows (https vhost). PASS here means
+      # the uniform all-platforms goleo:// PR is viable.
+      - name: Build scheme secure-context spike (CGO_ENABLED=0)
+        working-directory: spikes/glaze-scheme-secure
+        run: CGO_ENABLED=0 go build -o glazescheme .
+
+      - name: Run scheme secure-context spike
+        working-directory: spikes/glaze-scheme-secure
+        timeout-minutes: 3
+        run: |
+          if [ "${{ matrix.display }}" = "true" ]; then
+            xvfb-run -a ./glazescheme
+          else
+            ./glazescheme
+          fi
+
+  # Windows arm of the secure-context spike: WebView2 +
+  # SetVirtualHostNameToFolderMapping over an https virtual host. windows-latest
+  # ships the WebView2 runtime (Edge), so this runs the exe directly.
+  windows-scheme:
+    runs-on: windows-latest
+    name: glaze-windows-scheme
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: spikes/glaze-scheme-secure/go.mod
+      - name: Build scheme secure-context spike (CGO_ENABLED=0)
+        working-directory: spikes/glaze-scheme-secure
+        run: CGO_ENABLED=0 go build -o glazescheme.exe .
+      - name: Run scheme secure-context spike (WebView2 virtual host)
+        working-directory: spikes/glaze-scheme-secure
+        timeout-minutes: 3
+        run: ./glazescheme.exe
+
   # GTK4 / webkitgtk-6.0: glaze selects the GTK4 backend when 6.0 is present,
   # exercising menu_linux.go's GMenu/GtkPopoverMenuBar path (GtkMenuBar is gone
   # in GTK4). WebKitGTK 6.0 needs a session bus and its sandbox disabled in CI.
@@ -151,3 +189,12 @@ jobs:
         env:
           WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS: "1"
         run: dbus-run-session -- xvfb-run -a ./glazemenu
+      - name: Build scheme secure-context spike (CGO_ENABLED=0)
+        working-directory: spikes/glaze-scheme-secure
+        run: CGO_ENABLED=0 go build -o glazescheme .
+      - name: Run scheme secure-context spike under GTK4
+        working-directory: spikes/glaze-scheme-secure
+        timeout-minutes: 3
+        env:
+          WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS: "1"
+        run: dbus-run-session -- xvfb-run -a ./glazescheme
