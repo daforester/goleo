@@ -37,13 +37,11 @@ and **WebKitGTK (GTK3 + GTK4)**.
 Additive and backward-compatible — existing `New`/`NewWindow` keep working:
 
 ```go
-type SchemeRequest struct { URL, Method string }
+type SchemeRequest struct { URL string }
 type SchemeResponse struct {
-    Body       []byte
-    MIMEType   string            // default application/octet-stream
-    StatusCode int               // default 200
-    Headers    map[string]string
-}
+    Body     []byte
+    MIMEType string // default application/octet-stream
+} // a nil response is treated as "not found"
 type SchemeHandler func(*SchemeRequest) *SchemeResponse
 
 type Options struct {
@@ -65,9 +63,11 @@ Option to `NewWithOptions`, not a method on the running `WebView`.
   `initWithFrame:configuration:`. ✅ verified on `macos-14`.
 - **Linux** — implemented: registers on the view's `WebKitWebContext` and marks
   the scheme secure. ✅ verified on GTK3 + GTK4 under xvfb.
-- **Windows** — API present (`NewWithOptions`), scheme wiring is a TODO
-  (`AddWebResourceRequestedFilter` + `WebResourceRequested`). Happy to complete it
-  if the API shape is acceptable.
+- **Windows** — implemented: served over a per-scheme `https://<scheme>.localhost`
+  virtual host (secure context) via `AddWebResourceRequestedFilter` +
+  `WebResourceRequested`, answered in memory (`SHCreateMemStream` +
+  `CreateWebResourceResponse`); `Navigate` rewrites `<scheme>://…` to the vhost.
+  ✅ verified on real WebView2.
 
 Would you accept a PR along these lines? Any preference on the API shape (e.g. a
 `RegisterScheme` builder vs. the `Options` map, response modeling)?

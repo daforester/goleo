@@ -49,11 +49,11 @@ wv, _ := glaze.NewWithOptions(glaze.Options{
 wv.Navigate("app://home/index.html") // secure origin, no port
 ```
 
-New public surface (one new file, `scheme.go`):
+New public surface (one new file, `scheme.go`) — deliberately minimal (YAGNI):
 
 ```go
-type SchemeRequest  struct { URL, Method string }
-type SchemeResponse struct { Body []byte; MIMEType string; StatusCode int; Headers map[string]string }
+type SchemeRequest  struct { URL string }
+type SchemeResponse struct { Body []byte; MIMEType string } // nil response = not found
 type SchemeHandler  func(*SchemeRequest) *SchemeResponse
 type Options        struct { Debug bool; Window unsafe.Pointer; SchemeHandlers map[string]SchemeHandler }
 
@@ -79,10 +79,12 @@ wires glaze's `SchemeHandler` to it, all through the existing purego bindings:
   `webkit_security_manager_register_uri_scheme_as_secure`; the body is streamed
   from an in-memory `GInputStream` (`g_memdup2` + `g_free` destroy-notify, so no
   leaks and no lifetime foot-guns).
-- **Windows (WebView2):** `NewWithOptions` is added for API parity; the scheme
-  wiring itself (`AddWebResourceRequestedFilter` + `WebResourceRequested` over an
-  `https://` virtual host) is left as a clearly-marked TODO. Happy to complete it
-  in this PR or a follow-up — flagged honestly rather than shipped half-done.
+- **Windows (WebView2):** WebView2 has no per-scheme secure flag, so the scheme is
+  served over a per-scheme `https://<scheme>.localhost` virtual host (an https
+  origin is a secure context) via `AddWebResourceRequestedFilter` + the
+  `WebResourceRequested` event, answered in-memory from the handler
+  (`SHCreateMemStream` + `CreateWebResourceResponse`). `Navigate` rewrites
+  `<scheme>://…` to that vhost, so callers use one scheme URL on every platform.
 
 ---
 
@@ -109,24 +111,34 @@ wires glaze's `SchemeHandler` to it, all through the existing purego bindings:
 ## Verified on real hardware, not just compiled
 
 A probe page served from a custom scheme reported **`window.isSecureContext ===
-true` with working `localStorage` and `crypto.subtle`** on:
+true` with working `localStorage` and `crypto.subtle`** on all three platforms:
 
 - **macOS 14 (Apple Silicon)** — real WKWebView, via GitHub Actions.
 - **Linux** — real WebKitGTK on **both GTK3 (webkit2gtk-4.1)** and **GTK4
   (webkitgtk-6.0)**, under xvfb.
+- **Windows** — real WebView2 (Edge runtime), on a physical machine.
 
 All builds are `CGO_ENABLED=0` and cross-compile for darwin/{amd64,arm64},
-linux/{amd64,arm64}, windows/amd64.
+linux/{amd64,arm64}, windows/{amd64,arm64}.
 
 ---
 
 ## Scope & compatibility
 
-- **Additive and backward-compatible** — no existing signature or behavior changes.
-- **Windows scheme wiring is a TODO** (the API is present); everything else is
-  implemented and verified.
-- No new module dependencies; no cgo.
+- **All three platforms implemented** (macOS, Linux, Windows) and verified on real
+  hardware — not "unsupported on the third."
+- **Additive and backward-compatible** — no existing signature or behavior changes;
+  `New`/`NewWindow` delegate to `NewWithOptions`.
+- **No new module dependencies; no cgo.** Fits both project rules.
+
+## Checklist (per CONTRIBUTING.md)
+
+- `gofmt -l` clean; `go vet ./...` clean; `go test -short ./...` passes (a headless
+  test covers the URL-rewrite logic).
+- `CGO_ENABLED=0 go build` green for darwin/{arm64,amd64}, linux/{amd64,arm64},
+  windows/{amd64,arm64}.
+- No `import "C"`, no cgo dependency; audited `unsafe`/`uintptr` marked `// #nosec Gxxx`.
+- US-English, no inline `if`-init in the new code; comments explain *why*.
 
 Glad to adjust the API shape to your preference (e.g. a builder method vs. the
-`Options` map, or the response model) — this is meant to fit glaze's conventions,
-not impose new ones.
+`Options` map) — this is meant to fit glaze's conventions, not impose new ones.

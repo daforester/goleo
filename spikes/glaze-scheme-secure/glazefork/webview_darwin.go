@@ -247,7 +247,7 @@ func startURLSchemeTask(self objc.ID, _cmd objc.SEL, webView objc.ID, task objc.
 	urlStr := cstr(nsurl.Send(sel("absoluteString")).Send(sel("UTF8String")))
 	scheme := cstr(nsurl.Send(sel("scheme")).Send(sel("UTF8String")))
 
-	resp := w.serveScheme(scheme, urlStr, "GET")
+	resp := w.serveScheme(scheme, urlStr)
 	autorelease(func() {
 		if resp == nil {
 			task.Send(sel("didFailWithError:"), objc.ID(0))
@@ -256,12 +256,16 @@ func startURLSchemeTask(self objc.ID, _cmd objc.SEL, webView objc.ID, task objc.
 		body := resp.Body
 		var dataPtr unsafe.Pointer
 		if len(body) > 0 {
-			dataPtr = unsafe.Pointer(&body[0])
+			dataPtr = unsafe.Pointer(&body[0]) // #nosec G103 -- dataWithBytes:length: copies the buffer
 		}
 		data := class("NSData").Send(sel("dataWithBytes:length:"), dataPtr, len(body))
+		// A 200 NSHTTPURLResponse with a Content-Type header — an http-style
+		// response is what makes WebKit treat the custom origin as secure.
+		headers := class("NSMutableDictionary").Send(sel("dictionary"))
+		headers.Send(sel("setObject:forKey:"), nsstr(schemeMIME(resp)), nsstr("Content-Type"))
 		urlResp := class("NSHTTPURLResponse").Send(sel("alloc")).Send(
 			sel("initWithURL:statusCode:HTTPVersion:headerFields:"),
-			nsurl, schemeStatus(resp), nsstr("HTTP/1.1"), schemeHeaders(resp))
+			nsurl, 200, nsstr("HTTP/1.1"), headers)
 		task.Send(sel("didReceiveResponse:"), urlResp)
 		task.Send(sel("didReceiveData:"), data)
 		task.Send(sel("didFinish"))
@@ -271,24 +275,6 @@ func startURLSchemeTask(self objc.ID, _cmd objc.SEL, webView objc.ID, task objc.
 // stopURLSchemeTask implements -webView:stopURLSchemeTask: — we complete
 // synchronously, so there is nothing to cancel.
 func stopURLSchemeTask(self objc.ID, _cmd objc.SEL, webView objc.ID, task objc.ID) {}
-
-func schemeStatus(r *SchemeResponse) int {
-	if r.StatusCode != 0 {
-		return r.StatusCode
-	}
-	return 200
-}
-
-// schemeHeaders builds an NSDictionary of response headers, always setting
-// Content-Type so the page's origin is treated as the served MIME type.
-func schemeHeaders(r *SchemeResponse) objc.ID {
-	dict := class("NSMutableDictionary").Send(sel("dictionary"))
-	dict.Send(sel("setObject:forKey:"), nsstr(schemeMIME(r)), nsstr("Content-Type"))
-	for k, v := range r.Headers {
-		dict.Send(sel("setObject:forKey:"), nsstr(v), nsstr(k))
-	}
-	return dict
-}
 
 // runOpenPanel implements WKUIDelegate's file chooser via NSOpenPanel, invoking
 // the completion handler block (driven through NSInvocation) with the URLs.
@@ -411,14 +397,14 @@ type webview struct {
 }
 
 // serveScheme looks up the handler for a scheme and invokes it (nil if none).
-func (w *webview) serveScheme(scheme, url, method string) *SchemeResponse {
+func (w *webview) serveScheme(scheme, url string) *SchemeResponse {
 	w.mu.Lock()
 	h := w.schemeHandlers[scheme]
 	w.mu.Unlock()
 	if h == nil {
 		return nil
 	}
-	return h(&SchemeRequest{URL: url, Method: method})
+	return h(&SchemeRequest{URL: url})
 }
 
 // New creates a new window and a web view.

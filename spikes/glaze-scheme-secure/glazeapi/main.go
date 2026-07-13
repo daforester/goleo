@@ -1,4 +1,4 @@
-//go:build darwin || linux
+//go:build darwin || linux || windows
 
 // Proof that the PROPOSED glaze API (glaze.NewWithOptions + Options.SchemeHandlers)
 // delivers a secure context on macOS and Linux — i.e. the exact change goleo
