@@ -4,3 +4,9 @@
 node_modules/
 dist/
 prebuilt/
+
+# Spike verify apps embed a committed test fixture under frontend/dist (the path
+# the runtime's asset server expects). Re-include it despite the dist/ rule above,
+# or the //go:embed fails on a fresh checkout (CI) while passing locally.
+!spikes/**/frontend/dist/
+!spikes/**/frontend/dist/**

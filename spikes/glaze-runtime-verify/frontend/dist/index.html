@@ -1,0 +1,33 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>rt-verify</title></head>
+<body><h1>goleo runtime verify</h1>
+<script>
+var win = new URLSearchParams(location.search).get('win') || '1';
+
+// Use goleo's native in-process channel directly (injected by the runtime's
+// nativeOnInit shim) — proves native IPC end-to-end without the npm bridge.
+function invoke(method, args) {
+  window.__goleoSend(JSON.stringify({ type: 'invoke', data: { id: String(Date.now()) + Math.random(), method: method, args: args } }));
+}
+
+(function start() {
+  if (typeof window.__goleoSend !== 'function') { setTimeout(start, 50); return; }
+
+  // (1) native IPC round-trip + which window this is.
+  invoke('smoke:report', { phase: 'ready', win: win, native: !!window.__GOLEO_NATIVE__ });
+
+  // (2) permission shim: getUserMedia over the secure http://127.0.0.1 origin.
+  // With the runtime's WebKitGTK auto-grant shim, this gets PAST the permission
+  // prompt (then fails NotFound/Overconstrained on a camera-less box). WITHOUT
+  // the shim it would hang the GTK loop — so simply getting any verdict proves
+  // the shim fired.
+  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+    navigator.mediaDevices.getUserMedia({ video: true })
+      .then(function (s) { s.getTracks().forEach(function (t) { t.stop(); }); invoke('smoke:report', { phase: 'perm', win: win, verdict: 'ok' }); })
+      .catch(function (e) { invoke('smoke:report', { phase: 'perm', win: win, verdict: (e && e.name) || 'Unknown' }); });
+  } else {
+    invoke('smoke:report', { phase: 'perm', win: win, verdict: 'NoMediaDevices' });
+  }
+})();
+</script>
+</body></html>
