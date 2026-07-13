@@ -387,7 +387,7 @@ API) and exercised through glaze's own architecture (config/init flow, `Bind`, r
   gap does not gate goleo).
 
 **IMPLEMENTED (2026-07-13): `Config.SchemeAssets` ships for macOS + Linux.** The glaze scheme API
-was pushed to the fork (`daforester/glaze` `v0.0.32-goleo.1`, branch `goleo-scheme`) and goleo pinned
+was pushed to the fork (`daforester/glaze` `v0.0.32-goleo.2`, branch `goleo-scheme`) and goleo pinned
 to it (`scripts/pin-glaze-fork.*`). `runtime/scheme_assets.go` + `newGlazeWebView`
 (`webview_glaze.go`) serve the embedded FS over `goleo://` when `Config.SchemeAssets` is set; Windows
 returns `webviewSupportsSchemeAssets()==false` and falls back to loopback (its `go-webview2` wrapper

@@ -398,14 +398,14 @@ type webview struct {
 }
 
 // serveScheme looks up the handler for a scheme and invokes it (nil if none).
-func (w *webview) serveScheme(scheme, url, method string) *SchemeResponse {
+func (w *webview) serveScheme(scheme, url string) *SchemeResponse {
 	w.mu.Lock()
 	h := w.schemeHandlers[scheme]
 	w.mu.Unlock()
 	if h == nil {
 		return nil
 	}
-	return h(&SchemeRequest{URL: url, Method: method})
+	return h(&SchemeRequest{URL: url})
 }
 
 // registerSchemes wires each SchemeHandler onto the web view's WebKitWebContext
@@ -475,7 +475,7 @@ func (w *webview) registerSchemes() {
 		}
 		url := cstr(requestGetURI(request))
 		scheme := cstr(requestGetScheme(request))
-		resp := eng.serveScheme(scheme, url, "GET")
+		resp := eng.serveScheme(scheme, url)
 		var body []byte
 		mime := "application/octet-stream"
 		if resp != nil {
@@ -485,7 +485,7 @@ func (w *webview) registerSchemes() {
 		// the bytes outlive this callback (the stream is read asynchronously).
 		var dataPtr unsafe.Pointer
 		if len(body) > 0 {
-			dataPtr = gMemdup2(unsafe.Pointer(&body[0]), len(body))
+			dataPtr = gMemdup2(unsafe.Pointer(&body[0]), len(body)) // #nosec G103 -- copied into glib memory, freed by g_free
 		}
 		stream := memInputStreamNew(dataPtr, len(body), uintptr(gFreeAddr))
 		schemeRequestFinish(request, stream, int64(len(body)), mime)

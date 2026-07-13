@@ -86,7 +86,7 @@ func newGlazeWebView(cfg windowConfig) (glaze.WebView, error) {
 			cfg.AssetScheme: func(req *glaze.SchemeRequest) *glaze.SchemeResponse {
 				body, ct, ok := serve(req.URL)
 				if !ok {
-					return &glaze.SchemeResponse{StatusCode: 404, MIMEType: "text/plain", Body: []byte("not found")}
+					return nil // nil response => not found
 				}
 				return &glaze.SchemeResponse{Body: body, MIMEType: ct}
 			},
