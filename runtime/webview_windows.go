@@ -1,14 +1,16 @@
-//go:build !mobilebuild
+//go:build !mobilebuild && goleo_webview2
 
-// Windows webview backend. Unlike the macOS/Linux backend (webview.go, which
-// links the system webview through cgo), this uses github.com/jchv/go-webview2:
-// a pure-Go binding to the WebView2 (Edge Chromium) runtime via COM + syscall.
-// It has NO cgo dependency, so Windows desktop binaries build with
-// CGO_ENABLED=0 and can be cross-compiled from any host — matching the
-// CGO_ENABLED=0 flag that cli/cmd/build.go sets for desktop builds.
+// Legacy Windows webview backend (opt-in, `-tags goleo_webview2`).
 //
-// The type name and method set are identical to the non-Windows WebviewWindow
-// so callers (app.go, jsruntime.go, window_child.go) are platform-agnostic.
+// As of the glaze unification, the DEFAULT Windows backend is glaze
+// (webview_glaze.go), same as macOS/Linux — one cgo-free binding for all three
+// desktops. This go-webview2 backend is retained one release behind the
+// goleo_webview2 tag as a fallback (mirroring how the cgo webview_go backend is
+// kept behind goleo_cgo_webview), then removable.
+//
+// github.com/jchv/go-webview2 is a pure-Go WebView2 (Edge Chromium) binding via
+// COM + syscall — no cgo, so it also builds CGO_ENABLED=0. The type name and
+// method set match the default WebviewWindow so callers stay platform-agnostic.
 
 package runtime
 
@@ -121,6 +123,10 @@ func (win *WebviewWindow) Run() {
 		win.w.Run()
 	}
 }
+
+// endRunLoop unblocks App.Run at shutdown: Destroy posts WMClose (thread-safe,
+// routed by hwnd) to end this window's message loop.
+func (win *WebviewWindow) endRunLoop() { win.Destroy() }
 
 func (win *WebviewWindow) Destroy() {
 	if win.w != nil {

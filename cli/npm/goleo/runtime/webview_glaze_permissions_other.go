@@ -1,11 +1,12 @@
-//go:build darwin && !mobilebuild && !goleo_cgo_webview
+//go:build (darwin || windows) && !mobilebuild && !goleo_cgo_webview && !goleo_webview2
 
 package runtime
 
 import "unsafe"
 
 // enableGlazePermissions is a no-op off Linux: macOS grants media/geolocation
-// through the WKUIDelegate (and the app loads only its own trusted content), and
-// there is no WebKitGTK permission-request signal to wire. See the Linux
-// counterpart (webview_glaze_permissions_linux.go).
+// through the WKUIDelegate, WebView2 handles its own permission prompts, and the
+// app loads only its own trusted content — so there is no permission-request
+// signal to wire (only WebKitGTK needs one). See the Linux counterpart
+// (webview_glaze_permissions_linux.go).
 func enableGlazePermissions(window unsafe.Pointer) {}

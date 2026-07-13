@@ -51,7 +51,10 @@ func main() {
 		}
 		_ = json.Unmarshal(args, &m)
 
-		schemeOrigin := strings.HasPrefix(m.Origin, "goleo://")
+		// macOS/Linux serve the literal goleo:// scheme; Windows (WebView2) serves
+		// it over the secure https://goleo.localhost virtual host (see the glaze
+		// Windows backend). Accept either.
+		schemeOrigin := strings.HasPrefix(m.Origin, "goleo://") || strings.HasPrefix(m.Origin, "https://goleo.localhost")
 		pass := schemeOrigin && m.Secure && m.LS && m.Crypto && m.Native
 		if pass {
 			fmt.Printf("RESULT: PASS (SchemeAssets) — %q is a secure context over native IPC (no TCP port): ls+crypto ok\n", m.Origin)

@@ -127,6 +127,9 @@ func (win *WebviewWindow) Dispatch(f func()) {
 	}
 }
 
+// endRunLoop unblocks App.Run at shutdown (cgo webview_go: Terminate ends the loop).
+func (win *WebviewWindow) endRunLoop() { win.Terminate() }
+
 func (win *WebviewWindow) Terminate() {
 	if win.w != nil {
 		win.w.Terminate()

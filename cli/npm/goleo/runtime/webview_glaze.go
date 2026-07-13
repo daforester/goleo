@@ -1,17 +1,18 @@
-//go:build (darwin || linux) && !mobilebuild && !goleo_cgo_webview
+//go:build (darwin || linux || windows) && !mobilebuild && !goleo_cgo_webview && !goleo_webview2
 
-// Default cgo-free macOS/Linux webview backend.
+// Default cgo-free webview backend for ALL three desktops (macOS, Linux, Windows).
 //
 // Uses github.com/crgimenes/glaze — a purego reimplementation of WKWebView
-// (macOS) and WebKitGTK (Linux) — so darwin/linux desktop binaries build with
-// CGO_ENABLED=0 and cross-compile from any host, exactly like the Windows
-// WebView2 backend (webview_windows.go). Verified cgo-free (spikes/glaze-webview)
-// and on real macOS + Linux hardware (glaze-verify.yml: JS<->Go round-trip +
-// permission auto-grant). glaze's WebView interface matches webview_windows.go's,
-// so this wrapper is intentionally near-identical to it.
+// (macOS), WebKitGTK (Linux) and WebView2 (Windows) behind one interface — so
+// every desktop binary builds CGO_ENABLED=0 and cross-compiles from any host, and
+// goleo carries ONE webview binding instead of two. Verified cgo-free
+// (spikes/glaze-webview) and on real macOS + Linux + Windows hardware
+// (glaze-verify.yml + local Windows runs: JS<->Go round-trip, native IPC, custom
+// scheme assets, in-process multi-window).
 //
-// The legacy cgo webview_go backend (webview.go) remains available behind the
-// opt-in `goleo_cgo_webview` build tag as a one-release fallback.
+// Fallbacks, each one release behind an opt-in build tag then removable:
+//   - Windows go-webview2 (webview_windows.go): `-tags goleo_webview2`
+//   - macOS/Linux cgo webview_go (webview.go):  `-tags goleo_cgo_webview`
 
 package runtime
 
@@ -157,10 +158,16 @@ func (win *WebviewWindow) Terminate() {
 	}
 }
 
+// endRunLoop unblocks App.Run's blocking Run() at shutdown. glaze's Terminate is
+// safe to call from any goroutine and stops the shared run loop (all windows) on
+// every desktop, so Run returns; Destroy would only close the primary window.
+func (win *WebviewWindow) endRunLoop() { win.Terminate() }
+
 func (win *WebviewWindow) IsValid() bool { return win.w != nil }
 
 // NativeHandle returns the OS window handle — GtkWindow* on Linux, NSWindow* on
-// macOS — used by the native menu-bar backend. Nil if the window isn't created.
+// macOS, HWND on Windows — used by the native menu-bar backend. Nil if the window
+// isn't created.
 func (win *WebviewWindow) NativeHandle() unsafe.Pointer {
 	if win.w == nil {
 		return nil

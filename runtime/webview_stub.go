@@ -27,4 +27,5 @@ func (win *WebviewWindow) Run()                           {}
 func (win *WebviewWindow) Destroy()                       {}
 func (win *WebviewWindow) Dispatch(f func())              {}
 func (win *WebviewWindow) Terminate()                     {}
+func (win *WebviewWindow) endRunLoop()                    {}
 func (win *WebviewWindow) IsValid() bool                  { return false }

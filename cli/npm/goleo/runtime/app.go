@@ -352,18 +352,12 @@ func (a *App) runWebview(port int) error {
 		case <-sig:
 		case <-a.ctx.Done():
 		}
-		// Unblock Run so shutdown can proceed. On Windows (go-webview2) Destroy
-		// posts WMClose (thread-safe, routed by hwnd) to end the primary's loop;
-		// the multi-process/in-proc managers close other windows in shutdown. On
-		// macOS/Linux (glaze) there is ONE shared loop, so Terminate — which glaze
-		// makes safe to call from any goroutine — stops the whole app (all windows)
-		// so Run returns; Destroy would only close the primary and leave the loop
-		// running if other windows were open.
-		if runtime.GOOS == "windows" {
-			win.Destroy()
-		} else {
-			win.Terminate()
-		}
+		// Unblock Run so shutdown can proceed. This is backend-specific, not
+		// OS-specific: the glaze backend (all three desktops) Terminate()s the run
+		// loop from any goroutine — which glaze makes safe — so Run returns; the
+		// legacy go-webview2 backend instead Destroy()s (posts WMClose, routed by
+		// hwnd) to end its per-window loop. endRunLoop picks the right one.
+		win.endRunLoop()
 	}()
 
 	win.Run()
