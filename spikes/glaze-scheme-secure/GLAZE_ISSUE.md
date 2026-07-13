@@ -1,40 +1,42 @@
-# Draft issue/PR text for github.com/crgimenes/glaze
+# glaze issue draft (custom URL-scheme handlers)
 
-Post the **issue** first to align on the API shape before sending the PR (see
-"Fork + upstream" note at the bottom). The working implementation for macOS +
-Linux lives in `spikes/glaze-scheme-secure/glazefork/` (a copy of glaze v0.0.31
-with the change) and is verified on real hardware — see `README.md`.
+**Internal (do not post):** Per glaze's CONTRIBUTING, a new API needs an **issue
+first** to agree it fits scope + the two rules before the PR. Post only the block
+between the `POST FROM HERE` / `END POST` markers. The reference implementation
+lives in `spikes/glaze-scheme-secure/glazefork/` and is verified on real hardware
+(see `README.md`); the paste-ready PR body is in `PR_DESCRIPTION.md`.
 
 ---
+<!-- ===================== POST FROM HERE ===================== -->
 
-## Title
-Add a custom URL-scheme handler API (`Options.SchemeHandlers` / `NewWithOptions`)
+**Title:** Add a custom URL-scheme handler API (`NewWithOptions` / `Options.SchemeHandlers`)
 
-## Motivation
-Desktop apps built on glaze currently serve their frontend assets over a local
-loopback HTTP server (`http://127.0.0.1:<port>`), because the browser engine
-treats loopback as a **secure context** — required for `localStorage`,
-`crypto.subtle`, `getUserMedia`, and history-based routing.
+### Problem
+A glaze desktop app that loads a real frontend has to serve it from a local
+`http://127.0.0.1:<port>` server, because the engine treats loopback as a **secure
+context** — and `localStorage`, `crypto.subtle`, `getUserMedia`, and history-based
+routing are all gated behind a secure context. The alternatives (`file://`,
+`SetHtml`) are **not** secure contexts, so they break those APIs.
 
-To drop that TCP port entirely, the app needs to serve embedded assets from a
-custom scheme (e.g. `app://`) that the engine **also treats as a secure
-context**. Every backend glaze wraps supports this, but glaze exposes no hook:
+There's no way today to get **no port *and* a secure context**. The fix every
+native engine supports is a **custom scheme registered as secure**, serving
+embedded assets in-process — but glaze exposes no hook for it.
 
-- **macOS (WKWebView):** `-[WKWebViewConfiguration setURLSchemeHandler:forURLScheme:]`
-  — must be set **before** the `WKWebView` is created (the configuration is copied
-  at init), so it cannot be added from outside glaze. This is the key reason the
-  feature must live in glaze.
-- **Linux (WebKitGTK):** `webkit_web_context_register_uri_scheme` +
-  `webkit_security_manager_register_uri_scheme_as_secure`.
-- **Windows (WebView2):** `ICoreWebView2.AddWebResourceRequestedFilter` +
-  `WebResourceRequested`, over an `https://` virtual host for a secure context.
+### Why this fits glaze
+- **No CGo (rule 1).** Implemented with **purego / syscall / the Obj-C runtime /
+  COM only** — no `import "C"`, **no new dependency** (purego stays glaze's only
+  dep), `CGO_ENABLED=0` green for darwin/{arm64,amd64}, linux/{amd64,arm64},
+  windows/{amd64,arm64}.
+- **YAGNI (rule 2).** Smallest API that works: two 1- and 2-field structs and one
+  constructor; no speculative fields (no status/headers/method until a real case
+  needs them). `New`/`NewWindow` just delegate, so nothing existing changes.
+- **In scope.** This is the webview binding serving *its own* content — core to
+  what glaze is, not a window-independent OS binding (nothing for the `native`
+  project).
+- **All three platforms**, each via its engine's own mechanism (below).
 
-Verified: a custom scheme registered this way reports `window.isSecureContext ===
-true` with working `localStorage` + `crypto.subtle` on **real WKWebView (macOS 14)**
-and **WebKitGTK (GTK3 + GTK4)**.
-
-## Proposed API
-Additive and backward-compatible — existing `New`/`NewWindow` keep working:
+### Proposed API
+Additive and backward-compatible:
 
 ```go
 type SchemeRequest struct { URL string }
@@ -55,31 +57,42 @@ func NewWithOptions(opts Options) (WebView, error)
 // NewWindow(debug, w) == NewWithOptions(Options{Debug: debug, Window: w})
 ```
 
-Handlers are install-time only (macOS freezes the config at init), so they are an
-Option to `NewWithOptions`, not a method on the running `WebView`.
+Handlers are install-time only (macOS copies the `WKWebViewConfiguration` at init),
+so they're an `Options` field, not a method on the running `WebView`.
 
-## Status of a reference implementation
-- **macOS** — implemented: a `WKURLSchemeHandler` class set on the config before
-  `initWithFrame:configuration:`. ✅ verified on `macos-14`.
-- **Linux** — implemented: registers on the view's `WebKitWebContext` and marks
-  the scheme secure. ✅ verified on GTK3 + GTK4 under xvfb.
-- **Windows** — implemented: served over a per-scheme `https://<scheme>.localhost`
-  virtual host (secure context) via `AddWebResourceRequestedFilter` +
-  `WebResourceRequested`, answered in memory (`SHCreateMemStream` +
-  `CreateWebResourceResponse`); `Navigate` rewrites `<scheme>://…` to the vhost.
-  ✅ verified on real WebView2.
+### Per-backend mechanism
+- **macOS (WKWebView):** a `WKURLSchemeHandler` set on the configuration **before**
+  the view is created (the config is copied at init — the reason this must live in
+  glaze).
+- **Linux (WebKitGTK):** `webkit_web_context_register_uri_scheme` +
+  `webkit_security_manager_register_uri_scheme_as_secure`, served from an in-memory
+  `GInputStream`.
+- **Windows (WebView2):** WebView2 has no per-scheme secure flag, so a scheme is
+  served over a per-scheme `https://<scheme>.localhost` virtual host (an https
+  origin is a secure context) via `AddWebResourceRequestedFilter` +
+  `WebResourceRequested`, answered in memory; `Navigate` rewrites `<scheme>://…` to
+  the vhost so callers use one scheme URL everywhere. (A literal `app://` is
+  possible via `CoreWebView2CustomSchemeRegistration`, but that needs inbound COM
+  env-options objects — more code for a cosmetic origin match; happy to do it if
+  you'd prefer it.)
 
-Would you accept a PR along these lines? Any preference on the API shape (e.g. a
-`RegisterScheme` builder vs. the `Options` map, response modeling)?
+### Verified (real hardware)
+A page served from a custom scheme reports `window.isSecureContext === true` with
+working `localStorage` + `crypto.subtle` on **WKWebView (macOS 14)**, **WebKitGTK
+(GTK3 + GTK4)**, and **WebView2 (Windows)**. `gofmt`/`go vet` clean; `go test
+-short` passes (a headless test covers the URL rewrite); audited `unsafe`/`uintptr`
+marked `// #nosec Gxxx`.
 
+**Would you accept a PR along these lines, and do you have a preference on the API
+shape** (the `Options` map vs. a `RegisterScheme` builder; the response model; the
+Windows vhost vs. `CustomSchemeRegistration`)?
+
+<!-- ===================== END POST ===================== -->
 ---
 
-**Fork + upstream note (for goleo, not for the issue):** goleo ships this via a
-pinned fork regardless (pre-1.0, single-maintainer insulation —
-`scripts/pin-glaze-fork.*`), so upstream merging is cleanup, not a blocker. goleo
-already consumes glaze's scheme API on **both macOS and Linux** (via
-`NewWithOptions` in `runtime/webview_glaze.go`, `Config.SchemeAssets`), verified
-end-to-end on `macos-14` + Linux GTK3/GTK4. **Windows** currently falls back to the
-loopback server (goleo still wraps `jchv/go-webview2` there), but is being migrated
-onto glaze — at which point completing glaze's Windows scheme wiring becomes
-directly useful to goleo, not out-of-scope.
+**Internal — goleo consumption (do not post):** goleo ships this via a pinned fork
+(`scripts/pin-glaze-fork.*`), so upstream merge is cleanup, not a blocker. goleo
+consumes the scheme API on macOS + Linux (`runtime/webview_glaze.go`,
+`Config.SchemeAssets`), verified end-to-end on `macos-14` + Linux GTK3/GTK4;
+Windows still wraps `jchv/go-webview2` (loopback fallback) until the separate
+Windows→glaze migration, after which glaze's Windows scheme wiring is consumed too.
