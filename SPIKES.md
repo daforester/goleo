@@ -391,10 +391,13 @@ was pushed to the fork (`daforester/glaze` `v0.0.32-goleo.1`, branch `goleo-sche
 to it (`scripts/pin-glaze-fork.*`). `runtime/scheme_assets.go` + `newGlazeWebView`
 (`webview_glaze.go`) serve the embedded FS over `goleo://` when `Config.SchemeAssets` is set; Windows
 returns `webviewSupportsSchemeAssets()==false` and falls back to loopback (its `go-webview2` wrapper
-needs the vhost rework — follow-up). Verified end-to-end on Linux GTK3+GTK4 + `macos-14` via
+needs the vhost rework — follow-up). Verified end-to-end on Linux GTK3+GTK4 (Docker) **and `macos-14`** via
 `spikes/goleo-scheme-verify` (`goleo://app` reports `isSecureContext` + localStorage + WebCrypto over
-native IPC, no TCP port). Downstream consumers need the fork `replace` (Go replaces don't transit),
-so `goleo new` / `create-goleo-app` scaffold it. Upstream issue: `GLAZE_ISSUE.md`.
+native IPC, no TCP port) — the full `glaze-verify.yml` matrix is green including the goleo integration
+(not just glaze in isolation). Downstream consumers need the fork `replace` (Go replaces don't
+transit), so `goleo new` / `create-goleo-app` scaffold it. Upstream issue: `GLAZE_ISSUE.md`.
+**Remaining: Windows `SchemeAssets`** still falls back to loopback (`go-webview2` needs a vhost hook —
+see below).
 
 **Conclusion — the all-platforms `goleo://` is fully de-risked.** goleo consumes glaze's macOS
 scheme path from a pinned fork (`scripts/pin-glaze-fork.*`; upstream issue drafted in
