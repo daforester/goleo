@@ -565,11 +565,13 @@ Added on top of the core bridge/feature system. Full rationale + status in
     own independent session. Child-*process* windows, browser/PWA and mobile keep using WebSocket
     (`@goleo/bridge` auto-detects the native channel, else falls back). The HTTP/WS server stays up:
     it still serves embedded assets and is the fallback transport. Dropping it too via custom-scheme
-    (`goleo://`) asset serving is **viable and gating-verified, not yet implemented** — a portless
-    custom origin **is** a secure context on all three desktops (secure-context spike
-    `spikes/glaze-scheme-secure/`, ✅ green on the full `glaze-verify.yml` matrix incl. `macos-14`).
-    Fork needed only on macOS (a small `WKURLSchemeHandler`-before-init change to glaze); Windows
-    (https vhost via `edge.Chromium`) + Linux (purego shim) need none. See `SPIKES.md` (2026-07-13).
+    (`goleo://`) asset serving is **viable and fully de-risked, not yet implemented in goleo** — a
+    portless custom origin **is** a secure context on all three desktops, proven both raw and through
+    the actual proposed glaze API (`glazefork/` `NewWithOptions`+`SchemeHandlers`, `glazeapi/`), ✅
+    green on the full `glaze-verify.yml` matrix incl. `macos-14`. Only macOS needs a glaze fork
+    (`WKURLSchemeHandler`-before-init; upstream issue drafted in `spikes/.../GLAZE_ISSUE.md`);
+    Windows keeps `go-webview2` (https vhost) and Linux uses a purego shim / the same fork. See
+    `SPIKES.md` (2026-07-13).
   - **Verified** on real WebView2 (Windows, cgo-free): a two-window app where each window completes
     an independent bidirectional round-trip over its own native channel, incl. `goleo:windowOpen`
     over native IPC, then a clean `Quit`. Also `runtime/nativeipc_test.go` (round-trip, policy,

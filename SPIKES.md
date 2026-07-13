@@ -371,6 +371,30 @@ Historically such schemes reported `false`; current WebKit grants the secure con
 
 Verified locally too: Windows (native) + Linux GTK3/GTK4 (Docker) via `scripts/verify-linux-docker.*`.
 
+### Reference implementation proven through glaze's own API (`glazefork/` + `glazeapi/`, 2026-07-13)
+
+Beyond the raw per-backend probes above, the **actual proposed glaze change** is implemented in
+`spikes/glaze-scheme-secure/glazefork/` (glaze v0.0.31 + a `SchemeHandler`/`Options`/`NewWithOptions`
+API) and exercised through glaze's own architecture (config/init flow, `Bind`, run loop) by
+`spikes/glaze-scheme-secure/glazeapi/`:
+- **macOS:** `WKURLSchemeHandler` set on the config **before** `initWithFrame:configuration:` — the
+  one piece that *must* live inside glaze. ✅ **PASS on `macos-14`** (`glazeapischeme` green): the
+  fork approach — not just raw purego — gives `isSecureContext===true` on real WKWebView.
+- **Linux:** registers on the view's `WebKitWebContext` + `register_uri_scheme_as_secure`, serving
+  from an in-memory `GInputStream`. ✅ PASS GTK3 (local Docker) + on CI.
+- **Windows:** `NewWithOptions` added for API uniformity; scheme wiring is a documented **upstream
+  TODO** (goleo uses `jchv/go-webview2` on Windows, which already exposes the vhost API, so this
+  gap does not gate goleo).
+
+**Conclusion — the all-platforms `goleo://` is fully de-risked.** goleo consumes glaze's macOS
+scheme path from a pinned fork (`scripts/pin-glaze-fork.*`; upstream issue drafted in
+`spikes/glaze-scheme-secure/GLAZE_ISSUE.md`), uses `go-webview2`'s vhost on Windows, and a runtime
+purego shim (or the same forked glaze) on Linux. **Decision (2026-07-13): keep Windows on
+`go-webview2`** — glaze's WebView2 backend would make the scheme feature *more* work (COM rewrite),
+force re-verifying the proven Windows stack (native IPC, in-process multi-window), and reintroduce
+purego on Windows (the one platform currently free of the `fakecgo`/systray link risk). Unifying on
+glaze remains a possible *separate* future migration, evaluated on its own merits.
+
 ## Finding — macOS: glaze + gogpu/systray `fakecgo` link collision (2026-07-13)
 
 **Symptom (found by the `macos-14` runner):** linking any executable that pulls in **both** glaze
