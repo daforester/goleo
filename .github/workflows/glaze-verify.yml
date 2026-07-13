@@ -91,3 +91,20 @@ jobs:
           else
             ./glazert
           fi
+
+      # System tray: macOS uses the purego/objc NSStatusItem backend (must link
+      # alongside glaze without the goffi/purego fakecgo collision); Linux uses
+      # gogpu/systray. A Background app builds a tray, runs the loop, self-quits.
+      - name: Build tray verify (CGO_ENABLED=0)
+        working-directory: spikes/glaze-tray-verify
+        run: CGO_ENABLED=0 go build -o glazetray .
+
+      - name: Run tray verify (native tray, cgo-free)
+        working-directory: spikes/glaze-tray-verify
+        timeout-minutes: 3
+        run: |
+          if [ "${{ matrix.display }}" = "true" ]; then
+            xvfb-run -a ./glazetray
+          else
+            ./glazetray
+          fi

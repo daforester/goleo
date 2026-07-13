@@ -34,6 +34,11 @@ docker run --rm -v "${root}:/work" -w /work/spikes/glaze-runtime-verify $image b
   "CGO_ENABLED=0 go build -o /tmp/bin . && timeout 60 xvfb-run -a /tmp/bin"
 if ($LASTEXITCODE -ne 0) { $script:rc = 1 }
 
+Write-Host ">> system tray (native tray, cgo-free)"
+docker run --rm -v "${root}:/work" -w /work/spikes/glaze-tray-verify $image bash -c `
+  "CGO_ENABLED=0 go build -o /tmp/bin . && timeout 30 xvfb-run -a /tmp/bin"
+if ($LASTEXITCODE -ne 0) { $script:rc = 1 }
+
 $rc = $script:rc
 
 if ($rc -eq 0) { Write-Host "ALL LINUX SMOKES PASSED" -ForegroundColor Green }

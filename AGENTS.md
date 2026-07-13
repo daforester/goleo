@@ -515,11 +515,11 @@ Added on top of the core bridge/feature system. Full rationale + status in
 - `Config.Background` — headless controller: no auto primary window; main thread runs the tray
   (if set) or blocks until Quit. `Config.OnReady` runs after the server + window manager are up
   (where `OpenWindow` works, unlike `OnStartup`).
-- **Tray:** `Config.Tray` (`TrayConfig`/`TrayItem`) via `github.com/gogpu/systray` (cgo-free);
-  `runtime/tray_desktop.go` (build tag `!darwin && !mobilebuild && !js`), `tray_stub.go` on
-  mobile/wasm. **Windows + Linux only** — on **macOS** the tray is excluded (`tray_darwin.go`
-  headless no-op; `TraySupported()` → false): glaze's and systray's `fakecgo` shims both export
-  `_cgo_init` and collide at Mach-O link time (ELF/Linux tolerates it). See `SPIKES.md`.
+- **Tray:** `Config.Tray` (`TrayConfig`/`TrayItem`), cgo-free on all desktops. Windows/Linux use
+  `github.com/gogpu/systray` (`runtime/tray_desktop.go`, `!darwin && !mobilebuild && !js`); **macOS**
+  uses a `purego`/objc `NSStatusItem` backend (`runtime/tray_darwin.go`) — necessary because
+  systray's `goffi` and glaze's `purego` each export `_cgo_init` and collide at Mach-O link time, so
+  macOS reuses glaze's FFI instead of importing systray. `tray_stub.go` on mobile/wasm. See `SPIKES.md`.
 
 ### OS integration
 - **Single-instance** (`runtime/singleinstance/`): first launch binds a per-app loopback address;

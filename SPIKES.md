@@ -357,15 +357,16 @@ a library and never links, so it passed for darwin; only building an actual exec
 **cross-linking** for darwin from Windows (`CGO_ENABLED=0 GOOS=darwin go build -o x .`). Lesson:
 cross-*link* an executable per target, not just `build ./...`.
 
-**Fix (2026-07-13):** exclude the tray on macOS. `tray_desktop.go` is now `!darwin && !mobilebuild
-&& !js` (systray on Windows/Linux, unchanged); `tray_darwin.go` provides a headless `runTrayLoop`
-(Background stays alive, cleans up on Quit) and logs that the tray is unavailable; `TraySupported()`
-returns **false** on macOS (`capabilities_darwin.go`) so `goleo:capabilities` is accurate. Verified:
-`glaze-runtime-verify` now cross-links for darwin/{amd64,arm64}; Linux/Windows keep the tray.
-
-**Proper resolution (deferred):** make the tray share one `fakecgo` with glaze — either a
-purego-based tray, or a fork of goffi/systray that defers `_cgo_init` to purego's. Until then macOS
-is tray-less with the cgo-free backend.
+**Fix (2026-07-13) — the tray now works on macOS too, via purego/objc.** Rather than drop the tray
+on macOS, `tray_darwin.go` implements it directly on `ebitengine/purego` + the Objective-C runtime
+(`NSStatusItem` + `NSMenu`, menu-bar-only `accessory` activation policy) — the **same FFI glaze
+uses**, so it shares glaze's single `fakecgo` and never imports `gogpu/systray`/`goffi`. Result: the
+darwin dep tree has **zero** goffi/systray, so no `_cgo_init` collision. `tray_desktop.go` is
+`!darwin && !mobilebuild && !js` (systray on Windows/Linux, unchanged); `TraySupported()` is **true**
+on macOS again. Verified: `glaze-runtime-verify` + `glaze-tray-verify` cross-link for
+darwin/{amd64,arm64}; the tray smoke runs+quits cleanly on Linux (Docker) and is checked on
+`macos-14` via `glaze-verify.yml` (`spikes/glaze-tray-verify`). (Dedup of the two byte-identical
+fakecgo copies was rejected — gutting goffi's exports breaks its FFI.)
 
 ## Cross-cutting testing learnings (not "spikes" but hard-won)
 

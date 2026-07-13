@@ -29,5 +29,9 @@ echo ">> runtime stack (native IPC + perm shim + in-proc 2nd window)"
 docker run --rm -v "$ROOT:/work" -w /work/spikes/glaze-runtime-verify "$IMAGE" bash -c \
   "CGO_ENABLED=0 go build -o /tmp/bin . && timeout 60 xvfb-run -a /tmp/bin" || rc=1
 
+echo ">> system tray (native tray, cgo-free)"
+docker run --rm -v "$ROOT:/work" -w /work/spikes/glaze-tray-verify "$IMAGE" bash -c \
+  "CGO_ENABLED=0 go build -o /tmp/bin . && timeout 30 xvfb-run -a /tmp/bin" || rc=1
+
 [ "$rc" = 0 ] && echo "ALL LINUX SMOKES PASSED" || echo "SOME LINUX SMOKES FAILED"
 exit $rc

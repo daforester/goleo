@@ -2,10 +2,11 @@
 
 package runtime
 
-// macOS supports native windowing (incl. in-process multi-window via glaze) but
-// NOT the system tray with the cgo-free backend — glaze's and gogpu/systray's
-// fakecgo shims collide at link time on Mach-O (see tray_darwin.go / SPIKES.md).
+// macOS supports native windowing (in-process multi-window via glaze) and the
+// system tray — the tray is implemented directly on purego/objc (NSStatusItem)
+// so it shares glaze's fakecgo instead of pulling in gogpu/systray's colliding
+// one. See tray_darwin.go / SPIKES.md.
 const (
 	platformWindowing = true
-	platformTray      = false
+	platformTray      = true
 )
