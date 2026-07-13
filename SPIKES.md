@@ -227,8 +227,15 @@ Docker image where the *raw* spike hangs, it instead reports `perm ... Overconst
 `getUserMedia` got **past** the permission prompt without hanging → the purego shim fired. Same run
 also confirmed **native IPC** (page reached the Bridge over the native channel, `native:true`) and
 **`mainLoopWindowManager`** (a 2nd window opened via `App.OpenWindow` on the single loop, both
-windows round-tripped), then a clean `Quit`. macOS's shim is a no-op (glaze/WKWebView grants); the
-same app on `macos-14` (`glaze-verify.yml`) is the remaining check for the macOS integration.
+windows round-tripped), then a clean `Quit`. macOS's shim is a no-op (glaze/WKWebView grants).
+
+**✅ macOS verified on `macos-14` (2026-07-13):** the same `glaze-runtime-verify` app went green on
+the Apple-Silicon runner (after fixing the embed fixture + the glaze/systray fakecgo link collision)
+— native IPC + in-process 2nd window via `mainLoopWindowManager` + clean `Quit` on real WKWebView.
+**So the cgo-free desktop stack is now verified on all three OSes:** Windows (WebView2, cgo-free
+build), Linux (WebKitGTK, Docker+CI), macOS (WKWebView, `macos-14`). Remaining macOS caveat: the
+system **tray** is excluded there (fakecgo collision) and true pixel-level interactive UX is only
+exercised headlessly (the runner has no physical display).
 
 **Local Linux verification via Docker+WSL (2026-07-13):** `scripts/verify-linux-docker.*` +
 `scripts/linux-verify.Dockerfile` reproduce the `glaze-verify.yml` ubuntu job locally (golang +

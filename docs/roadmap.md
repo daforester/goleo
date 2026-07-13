@@ -23,17 +23,16 @@ publish → updater, D1), and the complete desktop lifecycle/OS-integration set 
 Quit, ExitOnClose, single-instance, autostart, tray + Background/headless mode, deep-link/URL
 scheme). Android is runtime-verified on an emulator; Windows multi-window on the dev's desktop.
 
-**The one remaining item — cgo-free *in-process* webview on macOS/Linux (purego WKWebView /
-WebKitGTK) + native-bind transport — is a refinement, not a gap:** macOS/Linux already run
-today via the cgo `webview_go` backend (single in-process window + multi-process for extras).
-The purego backends drop the cgo requirement and enable in-process multi-window + socket-free
-IPC there. Their *mechanism* is proven (Spikes 1 & 2 in `SPIKES.md`), and — per the 2026-07-12
-spike — an **importable cgo-free binding already exists** (`crgimenes/glaze`: WKWebView +
-WebKitGTK + WebView2 on `ebitengine/purego`), so this is now *wrap a binding*, not *write one*
-(≈1 week for Phase 1). What remains genuinely gated is **real-hardware verification** — macOS via
-a GitHub Actions runner (as Spike 2 did), Linux via xvfb or a real box — since interactive GUI/UX
-can't be proven headless. See Track D / the Fork-A binding sections, `SPIKES.md`, and
-`spikes/glaze-webview/`.
+**DONE (2026-07-13): cgo-free in-process webview on macOS/Linux + native-bind transport.** Adopted
+`crgimenes/glaze` (WKWebView + WebKitGTK + WebView2 on `ebitengine/purego`) as the default
+macOS/Linux backend, so **every desktop target is now cgo-free and cross-compiles from one machine**
+(`CGO_ENABLED=0`, `runtime/cgo` absent). Native IPC (`Config.NativeIPC`) and in-process multi-window
+(`mainLoopWindowManager`, `Config.InProcessWindows`) both ship. **Verified on real hardware, all
+three OSes:** Windows (WebView2), Linux/WebKitGTK (Docker+WSL & `glaze-verify.yml` ubuntu), and
+macOS/WKWebView (`macos-14`). The legacy cgo `webview_go` backend remains one release behind
+`-tags goleo_cgo_webview`. Residual caveats: macOS has no system tray (glaze/systray fakecgo
+collision) and `goleo://` asset serving is deferred (both in `SPIKES.md`); interactive UX is only
+exercised headlessly on CI. See Track D, `SPIKES.md`, and `spikes/glaze-*`.
 
 ## 0. Current status (what is built vs designed)
 
@@ -206,15 +205,16 @@ tray. Signal-based quit. Mobile stays on its own path, fully insulated.
     `runtime/camera` via a `cgo`/`!cgo` split. The legacy cgo `webview_go` backend
     (`runtime/webview.go`) is kept **one release** behind `-tags goleo_cgo_webview` /
     `GOLEO_CGO_WEBVIEW=1` as a fallback, then removable.
-  - **In-process multi-window (macOS/Linux) — implemented; Linux verified, macOS pending.** glaze
-    does the single-loop master (shared `NSApplication`/GtkApplication + `windowCount`), so extra
-    windows are opened by `Dispatch`-ing `glaze.New()` onto the primary's main-thread run loop.
-    `runtime/windowmanager_mainloop.go` (`mainLoopWindowManager`) implements it, selected by
-    `Config.InProcessWindows` on darwin/linux. **Verified on real Linux/WebKitGTK at the
-    runtime-integration level** (`spikes/glaze-runtime-verify` — a real goleo app — via
-    `scripts/verify-linux-docker.*`/Docker+WSL and `glaze-verify.yml`): a 2nd window opened through
-    `App.OpenWindow` on the single loop, alongside native IPC and the WebKitGTK permission shim, then
-    a clean `Quit`. **macOS still needs the hardware run** (`macos-14`, same app in `glaze-verify.yml`).
+  - **In-process multi-window (macOS/Linux) — DONE and verified on real hardware.** glaze does the
+    single-loop master (shared `NSApplication`/GtkApplication + `windowCount`), so extra windows are
+    opened by `Dispatch`-ing `glaze.New()` onto the primary's main-thread run loop.
+    `runtime/windowmanager_mainloop.go` (`mainLoopWindowManager`), selected by
+    `Config.InProcessWindows` on darwin/linux. The `spikes/glaze-runtime-verify` app (a real goleo
+    app: native IPC + permission shim + a 2nd window via `App.OpenWindow` + clean `Quit`) **passed on
+    real Linux** (Docker+WSL & `glaze-verify.yml` ubuntu) **and real macOS** (`macos-14`, Apple
+    Silicon). **The cgo-free desktop stack is now verified on all three OSes** (Windows/WebView2,
+    Linux/WebKitGTK, macOS/WKWebView). Caveats: macOS is tray-less (fakecgo collision) and interactive
+    UX is only exercised headlessly on CI.
   - **`goleo://` asset serving — deferred, low priority (see `SPIKES.md`).** Native IPC already
     removed the RPC surface; the residual is a loopback-only, embedded-assets-only static server.
     The only portless option that keeps a *secure context* (localStorage/getUserMedia/routing) is a
