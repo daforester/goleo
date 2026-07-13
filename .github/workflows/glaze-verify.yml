@@ -158,7 +158,9 @@ jobs:
           go-version-file: spikes/glaze-scheme-secure/go.mod
       - name: Build scheme secure-context spike (CGO_ENABLED=0)
         working-directory: spikes/glaze-scheme-secure
-        run: CGO_ENABLED=0 go build -o glazescheme.exe .
+        env:
+          CGO_ENABLED: "0"
+        run: go build -o glazescheme.exe .
       - name: Run scheme secure-context spike (WebView2 virtual host)
         working-directory: spikes/glaze-scheme-secure
         timeout-minutes: 3
