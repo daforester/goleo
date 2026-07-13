@@ -1,21 +1,16 @@
 // Headed, self-verifying check that the cgo-free glaze backend drives a live
-// WKWebView (macOS) / WebKitGTK (Linux) window AND that permission requests are
-// auto-granted, so getUserMedia resolves instead of hanging/being denied.
+// WKWebView (macOS) / WebKitGTK (Linux) window and completes a JS<->Go round-trip
+// over glaze's Bind. Run on real hardware / a CI runner with a display (Linux
+// needs xvfb); see .github/workflows/glaze-verify.yml and
+// scripts/verify-linux-docker.*. "RESULT: PASS" + exit 0 on success.
 //
-// Two things are proven:
-//  1. JS<->Go round-trip over glaze's Bind (report(...)).
-//  2. Permission gate: getUserMedia({video:true}) over a secure 127.0.0.1 origin
-//     must get PAST the WebKit permission prompt. On a headless CI runner there
-//     is no camera, so it typically rejects with NotFoundError/NotReadableError
-//     — that still proves the permission was GRANTED. Only NotAllowedError means
-//     the grant failed (the shim didn't work).
-//
-// A plain SetHtml/about:blank page is NOT a secure context, so getUserMedia
-// would be unavailable regardless of permissions — hence we serve over
-// http://127.0.0.1 (a potentially-trustworthy origin).
-//
-// Run on real hardware / a CI runner with a display (Linux needs xvfb); see
-// .github/workflows/glaze-verify.yml. Exits 0 + "RESULT: PASS" on success.
+// NOTE: this uses RAW glaze — it does NOT include goleo's WebKitGTK permission
+// auto-grant shim (that lives in runtime/webview_glaze_permissions_linux.go), so
+// it must NOT call getUserMedia/geolocation: on WebKitGTK an unanswered
+// permission-request hangs the GTK main loop. Permission auto-grant is verified
+// separately at the goleo-runtime level (an app built against the runtime, which
+// includes the shim). Keeping this spike to a plain round-trip keeps it a clean,
+// non-hanging signal of "glaze drives a live window + JS<->Go works".
 package main
 
 import (
@@ -30,19 +25,10 @@ import (
 )
 
 const page = `<!doctype html><meta charset="utf-8"><body><script>
-function send(p){ if (window.report) { report(p); } else { setTimeout(function(){ send(p); }, 50); } }
-send("native-ok");
-if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-  send("perm-NoMediaDevices");
-} else {
-  navigator.mediaDevices.getUserMedia({ video: true })
-    .then(function(s){ s.getTracks().forEach(function(t){ t.stop(); }); send("perm-ok"); })
-    .catch(function(e){ send("perm-" + (e && e.name ? e.name : "Unknown")); });
-}
+(function send(){ if (window.report) { report("ok"); } else { setTimeout(send, 50); } })();
 </script></body>`
 
 func main() {
-	// Serve the test page over a loopback HTTP origin (secure context).
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		fmt.Println("RESULT: FAIL (listen:", err, ")")
@@ -52,7 +38,6 @@ func main() {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprint(w, page)
 	}))
-	url := "http://" + ln.Addr().String() + "/"
 
 	w, err := glaze.New(false)
 	if err != nil {
@@ -62,79 +47,35 @@ func main() {
 	w.SetTitle("glaze verify")
 	w.SetSize(420, 300, glaze.HintNone)
 
-	var mu sync.Mutex
-	got := map[string]bool{}
-	if err := w.Bind("report", func(phase string) {
-		fmt.Println("JS->Go:", phase)
-		mu.Lock()
-		got[phase] = true
-		done := got["native-ok"] && hasPermVerdict(got)
-		mu.Unlock()
-		if done {
-			w.Terminate()
-		}
+	var once sync.Once
+	got := make(chan struct{})
+	if err := w.Bind("report", func(msg string) {
+		fmt.Println("JS->Go:", msg)
+		once.Do(func() { close(got) })
 	}); err != nil {
 		fmt.Println("RESULT: FAIL (Bind:", err, ")")
 		os.Exit(1)
 	}
 
-	w.Navigate(url)
+	w.Navigate("http://" + ln.Addr().String() + "/")
 
 	go func() {
-		time.Sleep(25 * time.Second)
+		select {
+		case <-got:
+		case <-time.After(20 * time.Second):
+		}
 		w.Terminate()
 	}()
 
 	w.Run()
 	w.Destroy()
 
-	mu.Lock()
-	defer mu.Unlock()
-	roundTrip := got["native-ok"]
-	verdict := permVerdict(got)
-
-	// getUserMedia's permission prompt is answered BEFORE constraints/devices are
-	// evaluated, so any rejection that reaches device/constraint checking proves
-	// the grant fired — NotFoundError, NotReadableError, OverconstrainedError,
-	// AbortError, or success (there's just no camera on a CI runner). Only
-	// NotAllowedError/SecurityError mean the request was blocked at the gate.
-	denied := verdict == "perm-NotAllowedError" || verdict == "perm-SecurityError"
-	blocked := verdict == "perm-NoMediaDevices" || verdict == "perm-TypeError"
-	granted := verdict != "" && !denied && !blocked
-
-	switch {
-	case roundTrip && granted:
-		fmt.Printf("RESULT: PASS (round-trip + permission auto-grant; getUserMedia reached devices: %s)\n", verdict)
+	select {
+	case <-got:
+		fmt.Println("RESULT: PASS (glaze drives a live window; JS<->Go round-trip)")
 		os.Exit(0)
-	case roundTrip && denied:
-		fmt.Println("RESULT: FAIL (permission DENIED — the auto-grant shim did not work)")
-		os.Exit(1)
-	case roundTrip:
-		fmt.Printf("RESULT: INCONCLUSIVE (round-trip ok; getUserMedia=%q — WebKit lacks media support or origin not secure)\n", verdict)
-		os.Exit(2)
 	default:
 		fmt.Println("RESULT: FAIL (no JS->Go round-trip within timeout)")
 		os.Exit(1)
 	}
-}
-
-// permVerdict returns the single perm-* outcome reported by the page, if any.
-func permVerdict(got map[string]bool) string {
-	for k := range got {
-		if len(k) > 5 && k[:5] == "perm-" {
-			return k
-		}
-	}
-	return ""
-}
-
-// hasPermVerdict reports whether getUserMedia has produced any terminal outcome,
-// so we can stop the loop instead of waiting for the full timeout.
-func hasPermVerdict(got map[string]bool) bool {
-	for k := range got {
-		if len(k) > 5 && k[:5] == "perm-" {
-			return true
-		}
-	}
-	return got["perm-ok"]
 }

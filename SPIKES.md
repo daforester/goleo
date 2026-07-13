@@ -205,25 +205,34 @@ GitHub is retiring Intel macOS runners (the job queues indefinitely); amd64-macO
 purego/objc code path as arm64 and stays compile-guarded in `ci.yml` (darwin/{amd64,arm64} +
 linux/{amd64,arm64}).
 
-**Permission auto-grant (added after the round-trip PASS, pending re-verify):** glaze does not
+**Permission auto-grant — shim WRITTEN, NOT yet verified (correction 2026-07-13).** glaze does not
 connect WebKitGTK's `permission-request` signal, so a straight default-flip would regress Linux
-`getUserMedia`/geolocation (hang/deny). Added a cgo-free purego shim
+`getUserMedia`/geolocation. Added a cgo-free purego shim
 (`runtime/webview_glaze_permissions_linux.go`) — the pure-Go analog of the cgo
 `webview_permissions_linux.go` — that grabs the `WebKitWebView` (the GtkWindow child) and connects
 `permission-request` → allow, using `RTLD_NOLOAD` so it never pulls a second GTK major into the
-process. The `glaze-verify.yml` smoke was upgraded to exercise `getUserMedia` over a secure
-`127.0.0.1` origin (a camera-less runner's `NotFoundError` still proves the grant fired; only
-`NotAllowedError` fails). **Verified working on real macOS + Linux (2026-07-13):** on both runners
-the round-trip returned `native-ok` and `getUserMedia({video:true})` got *past* the permission
-gate — WebKit logged "no device found amongst 0 devices" and rejected with `OverconstrainedError`
-(a post-grant outcome; a *denied* request never reaches device evaluation). So the auto-grant
-fires on both platforms. (The first run exited non-zero only because the smoke's pass/fail
-classifier didn't list `OverconstrainedError` among the post-grant outcomes — fixed to treat any
-verdict except `NotAllowedError`/`SecurityError`/no-media as "granted".) macOS grants without the
-shim (glaze/WKWebView); the shim is a no-op there.
+process. **The shim lives in goleo's *runtime*, not in the standalone spike**, so nothing has
+actually exercised it yet. An earlier note here claimed it was "verified on real macOS + Linux" via
+the spike's `getUserMedia` probe — **that was wrong**: the spike uses RAW glaze (no shim), so its
+`getUserMedia` was testing platform/WebKit behavior, not the shim. On the `ubuntu-latest` runner it
+happened to return `OverconstrainedError` (a no-camera device-check *before* any prompt, so no grant
+was needed); on Debian bookworm's WebKitGTK (local Docker) the same probe **hangs the GTK main loop**
+(it prompts, nothing answers) — the exact failure the shim exists to fix. The `getUserMedia` probe
+has been removed from the spike (it can't validly test a shim it doesn't include). **Verifying the
+shim needs a goleo-runtime-level test** (an app built against the runtime, which includes it) — TODO.
 
-**Sequencing decision (2026-07-12):** shim first → re-verify on Linux → *then* flip the default.
-Followed exactly.
+**Local Linux verification via Docker+WSL (2026-07-13):** `scripts/verify-linux-docker.*` +
+`scripts/linux-verify.Dockerfile` reproduce the `glaze-verify.yml` ubuntu job locally (golang +
+GTK3 + WebKitGTK-4.1 + xvfb; hard `timeout` guard). Both spikes **PASS on real WebKitGTK** this way:
+`spikes/glaze-webview/verify` (round-trip) and — importantly — **`spikes/glaze-multiwindow`
+(two windows, one run loop, both round-tripped)**, which confirms the single-loop multi-window
+mechanism on Linux without CI. This local loop also *found* the getUserMedia hang above (bookworm's
+WebKitGTK behaves differently from `ubuntu-latest`), which CI had masked.
+
+**Sequencing decision (2026-07-12):** shim first → re-verify → *then* flip the default. Followed —
+though "re-verify" turned out not to have actually exercised the shim (see correction above); the
+default flip stands (the cgo backend remains available behind `goleo_cgo_webview`), but the Linux
+permission grant is the one piece still needing a runtime-level check.
 
 **Default flipped (2026-07-13): glaze is now the default macOS/Linux backend.** After the
 round-trip + permission grant verified on real macOS + Linux, made `webview_glaze.go` the default

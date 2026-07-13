@@ -206,13 +206,14 @@ tray. Signal-based quit. Mobile stays on its own path, fully insulated.
     `runtime/camera` via a `cgo`/`!cgo` split. The legacy cgo `webview_go` backend
     (`runtime/webview.go`) is kept **one release** behind `-tags goleo_cgo_webview` /
     `GOLEO_CGO_WEBVIEW=1` as a fallback, then removable.
-  - **macOS in-process multi-window — mechanism proven, integration next.** glaze already does the
-    single-loop master (shared `NSApplication` + `windowCount`), so extra windows are opened by
-    `Dispatch`-ing `glaze.New()` onto the main-thread `[NSApp run]` loop (spike:
-    `spikes/glaze-multiwindow/`, cross-compiles cgo-free; runs on `macos-14`/`ubuntu` via
-    `glaze-verify.yml` — pending the hardware run). Remaining: a macOS `windowSpawner` (design in
-    the spike README) selected by `Config.InProcessWindows` on darwin. Until then macOS stays on
-    the multi-process default.
+  - **In-process multi-window (macOS/Linux) — implemented; Linux verified, macOS pending.** glaze
+    does the single-loop master (shared `NSApplication`/GtkApplication + `windowCount`), so extra
+    windows are opened by `Dispatch`-ing `glaze.New()` onto the primary's main-thread run loop.
+    `runtime/windowmanager_mainloop.go` (`mainLoopWindowManager`) implements it, selected by
+    `Config.InProcessWindows` on darwin/linux. The two-windows-one-loop mechanism **PASSED on real
+    Linux/WebKitGTK** (`spikes/glaze-multiwindow` via `scripts/verify-linux-docker.*` — Docker+WSL,
+    and on `ubuntu` in `glaze-verify.yml`); **macOS still needs the hardware run** (`macos-14`) plus
+    an app-level smoke of `mainLoopWindowManager` itself.
   - **`goleo://` asset serving — deferred, low priority (see `SPIKES.md`).** Native IPC already
     removed the RPC surface; the residual is a loopback-only, embedded-assets-only static server.
     The only portless option that keeps a *secure context* (localStorage/getUserMedia/routing) is a
