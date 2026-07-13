@@ -145,6 +145,24 @@ jobs:
             ./glazescheme
           fi
 
+      # Same secure-context check, but driven through the PROPOSED glaze API
+      # (glaze.NewWithOptions + Options.SchemeHandlers, against the fork copy in
+      # spikes/glaze-scheme-secure/glazefork). Proves the actual upstream code —
+      # macOS is the one that must live inside glaze.
+      - name: Build glaze-API scheme proof (CGO_ENABLED=0)
+        working-directory: spikes/glaze-scheme-secure/glazeapi
+        run: CGO_ENABLED=0 go build -o glazeapischeme .
+
+      - name: Run glaze-API scheme proof
+        working-directory: spikes/glaze-scheme-secure/glazeapi
+        timeout-minutes: 3
+        run: |
+          if [ "${{ matrix.display }}" = "true" ]; then
+            xvfb-run -a ./glazeapischeme
+          else
+            ./glazeapischeme
+          fi
+
   # Windows arm of the secure-context spike: WebView2 +
   # SetVirtualHostNameToFolderMapping over an https virtual host. windows-latest
   # ships the WebView2 runtime (Edge), so this runs the exe directly.
@@ -200,3 +218,12 @@ jobs:
         env:
           WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS: "1"
         run: dbus-run-session -- xvfb-run -a ./glazescheme
+      - name: Build glaze-API scheme proof (CGO_ENABLED=0)
+        working-directory: spikes/glaze-scheme-secure/glazeapi
+        run: CGO_ENABLED=0 go build -o glazeapischeme .
+      - name: Run glaze-API scheme proof under GTK4
+        working-directory: spikes/glaze-scheme-secure/glazeapi
+        timeout-minutes: 3
+        env:
+          WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS: "1"
+        run: dbus-run-session -- xvfb-run -a ./glazeapischeme
