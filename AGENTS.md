@@ -529,8 +529,10 @@ Added on top of the core bridge/feature system. Full rationale + status in
     `Config.Menu` is empty.
   - **Windows** (`menu_windows.go`): user32 `HMENU` `SetMenu` on the HWND + a wndproc subclass for
     `WM_COMMAND` clicks; roles use `execCommand` (WebView2 handles the Ctrl shortcuts itself).
-  - **Linux** (`menu_linux.go`): GTK3 `GtkMenuBar`, reparenting the webview under a `GtkBox`; GTK4
-    (webkitgtk-6.0) has no `GtkMenuBar` and logs/no-ops — use an HTML menu.
+  - **Linux** (`menu_linux.go`): reparents the webview under a `GtkBox`. **GTK3** (webkit2gtk-4.x):
+    `GtkMenuBar` + `GtkMenuItem` + accelerators (`GtkAccelGroup`). **GTK4** (webkitgtk-6.0, no
+    `GtkMenuBar`): GMenu model + `GtkPopoverMenuBar` + `GActions` inserted on the window. Picks the
+    stack glaze loaded (RTLD_NOLOAD). Accelerators: functional on GTK3; GTK4 is best-effort.
   - PWA/mobile: `SetMenu` returns `errors.ErrUnsupported`; `MenuSupported()` /
     `goleo:capabilities.menu` report false (`menu_other.go`).
   - **Bridge API:** `goleo:setMenu` (`app.go`) + `@goleo/bridge` `setMenu()`/`onMenu(id,cb)`

@@ -33,11 +33,12 @@ macOS/WKWebView (`macos-14`). The legacy cgo `webview_go` backend remains one re
 `-tags goleo_cgo_webview`. The system tray works on all three desktops (macOS via a purego/objc
 `NSStatusItem` backend that shares glaze's fakecgo — `tray_darwin.go`). **Native menu bar**
 (`Config.Menu`/`App.SetMenu`, `runtime/menu.go`) ships on **all three desktops**, all cgo-free via
-purego: macOS (objc `NSMenu`), Windows (user32 + wndproc subclass), Linux (GTK3 `GtkMenuBar`; GTK4
-falls back to HTML). Plus a **bridge menu API** (`goleo:setMenu` + `@goleo/bridge`
-`setMenu`/`onMenu`) for frontend-defined menus (leaf items emit `menu:<id>` events). Verified on
-Windows (local), Linux (Docker), macOS (`macos-14`). Residual caveats: `goleo://` asset serving is
-deferred (`SPIKES.md`); Linux GTK4 native menu + interactive/pixel UX remain. See Track D,
+purego: macOS (objc `NSMenu`), Windows (user32 + wndproc subclass), Linux **GTK3** (`GtkMenuBar` +
+accelerators) **and GTK4** (GMenu + `GtkPopoverMenuBar`). Plus a **bridge menu API**
+(`goleo:setMenu` + `@goleo/bridge` `setMenu`/`onMenu`) for frontend-defined menus (leaf items emit
+`menu:<id>` events). Verified: Windows (local GUI), Linux GTK3 + GTK4 (Docker), macOS (`macos-14`).
+Residual caveats: `goleo://` asset serving is deferred (`SPIKES.md`); accelerators are full on
+macOS/GTK3, best-effort on Windows/GTK4; interactive/pixel UX only headless on CI. See Track D,
 `SPIKES.md`, and `spikes/glaze-*`.
 
 ## 0. Current status (what is built vs designed)

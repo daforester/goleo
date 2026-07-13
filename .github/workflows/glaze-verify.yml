@@ -125,3 +125,29 @@ jobs:
           else
             ./glazemenu
           fi
+
+  # GTK4 / webkitgtk-6.0: glaze selects the GTK4 backend when 6.0 is present,
+  # exercising menu_linux.go's GMenu/GtkPopoverMenuBar path (GtkMenuBar is gone
+  # in GTK4). WebKitGTK 6.0 needs a session bus and its sandbox disabled in CI.
+  linux-gtk4:
+    runs-on: ubuntu-latest
+    name: glaze-linux-gtk4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: spikes/glaze-menu-verify/go.mod
+      - name: GTK4 runtime deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb dbus dbus-x11 libgtk-4-1 libglib2.0-0 \
+            libwebkitgtk-6.0-4 || sudo apt-get install -y libwebkitgtk-6.0-4t64 || true
+      - name: Build menu verify (CGO_ENABLED=0)
+        working-directory: spikes/glaze-menu-verify
+        run: CGO_ENABLED=0 go build -o glazemenu .
+      - name: Run menu verify under GTK4
+        working-directory: spikes/glaze-menu-verify
+        timeout-minutes: 3
+        env:
+          WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS: "1"
+        run: dbus-run-session -- xvfb-run -a ./glazemenu
