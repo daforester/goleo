@@ -465,9 +465,15 @@ binding for all three desktops. go-webview2 kept one release behind `-tags goleo
   media/geolocation on Windows today. glaze's vtbl exposes `AddPermissionRequested`, so wiring an
   auto-grant (the Windows analog of the Linux permission shim) is a possible follow-up.
 
+**Follow-ups done (2026-07-14):** **Windows permission auto-grant** — a
+`PermissionRequested`→Allow COM handler in the glaze fork's WebView2 backend
+(v0.0.32-goleo.3); getUserMedia now returns a verdict on real WebView2 instead of
+hanging (kept off the upstream scheme PR — it's goleo policy). **go-webview2 dropped**
+entirely — glaze is the sole Windows binding (`runtime/webview_windows.go` + the dep
+removed).
+
 **Remaining:** functional/visual check of the native menu bar on glaze-Windows (install didn't crash
-in the scheme-verify run; WndProc subclass hooks glaze's HWND); Windows permission auto-grant;
-dropping go-webview2 next release.
+in the scheme-verify run; WndProc subclass hooks glaze's HWND — needs a human eyeball on a GUI build).
 
 ## Cross-cutting testing learnings (not "spikes" but hard-won)
 

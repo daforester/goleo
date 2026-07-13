@@ -373,12 +373,13 @@ unification, **all three desktops use ONE cgo-free binding by default**:
   pinned to the `daforester/glaze` fork) — a **cgo-free** purego binding to
   **WKWebView (macOS)**, **WebKitGTK (Linux)** and **WebView2 (Windows)** behind one
   interface. So every desktop builds `CGO_ENABLED=0` and cross-compiles from any host,
-  and goleo carries a single webview binding. Permission auto-grant on Linux is a
-  purego shim (`runtime/webview_glaze_permissions_linux.go`); no-op on macOS
-  (WKUIDelegate) and Windows (WebView2 handles its own prompts — auto-grant wiring via
-  glaze's `AddPermissionRequested` is a possible follow-up). Verified on real macOS +
+  and goleo carries a single webview binding. Permission auto-grant
+  (camera/mic/geolocation): a purego `permission-request` shim on Linux
+  (`runtime/webview_glaze_permissions_linux.go`); a `PermissionRequested`→Allow COM
+  handler in the glaze fork's WebView2 backend on **Windows** (getUserMedia would
+  otherwise hang on an unanswered prompt); no-op on macOS. Verified on real macOS +
   Linux (`.github/workflows/glaze-verify.yml`) and Windows (local: native IPC, scheme
-  assets, in-process multi-window, tray, clean Quit).
+  assets, in-process multi-window, tray, permission grant, clean Quit).
 - **Opt-in fallback (one release, then removed):**
   - **macOS/Linux cgo webview_go (`-tags goleo_cgo_webview`):** `runtime/webview.go`
     (`github.com/webview/webview_go`, cgo WebKitGTK/WKWebView); `goleo build` selects it
