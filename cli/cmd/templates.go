@@ -293,7 +293,7 @@ require github.com/daforester/goleo v0.1.0
 // goleo's default cgo-free macOS/Linux webview backend (github.com/crgimenes/glaze)
 // is pinned to a fork carrying the custom-scheme handler API (Config.SchemeAssets).
 // Remove this once the change is released upstream. See goleo's AGENTS.md / SPIKES.md.
-replace github.com/crgimenes/glaze => github.com/daforester/glaze v0.0.32-goleo.2
+replace github.com/crgimenes/glaze => github.com/daforester/glaze v0.0.32-goleo.3
 `
 
 var tmplFrontendPackageJSON = `{

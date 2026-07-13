@@ -319,6 +319,7 @@ type webview struct {
 	msgH        *comHandler
 	scriptH     *comHandler
 	wrrH        *comHandler // WebResourceRequested handler (custom schemes); nil if none
+	permH       *comHandler // PermissionRequested handler (auto-grant)
 	ready       bool
 	scriptDone  bool
 	lastScript  string

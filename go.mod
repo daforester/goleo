@@ -26,4 +26,4 @@ require (
 	golang.org/x/text v0.13.0 // indirect
 )
 
-replace github.com/crgimenes/glaze => github.com/daforester/glaze v0.0.32-goleo.2
+replace github.com/crgimenes/glaze => github.com/daforester/glaze v0.0.32-goleo.3

@@ -1,8 +1,8 @@
 github.com/Masterminds/semver/v3 v3.5.0 h1:kQceYJfbupGfZOKZQg0kou0DgAKhzDg2NZPAwZ/2OOE=
 github.com/Masterminds/semver/v3 v3.5.0/go.mod h1:4V+yj/TJE1HU9XfppCwVMZq3I84lprf4nC11bSS5beM=
 github.com/cpuguy83/go-md2man/v2 v2.0.3/go.mod h1:tgQtvFlXSQOSOSIRvRPT7W67SCa46tRHOmNcaadrF8o=
-github.com/daforester/glaze v0.0.32-goleo.2 h1:NxFg+95P55Z7HZB/bt2DsqJ99bkaSmfIGCrbBDFnJRA=
-github.com/daforester/glaze v0.0.32-goleo.2/go.mod h1:dtUhTJvEKlsToN6b/o+Vpao1QpgEbBO5Npi1O9/bdI0=
+github.com/daforester/glaze v0.0.32-goleo.3 h1:PuTl2pRQDrmdeDNbIcbZtnLHzo33ikTbdVL2ujrp+uA=
+github.com/daforester/glaze v0.0.32-goleo.3/go.mod h1:dtUhTJvEKlsToN6b/o+Vpao1QpgEbBO5Npi1O9/bdI0=
 github.com/dlclark/regexp2/v2 v2.2.1 h1:mf4KkFUj0gJuarK8P+LgiS+Lit7m9N1yAwEfPbee7R0=
 github.com/dlclark/regexp2/v2 v2.2.1/go.mod h1:avUrQvPaLz2DrFNHJF0taWAFFX2C1GMSSoeiqFjcBmU=
 github.com/dop251/goja v0.0.0-20260701091749-b07b74453ea9 h1:q33zakIx+wEp1Ko5NpDyDBICuXL4JeHUaHbhPowcMEk=

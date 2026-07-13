@@ -78,6 +78,7 @@ var (
 	iidMessageReceived      = guid{0x57213F19, 0x00E6, 0x49FA, [8]byte{0x8E, 0x07, 0x89, 0x8E, 0xA0, 0x1E, 0xCB, 0xD2}}
 	iidScriptAdded          = guid{0xB99369F3, 0x9B11, 0x47B5, [8]byte{0xBC, 0x6F, 0x8E, 0x78, 0x95, 0xFC, 0xEA, 0x17}}
 	iidWebResourceRequested = guid{0xAB00B74C, 0x15F1, 0x4646, [8]byte{0x80, 0xE8, 0xE7, 0x63, 0x41, 0xD2, 0x5D, 0x71}}
+	iidPermissionRequested  = guid{0x15E1C6A3, 0xC72A, 0x4DF3, [8]byte{0x91, 0xD7, 0xD0, 0x97, 0xFB, 0xEC, 0x6B, 0xFD}}
 )
 
 // --- COM vtable layouts (exact IDL order; uintptr per slot) ----------------
@@ -286,6 +287,9 @@ func (i *iCoreWebView2) AddWebResourceRequested(handler uintptr, token *uint64) 
 func (i *iCoreWebView2) AddWebResourceRequestedFilter(uri *uint16, ctx uint32) {
 	purego.SyscallN(i.vtbl.AddWebResourceRequestedFilter, uintptr(unsafe.Pointer(i)), uintptr(unsafe.Pointer(uri)), uintptr(ctx))
 }
+func (i *iCoreWebView2) AddPermissionRequested(handler uintptr, token *uint64) {
+	purego.SyscallN(i.vtbl.AddPermissionRequested, uintptr(unsafe.Pointer(i)), handler, uintptr(unsafe.Pointer(token)))
+}
 func (i *iCoreWebView2) AddRef() { purego.SyscallN(i.vtbl.AddRef, uintptr(unsafe.Pointer(i))) }
 
 func (i *iSettings) PutAreDevToolsEnabled(v bool) {
@@ -314,6 +318,7 @@ const (
 	kindMessage
 	kindScript
 	kindWebResourceRequested
+	kindPermissionRequested
 )
 
 type comHandlerVtbl struct {
@@ -426,6 +431,13 @@ func handlerInvoke(this, a, b uintptr) uintptr {
 						cw.AddWebResourceRequestedFilter(utf16(schemeVHost(scheme)+"/*"), 0) // 0 = ALL
 					}
 				}
+				// Auto-grant permission requests (camera/mic/geolocation/...): the
+				// webview loads only the app's own trusted content. Without a handler
+				// WebView2 blocks getUserMedia on a prompt nothing answers (the
+				// Windows analog of the Linux permission-request shim).
+				w.permH = newHandler(w.id, kindPermissionRequested, &iidPermissionRequested)
+				var permTok uint64
+				cw.AddPermissionRequested(handlerPtr(w.permH), &permTok)
 			}
 		}
 		w.ready = true
@@ -449,6 +461,12 @@ func handlerInvoke(this, a, b uintptr) uintptr {
 		// Invoke(this, ICoreWebView2* sender, ICoreWebView2WebResourceRequestedEventArgs* args)
 		if b != 0 {
 			w.serveSchemeWindows(b)
+		}
+	case kindPermissionRequested:
+		// Invoke(this, ICoreWebView2* sender, ICoreWebView2PermissionRequestedEventArgs* args)
+		// State: 0=Default, 1=Allow, 2=Deny.
+		if b != 0 {
+			asPermArgs(b).PutState(1) // Allow
 		}
 	}
 	return 0 // S_OK
