@@ -31,9 +31,12 @@ macOS/Linux backend, so **every desktop target is now cgo-free and cross-compile
 three OSes:** Windows (WebView2), Linux/WebKitGTK (Docker+WSL & `glaze-verify.yml` ubuntu), and
 macOS/WKWebView (`macos-14`). The legacy cgo `webview_go` backend remains one release behind
 `-tags goleo_cgo_webview`. The system tray works on all three desktops (macOS via a purego/objc
-`NSStatusItem` backend that shares glaze's fakecgo — `tray_darwin.go`). Residual caveats: `goleo://`
-asset serving is deferred (`SPIKES.md`); interactive UX is only exercised headlessly on CI. See
-Track D, `SPIKES.md`, and `spikes/glaze-*`.
+`NSStatusItem` backend that shares glaze's fakecgo — `tray_darwin.go`). **Native menu bar**
+(`Config.Menu`/`App.SetMenu`, `runtime/menu.go`) ships on **macOS** (purego/objc `NSMenu`, roles +
+accelerators; auto-installs a standard App+Edit menu so webview shortcuts work); Windows/Linux
+report `ErrUnsupported` (use an HTML menu) — future work is a native GTK/Win32 menu. Residual
+caveats: `goleo://` asset serving is deferred (`SPIKES.md`); interactive UX is only exercised
+headlessly on CI. See Track D, `SPIKES.md`, and `spikes/glaze-*`.
 
 ## 0. Current status (what is built vs designed)
 

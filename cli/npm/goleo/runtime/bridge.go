@@ -18,9 +18,9 @@ type InvokeRequest struct {
 }
 
 type InvokeResponse struct {
-	ID     string      `json:"id"`
-	Result any         `json:"result,omitempty"`
-	Error  string      `json:"error,omitempty"`
+	ID     string `json:"id"`
+	Result any    `json:"result,omitempty"`
+	Error  string `json:"error,omitempty"`
 }
 
 type EventMessage struct {
@@ -29,12 +29,12 @@ type EventMessage struct {
 }
 
 type Bridge struct {
-	handlers   map[string]InvokeHandler
-	events     map[string][]EventHandler
+	handlers    map[string]InvokeHandler
+	events      map[string][]EventHandler
 	subscribers []chan EventMessage
-	mu         sync.RWMutex
-	pending    map[string]chan InvokeResponse
-	policy     *Policy
+	mu          sync.RWMutex
+	pending     map[string]chan InvokeResponse
+	policy      *Policy
 }
 
 // SetPolicy installs a capability ACL enforced on every invoke. Passing nil
@@ -47,10 +47,10 @@ func (b *Bridge) SetPolicy(p *Policy) {
 
 func NewBridge() *Bridge {
 	return &Bridge{
-		handlers:   make(map[string]InvokeHandler),
-		events:     make(map[string][]EventHandler),
+		handlers:    make(map[string]InvokeHandler),
+		events:      make(map[string][]EventHandler),
 		subscribers: make([]chan EventMessage, 0),
-		pending:    make(map[string]chan InvokeResponse),
+		pending:     make(map[string]chan InvokeResponse),
 	}
 }
 
@@ -199,6 +199,7 @@ func registerCore(b *Bridge) {
 		return map[string]bool{
 			"windowing": WindowingSupported(),
 			"tray":      TraySupported(),
+			"menu":      MenuSupported(),
 		}, nil
 	})
 

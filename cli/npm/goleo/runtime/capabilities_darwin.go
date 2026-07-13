@@ -9,4 +9,5 @@ package runtime
 const (
 	platformWindowing = true
 	platformTray      = true
+	platformMenu      = true
 )

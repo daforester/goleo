@@ -30,6 +30,9 @@ type App struct {
 	running    bool
 	cancel     context.CancelFunc
 	ctx        context.Context
+	// mainWin is the primary window (set by runWebview); used to marshal native
+	// menu-bar updates onto the GUI main thread. See menu_darwin.go.
+	mainWin *WebviewWindow
 }
 
 type Config struct {
@@ -76,7 +79,12 @@ type Config struct {
 	// creation (createWindow/getConfig API). When set, the file must exist.
 	// When empty, init.js then backend/init.js are tried; if neither exists
 	// the window is created from this Config directly.
-	InitJS     string
+	InitJS string
+	// Menu is the native application menu bar (macOS). When empty, macOS installs
+	// StandardMenu(Title) so webview keyboard shortcuts (Cmd+C/V/X/A/Z) work;
+	// Windows/Linux have no native menu bar yet (use an in-page HTML menu). See
+	// runtime/menu.go, App.SetMenu.
+	Menu       []MenuItem
 	OnStartup  func(ctx context.Context)
 	OnShutdown func(ctx context.Context)
 }
@@ -292,11 +300,23 @@ func (a *App) runWebview(port int) error {
 		win = &w
 	}
 
+	a.mainWin = win
+
 	// On macOS/Linux the primary window owns the single main-thread run loop that
 	// every in-process window shares; hand it to the manager so OpenWindow can
 	// Dispatch new windows onto it. (No-op with the other managers.)
 	if m, ok := a.windows.(*mainLoopWindowManager); ok {
 		m.setPrimary(win)
+	}
+
+	// Native menu bar (macOS): install Config.Menu, or the standard App+Edit menu
+	// so webview keyboard shortcuts work. No-op where native menus are unsupported.
+	if MenuSupported() {
+		menu := a.config.Menu
+		if len(menu) == 0 {
+			menu = StandardMenu(a.config.Title)
+		}
+		_ = a.setNativeMenu(menu) // fire-and-forget onto the GUI thread
 	}
 
 	// Native IPC: forward bridge events to this window over the in-process

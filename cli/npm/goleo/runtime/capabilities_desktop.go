@@ -8,4 +8,5 @@ package runtime
 const (
 	platformWindowing = true
 	platformTray      = true
+	platformMenu      = false // native menu bar is macOS-only for now
 )

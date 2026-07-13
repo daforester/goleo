@@ -8,4 +8,5 @@ package runtime
 const (
 	platformWindowing = false
 	platformTray      = false
+	platformMenu      = false
 )

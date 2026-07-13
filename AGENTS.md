@@ -520,6 +520,15 @@ Added on top of the core bridge/feature system. Full rationale + status in
   uses a `purego`/objc `NSStatusItem` backend (`runtime/tray_darwin.go`) — necessary because
   systray's `goffi` and glaze's `purego` each export `_cgo_init` and collide at Mach-O link time, so
   macOS reuses glaze's FFI instead of importing systray. `tray_stub.go` on mobile/wasm. See `SPIKES.md`.
+- **Native menu bar:** `Config.Menu` / `App.SetMenu([]MenuItem)` (`runtime/menu.go`). `MenuItem` has
+  `Label`, `Role` (standard actions: `RoleQuit/Copy/Paste/SelectAll/Undo/Redo/Cut/Minimize/Close`),
+  `Accelerator` (`"cmd+q"`…), `OnClick`, `Submenu`, `Separator`. **macOS**: native `NSMenu` set as
+  `NSApplication.mainMenu` via `purego`/objc (`menu_darwin.go`, reuses the tray objc helpers); roles
+  go up the responder chain so Cmd+C/V/X/A/Z work in the webview. macOS auto-installs
+  `StandardMenu(Title)` when `Config.Menu` is empty. **Windows/Linux**: no native menu bar yet —
+  `SetMenu` returns `errors.ErrUnsupported`, `MenuSupported()`/`goleo:capabilities.menu` report false
+  (`menu_other.go`); use an in-page HTML menu. Verified on `macos-14` + Linux via
+  `spikes/glaze-menu-verify`.
 
 ### OS integration
 - **Single-instance** (`runtime/singleinstance/`): first launch binds a per-app loopback address;

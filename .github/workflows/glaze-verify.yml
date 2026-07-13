@@ -108,3 +108,20 @@ jobs:
           else
             ./glazetray
           fi
+
+      # Native menu bar: macOS builds/installs an NSMenu (purego/objc); Linux has
+      # no native menu (the app just runs windowed). Exercises roles, accelerator,
+      # separator, submenu, and a custom OnClick.
+      - name: Build menu verify (CGO_ENABLED=0)
+        working-directory: spikes/glaze-menu-verify
+        run: CGO_ENABLED=0 go build -o glazemenu .
+
+      - name: Run menu verify (native menu bar, cgo-free)
+        working-directory: spikes/glaze-menu-verify
+        timeout-minutes: 3
+        run: |
+          if [ "${{ matrix.display }}" = "true" ]; then
+            xvfb-run -a ./glazemenu
+          else
+            ./glazemenu
+          fi
