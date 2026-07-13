@@ -74,9 +74,12 @@ Would you accept a PR along these lines? Any preference on the API shape (e.g. a
 
 ---
 
-**Fork + upstream note (for goleo, not for the issue):** goleo will ship this via
-a pinned fork regardless (pre-1.0, single-maintainer insulation —
+**Fork + upstream note (for goleo, not for the issue):** goleo ships this via a
+pinned fork regardless (pre-1.0, single-maintainer insulation —
 `scripts/pin-glaze-fork.*`), so upstream merging is cleanup, not a blocker. goleo
-only consumes glaze's **macOS** scheme path (it uses `jchv/go-webview2` on Windows
-and a runtime purego shim on Linux), so the Windows-in-glaze TODO does not gate
-goleo.
+already consumes glaze's scheme API on **both macOS and Linux** (via
+`NewWithOptions` in `runtime/webview_glaze.go`, `Config.SchemeAssets`), verified
+end-to-end on `macos-14` + Linux GTK3/GTK4. **Windows** currently falls back to the
+loopback server (goleo still wraps `jchv/go-webview2` there), but is being migrated
+onto glaze — at which point completing glaze's Windows scheme wiring becomes
+directly useful to goleo, not out-of-scope.
