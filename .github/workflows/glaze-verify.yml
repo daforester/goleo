@@ -163,6 +163,24 @@ jobs:
             ./glazeapischeme
           fi
 
+      # End-to-end goleo integration: a REAL goleo app with Config.SchemeAssets +
+      # NativeIPC — the primary window loads its embedded UI from goleo://app
+      # (portless, secure) and talks to the Bridge over native IPC. Validates
+      # runtime/webview_glaze.go + the fork pin, not just glaze in isolation.
+      - name: Build goleo SchemeAssets verify (CGO_ENABLED=0)
+        working-directory: spikes/goleo-scheme-verify
+        run: CGO_ENABLED=0 go build -o goleoscheme .
+
+      - name: Run goleo SchemeAssets verify
+        working-directory: spikes/goleo-scheme-verify
+        timeout-minutes: 3
+        run: |
+          if [ "${{ matrix.display }}" = "true" ]; then
+            xvfb-run -a ./goleoscheme
+          else
+            ./goleoscheme
+          fi
+
   # Windows arm of the secure-context spike: WebView2 +
   # SetVirtualHostNameToFolderMapping over an https virtual host. windows-latest
   # ships the WebView2 runtime (Edge), so this runs the exe directly.
@@ -227,3 +245,12 @@ jobs:
         env:
           WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS: "1"
         run: dbus-run-session -- xvfb-run -a ./glazeapischeme
+      - name: Build goleo SchemeAssets verify (CGO_ENABLED=0)
+        working-directory: spikes/goleo-scheme-verify
+        run: CGO_ENABLED=0 go build -o goleoscheme .
+      - name: Run goleo SchemeAssets verify under GTK4
+        working-directory: spikes/goleo-scheme-verify
+        timeout-minutes: 3
+        env:
+          WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS: "1"
+        run: dbus-run-session -- xvfb-run -a ./goleoscheme

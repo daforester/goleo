@@ -9,6 +9,10 @@ type WebviewWindow struct{ sess *nativeSession }
 func (win *WebviewWindow) evaler() nativeEvaler         { return nil }
 func (win *WebviewWindow) NativeHandle() unsafe.Pointer { return nil }
 
+// webviewSupportsSchemeAssets: this backend does not (yet) serve the UI from a
+// custom secure scheme, so Config.SchemeAssets falls back to the loopback server.
+func webviewSupportsSchemeAssets() bool { return false }
+
 func NewWebviewWindow(cfg windowConfig) WebviewWindow {
 	return WebviewWindow{}
 }

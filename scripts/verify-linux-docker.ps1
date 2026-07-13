@@ -51,6 +51,12 @@ docker run --rm -v "${root}:/work" -w /work/spikes/glaze-scheme-secure $image ba
   "CGO_ENABLED=0 go build -o /tmp/bin . && timeout 40 xvfb-run -a /tmp/bin"
 if ($LASTEXITCODE -ne 0) { $script:rc = 1 }
 
+# End-to-end goleo integration: Config.SchemeAssets + NativeIPC (goleo://app).
+Write-Host ">> goleo SchemeAssets end-to-end (GTK3)"
+docker run --rm -v "${root}:/work" -w /work/spikes/goleo-scheme-verify $image bash -c `
+  "CGO_ENABLED=0 go build -o /tmp/bin . && timeout 60 xvfb-run -a /tmp/bin"
+if ($LASTEXITCODE -ne 0) { $script:rc = 1 }
+
 # GTK4 / webkitgtk-6.0: exercises menu_linux.go's GMenu/GtkPopoverMenuBar path.
 Write-Host ">> native menu bar (GTK4 / webkitgtk-6.0)"
 docker build -q -f "$root\scripts\linux-verify-gtk4.Dockerfile" -t goleo-linux-verify-gtk4 "$root\scripts" | Out-Null

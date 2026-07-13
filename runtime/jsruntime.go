@@ -42,6 +42,14 @@ type windowConfig struct {
 	// bindings must be registered. Used to install the native IPC bridge
 	// (see App.nativeOnInit); nil for windows that use the WebSocket transport.
 	OnInit func(*WebviewWindow)
+
+	// AssetScheme + AssetServe enable serving the window's UI from a portless,
+	// secure custom origin (e.g. goleo://) instead of the loopback HTTP server.
+	// Set only when Config.SchemeAssets is on and the backend supports it
+	// (webviewSupportsSchemeAssets); AssetServe resolves a request path to bytes
+	// + content type from the embedded FS. Empty AssetScheme = disabled.
+	AssetScheme string
+	AssetServe  func(urlPath string) ([]byte, string, bool)
 }
 
 // defaultInitCandidates are tried in order when Config.InitJS is not set.

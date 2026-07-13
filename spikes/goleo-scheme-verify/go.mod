@@ -1,4 +1,4 @@
-module goleo-menu-verify
+module goleo-scheme-verify
 
 go 1.26
 

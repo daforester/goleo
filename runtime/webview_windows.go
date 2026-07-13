@@ -29,6 +29,10 @@ type WebviewWindow struct {
 // evaler adapts the backend to the native IPC push interface (Dispatch + Eval).
 func (win *WebviewWindow) evaler() nativeEvaler { return win.w }
 
+// webviewSupportsSchemeAssets: this backend does not (yet) serve the UI from a
+// custom secure scheme, so Config.SchemeAssets falls back to the loopback server.
+func webviewSupportsSchemeAssets() bool { return false }
+
 func NewWebviewWindow(cfg windowConfig) WebviewWindow {
 	w := webview.NewWithOptions(webview.WebViewOptions{
 		Debug:     cfg.DevTools,

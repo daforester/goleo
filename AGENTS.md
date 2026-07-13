@@ -565,17 +565,27 @@ Added on top of the core bridge/feature system. Full rationale + status in
     own independent session. Child-*process* windows, browser/PWA and mobile keep using WebSocket
     (`@goleo/bridge` auto-detects the native channel, else falls back). The HTTP/WS server stays up:
     it still serves embedded assets and is the fallback transport. Dropping it too via custom-scheme
-    (`goleo://`) asset serving is **viable and fully de-risked, not yet implemented in goleo** — a
-    portless custom origin **is** a secure context on all three desktops, proven both raw and through
-    the actual proposed glaze API (`glazefork/` `NewWithOptions`+`SchemeHandlers`, `glazeapi/`), ✅
-    green on the full `glaze-verify.yml` matrix incl. `macos-14`. Only macOS needs a glaze fork
-    (`WKURLSchemeHandler`-before-init; upstream issue drafted in `spikes/.../GLAZE_ISSUE.md`);
-    Windows keeps `go-webview2` (https vhost) and Linux uses a purego shim / the same fork. See
-    `SPIKES.md` (2026-07-13).
+    (`goleo://`) asset serving is **implemented on macOS/Linux via `Config.SchemeAssets`** (Windows
+    falls back to loopback for now — see below). See "Scheme assets" under Desktop subsystems.
   - **Verified** on real WebView2 (Windows, cgo-free): a two-window app where each window completes
     an independent bidirectional round-trip over its own native channel, incl. `goleo:windowOpen`
     over native IPC, then a clean `Quit`. Also `runtime/nativeipc_test.go` (round-trip, policy,
     events, ping, pump-stop) + `bridge` tsc.
+- **Scheme assets** (`Config.SchemeAssets`, opt-in; `runtime/scheme_assets.go`): serves the primary
+  window's embedded UI from a portless, secure custom origin (`Config.AssetScheme`, default
+  `goleo://`) instead of the loopback HTTP server. With `NativeIPC` on, that window opens **no TCP
+  port at all** while keeping a secure context (localStorage / crypto.subtle / getUserMedia /
+  history routing). Takes effect only in production (embedded FS, not `DevMode`) on backends where
+  `webviewSupportsSchemeAssets()` is true — **macOS + Linux** via the glaze `SchemeHandlers` API
+  (`newGlazeWebView` in `webview_glaze.go`); **Windows** returns false and transparently falls back
+  to the loopback URL (its `go-webview2` wrapper doesn't yet expose the vhost API — a follow-up). A
+  shared `buildAssetServer` resolves request paths to bytes+MIME from `frontend/dist` with SPA
+  index fallback and bridge-token injection. The loopback server stays up as the fallback transport.
+  Verified end-to-end on Linux (`spikes/goleo-scheme-verify`, `goleo://app` secure over native IPC)
+  + `macos-14`. **Requires the glaze fork** (`NewWithOptions`): goleo pins
+  `crgimenes/glaze => daforester/glaze` via `replace`, and because Go `replace` directives don't
+  transit, **any downstream module importing goleo's runtime needs the same replace** — `goleo new`
+  and `create-goleo-app` scaffold it into the generated `go.mod`. See `SPIKES.md` (2026-07-13).
 
 ### GUI lifecycle threading (fixed alongside native IPC)
 Two pre-existing defects surfaced by driving `Quit()` end-to-end:

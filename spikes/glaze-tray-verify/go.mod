@@ -24,3 +24,5 @@ require (
 )
 
 replace github.com/daforester/goleo => ../..
+
+replace github.com/crgimenes/glaze => github.com/daforester/glaze v0.0.32-goleo.1

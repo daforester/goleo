@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/signal"
 	"runtime"
@@ -56,6 +57,17 @@ type Config struct {
 	// falls back transparently. Lower latency and no WS surface for that window.
 	// See nativeipc.go. Desktop (WindowModeWebview) only.
 	NativeIPC bool
+	// SchemeAssets serves the primary window's embedded UI from a portless, secure
+	// custom origin (AssetScheme://, default "goleo://") instead of the loopback
+	// HTTP server — so with NativeIPC on, that window opens no TCP port at all
+	// while keeping a secure context (localStorage/crypto.subtle/getUserMedia).
+	// Takes effect only in production (embedded FS, not DevMode) on backends that
+	// support it (macOS/Linux via glaze); elsewhere it transparently falls back to
+	// the loopback server. The server stays up as the fallback transport.
+	SchemeAssets bool
+	// AssetScheme overrides the custom scheme name used by SchemeAssets
+	// (default "goleo"). Must be a plain scheme token, no "://".
+	AssetScheme string
 	// SingleInstance, when true, allows only one running instance; a second
 	// launch forwards its args to the running one (emitting app:secondInstance)
 	// and exits. AppID identifies the app for the lock (defaults to Title).
@@ -288,15 +300,20 @@ func (a *App) runWebview(port int) error {
 	if a.jsr != nil && a.jsr.win != nil {
 		win = a.jsr.win
 	} else {
-		url := a.serverURL(port)
-		w := NewWebviewWindow(windowConfig{
+		cfg := windowConfig{
 			Title:  a.config.Title,
 			Width:  a.config.Width,
 			Height: a.config.Height,
 			Center: true,
-			URL:    url,
+			URL:    a.serverURL(port),
 			OnInit: a.nativeOnInit(),
-		})
+		}
+		if scheme, serve, ok := a.schemeAssets(); ok {
+			cfg.AssetScheme = scheme
+			cfg.AssetServe = serve
+			cfg.URL = scheme + "://app/index.html"
+		}
+		w := NewWebviewWindow(cfg)
 		win = &w
 	}
 
@@ -352,6 +369,33 @@ func (a *App) runWebview(port int) error {
 	win.Run()
 
 	return a.shutdown()
+}
+
+// schemeAssets decides whether the primary window should load its UI from a
+// custom secure scheme instead of the loopback server, returning the scheme name
+// and an asset resolver when so. Enabled only when Config.SchemeAssets is set,
+// the backend supports it, and there is an embedded FS to serve in production.
+func (a *App) schemeAssets() (scheme string, serve func(string) ([]byte, string, bool), ok bool) {
+	if !a.config.SchemeAssets || a.config.DevMode || !webviewSupportsSchemeAssets() {
+		return "", nil, false
+	}
+	efs, isFS := a.config.EmbedFS.(fs.FS)
+	if !isFS {
+		return "", nil, false
+	}
+	feFS, err := fs.Sub(efs, "frontend/dist")
+	if err != nil {
+		return "", nil, false
+	}
+	scheme = a.config.AssetScheme
+	if scheme == "" {
+		scheme = defaultAssetScheme
+	}
+	token := ""
+	if a.server != nil {
+		token = a.server.token
+	}
+	return scheme, buildAssetServer(feFS, token), true
 }
 
 func (a *App) serverURL(port int) string {

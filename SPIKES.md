@@ -386,6 +386,16 @@ API) and exercised through glaze's own architecture (config/init flow, `Bind`, r
   TODO** (goleo uses `jchv/go-webview2` on Windows, which already exposes the vhost API, so this
   gap does not gate goleo).
 
+**IMPLEMENTED (2026-07-13): `Config.SchemeAssets` ships for macOS + Linux.** The glaze scheme API
+was pushed to the fork (`daforester/glaze` `v0.0.32-goleo.1`, branch `goleo-scheme`) and goleo pinned
+to it (`scripts/pin-glaze-fork.*`). `runtime/scheme_assets.go` + `newGlazeWebView`
+(`webview_glaze.go`) serve the embedded FS over `goleo://` when `Config.SchemeAssets` is set; Windows
+returns `webviewSupportsSchemeAssets()==false` and falls back to loopback (its `go-webview2` wrapper
+needs the vhost rework — follow-up). Verified end-to-end on Linux GTK3+GTK4 + `macos-14` via
+`spikes/goleo-scheme-verify` (`goleo://app` reports `isSecureContext` + localStorage + WebCrypto over
+native IPC, no TCP port). Downstream consumers need the fork `replace` (Go replaces don't transit),
+so `goleo new` / `create-goleo-app` scaffold it. Upstream issue: `GLAZE_ISSUE.md`.
+
 **Conclusion — the all-platforms `goleo://` is fully de-risked.** goleo consumes glaze's macOS
 scheme path from a pinned fork (`scripts/pin-glaze-fork.*`; upstream issue drafted in
 `spikes/glaze-scheme-secure/GLAZE_ISSUE.md`), uses `go-webview2`'s vhost on Windows, and a runtime

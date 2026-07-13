@@ -24,6 +24,11 @@ import (
 
 // (permission auto-grant lives in webview_glaze_permissions_{linux,other}.go)
 
+// webviewSupportsSchemeAssets reports that this backend can serve the UI from a
+// custom secure scheme (glaze.Options.SchemeHandlers) — true for WKWebView +
+// WebKitGTK. See Config.SchemeAssets.
+func webviewSupportsSchemeAssets() bool { return true }
+
 type WebviewWindow struct {
 	w    glaze.WebView
 	cfg  windowConfig
@@ -36,7 +41,7 @@ type WebviewWindow struct {
 func (win *WebviewWindow) evaler() nativeEvaler { return win.w }
 
 func NewWebviewWindow(cfg windowConfig) WebviewWindow {
-	w, err := glaze.New(cfg.DevTools)
+	w, err := newGlazeWebView(cfg)
 	if err != nil {
 		// Degrade like the mobile stub: a nil backend makes every method a
 		// guarded no-op and IsValid() false, rather than crashing the caller.
@@ -65,6 +70,28 @@ func NewWebviewWindow(cfg windowConfig) WebviewWindow {
 		win.Navigate(cfg.URL)
 	}
 	return win
+}
+
+// newGlazeWebView creates the glaze web view, wiring a custom asset scheme when
+// the window is configured for one (Config.SchemeAssets). Without it, this is the
+// plain glaze.New the backend used before.
+func newGlazeWebView(cfg windowConfig) (glaze.WebView, error) {
+	if cfg.AssetScheme == "" || cfg.AssetServe == nil {
+		return glaze.New(cfg.DevTools)
+	}
+	serve := cfg.AssetServe
+	return glaze.NewWithOptions(glaze.Options{
+		Debug: cfg.DevTools,
+		SchemeHandlers: map[string]glaze.SchemeHandler{
+			cfg.AssetScheme: func(req *glaze.SchemeRequest) *glaze.SchemeResponse {
+				body, ct, ok := serve(req.URL)
+				if !ok {
+					return &glaze.SchemeResponse{StatusCode: 404, MIMEType: "text/plain", Body: []byte("not found")}
+				}
+				return &glaze.SchemeResponse{Body: body, MIMEType: ct}
+			},
+		},
+	})
 }
 
 func (win *WebviewWindow) Navigate(url string) {

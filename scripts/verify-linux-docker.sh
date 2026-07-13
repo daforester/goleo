@@ -44,6 +44,11 @@ echo ">> custom-scheme secure context (GTK3, register_uri_scheme_as_secure)"
 docker run --rm -v "$ROOT:/work" -w /work/spikes/glaze-scheme-secure "$IMAGE" bash -c \
   "CGO_ENABLED=0 go build -o /tmp/bin . && timeout 40 xvfb-run -a /tmp/bin" || rc=1
 
+# End-to-end goleo integration: Config.SchemeAssets + NativeIPC (goleo://app).
+echo ">> goleo SchemeAssets end-to-end (GTK3)"
+docker run --rm -v "$ROOT:/work" -w /work/spikes/goleo-scheme-verify "$IMAGE" bash -c \
+  "CGO_ENABLED=0 go build -o /tmp/bin . && timeout 60 xvfb-run -a /tmp/bin" || rc=1
+
 # GTK4 / webkitgtk-6.0: exercises menu_linux.go's GMenu/GtkPopoverMenuBar path.
 # WebKitGTK 6.0 needs a session bus + its sandbox disabled in a container.
 echo ">> native menu bar (GTK4 / webkitgtk-6.0)"
