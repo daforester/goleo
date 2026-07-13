@@ -12,16 +12,20 @@ Write-Host ">> building $image"
 docker build -f "$root\scripts\linux-verify.Dockerfile" -t $image "$root\scripts"
 if ($LASTEXITCODE -ne 0) { exit 1 }
 
+$script:rc = 0
 function Run-Smoke($name, $sub, $target) {
   Write-Host ">> $name"
+  # Let docker's output stream to the console; check $LASTEXITCODE directly (do
+  # NOT return it — a function's return value merges with its stdout in
+  # PowerShell, which would swallow the RESULT lines and break the check).
   docker run --rm -v "$root\$($sub -replace '/','\'):/work" $image bash -c `
     "CGO_ENABLED=0 go build -o /tmp/bin $target && timeout 60 xvfb-run -a /tmp/bin"
-  return $LASTEXITCODE
+  if ($LASTEXITCODE -ne 0) { $script:rc = 1 }
 }
 
-$rc = 0
-if ((Run-Smoke "webview round-trip" "spikes/glaze-webview" "./verify") -ne 0) { $rc = 1 }
-if ((Run-Smoke "multi-window (2 windows, 1 loop)" "spikes/glaze-multiwindow" ".") -ne 0) { $rc = 1 }
+Run-Smoke "webview round-trip" "spikes/glaze-webview" "./verify"
+Run-Smoke "multi-window (2 windows, 1 loop)" "spikes/glaze-multiwindow" "."
+$rc = $script:rc
 
 if ($rc -eq 0) { Write-Host "ALL LINUX SMOKES PASSED" -ForegroundColor Green }
 else { Write-Host "SOME LINUX SMOKES FAILED" -ForegroundColor Red }
