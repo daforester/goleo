@@ -363,10 +363,11 @@ on macOS, `tray_darwin.go` implements it directly on `ebitengine/purego` + the O
 uses**, so it shares glaze's single `fakecgo` and never imports `gogpu/systray`/`goffi`. Result: the
 darwin dep tree has **zero** goffi/systray, so no `_cgo_init` collision. `tray_desktop.go` is
 `!darwin && !mobilebuild && !js` (systray on Windows/Linux, unchanged); `TraySupported()` is **true**
-on macOS again. Verified: `glaze-runtime-verify` + `glaze-tray-verify` cross-link for
-darwin/{amd64,arm64}; the tray smoke runs+quits cleanly on Linux (Docker) and is checked on
-`macos-14` via `glaze-verify.yml` (`spikes/glaze-tray-verify`). (Dedup of the two byte-identical
-fakecgo copies was rejected — gutting goffi's exports breaks its FFI.)
+on macOS again. **Verified on real hardware:** the `glaze-tray-verify` smoke (build a tray, run the
+native loop, self-quit) **PASSED on `macos-14`** (Apple Silicon, the objc/NSStatusItem backend) and
+on Linux (Docker/systray). (Dedup of the two byte-identical fakecgo copies was rejected — gutting
+goffi's exports breaks its FFI.) So the system tray is now cgo-free and hardware-verified on all
+three desktops.
 
 ## Cross-cutting testing learnings (not "spikes" but hard-won)
 
