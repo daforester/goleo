@@ -1,4 +1,4 @@
-//go:build (darwin || windows) && !mobilebuild && !goleo_cgo_webview && !goleo_webview2
+//go:build (darwin || windows) && !mobilebuild && !goleo_cgo_webview
 
 package runtime
 

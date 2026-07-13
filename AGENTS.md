@@ -305,8 +305,7 @@ goleo build      # Build for current platform
 ### Go Dependencies
 - github.com/spf13/cobra - CLI framework
 - github.com/gorilla/websocket - WebSocket support
-- github.com/crgimenes/glaze - cgo-free WKWebView/WebKitGTK/WebView2 backend (default, ALL desktops; pinned to the daforester/glaze fork)
-- github.com/jchv/go-webview2 - cgo-free WebView2 backend (opt-in Windows fallback, `-tags goleo_webview2`)
+- github.com/crgimenes/glaze - cgo-free WKWebView/WebKitGTK/WebView2 backend (the sole default webview binding for ALL desktops; pinned to the daforester/glaze fork)
 - github.com/webview/webview_go - cgo WKWebView/WebKitGTK (legacy fallback, `goleo_cgo_webview`)
 - github.com/ebitengine/purego - dlopen/FFI used by the cgo-free webview backends
 - github.com/gogpu/systray - cgo-free system tray
@@ -380,10 +379,7 @@ unification, **all three desktops use ONE cgo-free binding by default**:
   glaze's `AddPermissionRequested` is a possible follow-up). Verified on real macOS +
   Linux (`.github/workflows/glaze-verify.yml`) and Windows (local: native IPC, scheme
   assets, in-process multi-window, tray, clean Quit).
-- **Opt-in fallbacks (one release, then removed):**
-  - **Windows go-webview2 (`-tags goleo_webview2`):** `runtime/webview_windows.go`
-    (`github.com/jchv/go-webview2`, cgo-free WebView2 via COM/syscall) — the previous
-    default, kept as an escape hatch.
+- **Opt-in fallback (one release, then removed):**
   - **macOS/Linux cgo webview_go (`-tags goleo_cgo_webview`):** `runtime/webview.go`
     (`github.com/webview/webview_go`, cgo WebKitGTK/WKWebView); `goleo build` selects it
     (with `CGO_ENABLED=1`) when `GOLEO_CGO_WEBVIEW=1`. Note: a `CGO_ENABLED=0` Linux
@@ -392,7 +388,7 @@ unification, **all three desktops use ONE cgo-free binding by default**:
 
 So **every desktop target is pure-Go and cross-compilable from one machine**, on a
 single binding. Shutdown unblocks the run loop via a per-backend `endRunLoop()`
-(glaze/cgo `Terminate()`, go-webview2 `Destroy()`) — not a GOOS check.
+(glaze/cgo `Terminate()`) — not a GOOS check.
 
 ### Window modes (`Config.WindowMode`)
 
@@ -587,9 +583,8 @@ Added on top of the core bridge/feature system. Full rationale + status in
   `SchemeHandlers` API (`newGlazeWebView` in `webview_glaze.go`) — now on **all three desktops**
   since the Windows→glaze migration: macOS/Linux serve the literal `goleo://` scheme, **Windows**
   serves it over a secure `https://<scheme>.localhost` virtual host (WebView2 has no per-scheme
-  secure flag; `Navigate` rewrites `goleo://` to the vhost so callers are platform-agnostic). The
-  opt-in `goleo_webview2` fallback returns `webviewSupportsSchemeAssets()==false` and uses the
-  loopback URL. A shared `buildAssetServer` resolves request paths to bytes+MIME from
+  secure flag; `Navigate` rewrites `goleo://` to the vhost so callers are platform-agnostic). A
+  shared `buildAssetServer` resolves request paths to bytes+MIME from
   `frontend/dist` with SPA index fallback and bridge-token injection. The loopback server stays up
   as the fallback transport. Verified end-to-end on Linux + `macos-14` (`goleo://app`) and Windows
   (`https://goleo.localhost`) via `spikes/goleo-scheme-verify`. **Requires the glaze fork** (`NewWithOptions`): goleo pins

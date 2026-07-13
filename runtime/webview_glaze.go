@@ -1,4 +1,4 @@
-//go:build (darwin || linux || windows) && !mobilebuild && !goleo_cgo_webview && !goleo_webview2
+//go:build (darwin || linux || windows) && !mobilebuild && !goleo_cgo_webview
 
 // Default cgo-free webview backend for ALL three desktops (macOS, Linux, Windows).
 //
@@ -10,9 +10,9 @@
 // (glaze-verify.yml + local Windows runs: JS<->Go round-trip, native IPC, custom
 // scheme assets, in-process multi-window).
 //
-// Fallbacks, each one release behind an opt-in build tag then removable:
-//   - Windows go-webview2 (webview_windows.go): `-tags goleo_webview2`
-//   - macOS/Linux cgo webview_go (webview.go):  `-tags goleo_cgo_webview`
+// Fallback: the macOS/Linux cgo webview_go backend (webview.go) remains behind
+// `-tags goleo_cgo_webview` for one release. (The Windows go-webview2 backend has
+// been removed — glaze is the sole Windows path now.)
 
 package runtime
 

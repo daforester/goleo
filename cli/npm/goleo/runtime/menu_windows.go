@@ -5,7 +5,7 @@
 // receive WM_COMMAND clicks — dispatching to Go. WebView2 already handles the
 // standard edit keyboard shortcuts (Ctrl+C/V/X/A/Z) internally, so menu roles
 // are convenience actions (Quit + execCommand) rather than shortcut plumbing;
-// real accelerator tables aren't installed (go-webview2 owns the message loop).
+// real accelerator tables aren't installed (the webview owns the message loop).
 
 package runtime
 

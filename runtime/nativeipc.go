@@ -38,8 +38,8 @@ const nativeIPCShim = `;(function(){
 })();`
 
 // nativeEvaler is the subset of a per-platform webview backend the native bridge
-// needs to push frames to the frontend. Both go-webview2 and webview_go satisfy
-// it; WebviewWindow.evaler() adapts to it (nil on the mobile stub).
+// needs to push frames to the frontend. The glaze backend (and the cgo webview_go
+// fallback) satisfy it; WebviewWindow.evaler() adapts to it (nil on the mobile stub).
 type nativeEvaler interface {
 	Dispatch(func())
 	Eval(string)

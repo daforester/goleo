@@ -187,10 +187,9 @@ func buildForDesktop(target buildTarget, distDir string) error {
 	// All desktop targets are cgo-free by default via the purego glaze backend
 	// (runtime/webview_glaze.go) — WKWebView (macOS), WebKitGTK (Linux) and
 	// WebView2 (Windows) behind one binding. So every desktop build is
-	// CGO_ENABLED=0 and cross-compiles from any host. Opt-in fallbacks (one
-	// release, then removed): GOLEO_CGO_WEBVIEW=1 puts macOS/Linux back on the cgo
-	// webview_go backend (needs CGO_ENABLED=1 + its own-OS toolchain); the legacy
-	// Windows go-webview2 backend is `-tags goleo_webview2` (still CGO_ENABLED=0).
+	// CGO_ENABLED=0 and cross-compiles from any host. One opt-in fallback remains
+	// (one release, then removed): GOLEO_CGO_WEBVIEW=1 puts macOS/Linux back on the
+	// cgo webview_go backend (needs CGO_ENABLED=1 + its own-OS toolchain).
 	cgoWebview := os.Getenv("GOLEO_CGO_WEBVIEW") == "1" &&
 		(target.GOOS == "darwin" || target.GOOS == "linux")
 	if cgoWebview {
