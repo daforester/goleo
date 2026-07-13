@@ -565,11 +565,11 @@ Added on top of the core bridge/feature system. Full rationale + status in
     own independent session. Child-*process* windows, browser/PWA and mobile keep using WebSocket
     (`@goleo/bridge` auto-detects the native channel, else falls back). The HTTP/WS server stays up:
     it still serves embedded assets and is the fallback transport. Dropping it too via custom-scheme
-    (`goleo://`) asset serving is **deferred** — its viability hinges on whether a portless custom
-    origin is still a **secure context**. Secure-context gating spike (`spikes/glaze-scheme-secure/`)
-    result: ✅ Windows (https vhost, no fork) + ✅ Linux GTK3/GTK4 (purego shim, no fork); macOS
-    (`WKURLSchemeHandler`, no public "register-secure" API — needs a small glaze change) is the sole
-    fork requirement and awaits the `macos-14` runner. See `SPIKES.md` (2026-07-13 finding).
+    (`goleo://`) asset serving is **viable and gating-verified, not yet implemented** — a portless
+    custom origin **is** a secure context on all three desktops (secure-context spike
+    `spikes/glaze-scheme-secure/`, ✅ green on the full `glaze-verify.yml` matrix incl. `macos-14`).
+    Fork needed only on macOS (a small `WKURLSchemeHandler`-before-init change to glaze); Windows
+    (https vhost via `edge.Chromium`) + Linux (purego shim) need none. See `SPIKES.md` (2026-07-13).
   - **Verified** on real WebView2 (Windows, cgo-free): a two-window app where each window completes
     an independent bidirectional round-trip over its own native channel, incl. `goleo:windowOpen`
     over native IPC, then a clean `Quit`. Also `runtime/nativeipc_test.go` (round-trip, policy,

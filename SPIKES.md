@@ -352,21 +352,24 @@ and have it report `isSecureContext` + a real `localStorage` write + a real `cry
 | **Windows/WebView2** | `SetVirtualHostNameToFolderMapping` over `https://` (via `go-webview2` `edge.Chromium`, already a dep) | **No** | ✅ **PASS — real hardware (dev desktop)** |
 | **Linux/WebKitGTK GTK3 (webkit2gtk-4.1)** | `webkit_security_manager_register_uri_scheme_as_secure` on the view's context, attached via an **external purego shim** (like the permission shim) | **No** | ✅ **PASS — Docker+xvfb** |
 | **Linux/WebKitGTK GTK4 (webkitgtk-6.0)** | same | **No** | ✅ **PASS — Docker+xvfb+dbus** |
-| **macOS/WKWebView** | `WKURLSchemeHandler` set on the config **before** init — **no public "register as secure" API** | **Yes** (config frozen at init) | ⏳ **pending `macos-14` runner** — the gating result |
+| **macOS/WKWebView** | `WKURLSchemeHandler` set on the config **before** init — **no public "register as secure" API** | **Yes** (config frozen at init) | ✅ **PASS — `macos-14` runner** (the gating result) |
 
-**So the earlier "Linux possibly attachable externally … fragile" is now settled: it works, on both
-GTK3 and GTK4, with no glaze fork.** Windows also needs no fork (its `edge.Chromium` already exposes
-the vhost API). **macOS is the sole fork requirement, and its secure-context behavior for a custom
-`WKURLSchemeHandler` scheme is genuinely unknown** — WKWebView has no API to mark a scheme secure,
-and custom schemes have historically reported `isSecureContext === false`. The spike's raw
-purego/objc WKWebView arm (which does exactly what a glaze fork would) cross-compiles `CGO_ENABLED=0`
-and runs on `macos-14` via `glaze-verify.yml`.
+**RESULT (2026-07-13): ✅ PASS on all three desktops — the uniform `goleo://` PR is viable.** The
+whole `glaze-verify.yml` matrix went green: `glaze-macos-14`, `glaze-ubuntu-latest`,
+`glaze-linux-gtk4`, and `glaze-windows-scheme` (after a one-line shell fix — the Windows runner
+defaults to PowerShell, so `CGO_ENABLED=0 go build` needed a step `env:` block instead of a bash
+prefix; the secure-context test itself had already passed on real Windows hardware locally).
 
-**Decision rule:** macOS PASS → the uniform all-platforms `goleo://` PR is viable (Windows = goleo's
-own wrapper reaching `edge.Chromium`; Linux = a runtime purego shim; macOS = a small, upstreamable
-glaze change). macOS FAIL → all-platforms is impossible today, so it is **not** done and the
-loopback asset server stays (a small residual, since native IPC already removed the RPC/WS surface).
-Verified locally: Windows (native) + Linux GTK3/GTK4 (Docker) via `scripts/verify-linux-docker.*`.
+**The gating unknown resolved in our favor: a custom `WKURLSchemeHandler` scheme on real WKWebView
+(`macos-14`) reports `isSecureContext === true` with working `localStorage` + `crypto.subtle`.**
+Historically such schemes reported `false`; current WebKit grants the secure context. So:
+- **Windows** — no fork (`edge.Chromium` vhost API, already a dep).
+- **Linux GTK3 + GTK4** — no fork (external purego shim, `register_uri_scheme_as_secure`).
+- **macOS** — the sole fork requirement, and now proven worthwhile: a small, upstreamable glaze
+  change (set `WKURLSchemeHandler` on the config before `initWithFrame:configuration:`, exposed via
+  glaze's API).
+
+Verified locally too: Windows (native) + Linux GTK3/GTK4 (Docker) via `scripts/verify-linux-docker.*`.
 
 ## Finding — macOS: glaze + gogpu/systray `fakecgo` link collision (2026-07-13)
 
