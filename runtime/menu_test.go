@@ -3,7 +3,31 @@ package runtime
 import (
 	"errors"
 	"testing"
+	"time"
 )
+
+// TestMenuFromSpecEmitsEvent: a leaf spec item with an id gets an OnClick that
+// emits "menu:<id>" (the bridge menu API contract for frontend-defined menus).
+func TestMenuFromSpecEmitsEvent(t *testing.T) {
+	a := New(Config{})
+	ch := a.bridge.Subscribe()
+	menu := a.menuFromSpec([]menuSpec{
+		{Label: "File", Submenu: []menuSpec{{ID: "save", Label: "Save"}}},
+	})
+	oc := menu[0].Submenu[0].OnClick
+	if oc == nil {
+		t.Fatal("leaf spec item with id should have an OnClick")
+	}
+	oc()
+	select {
+	case msg := <-ch:
+		if msg.Event != "menu:save" {
+			t.Errorf("event = %q, want menu:save", msg.Event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("clicking the item emitted no menu event")
+	}
+}
 
 func TestStandardMenu(t *testing.T) {
 	m := StandardMenu("Foo")

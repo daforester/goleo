@@ -14,6 +14,7 @@ package runtime
 
 import (
 	"fmt"
+	"unsafe"
 
 	webview "github.com/jchv/go-webview2"
 )
@@ -141,6 +142,15 @@ func (win *WebviewWindow) Terminate() {
 
 func (win *WebviewWindow) IsValid() bool {
 	return win.w != nil
+}
+
+// NativeHandle returns the OS window handle (HWND on Windows), used by the
+// native menu bar backend. Zero if the window isn't created.
+func (win *WebviewWindow) NativeHandle() unsafe.Pointer {
+	if win.w == nil {
+		return nil
+	}
+	return win.w.Window()
 }
 
 func init() {

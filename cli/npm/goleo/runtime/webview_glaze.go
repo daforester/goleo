@@ -17,6 +17,7 @@ package runtime
 
 import (
 	"log"
+	"unsafe"
 
 	"github.com/crgimenes/glaze"
 )
@@ -130,3 +131,12 @@ func (win *WebviewWindow) Terminate() {
 }
 
 func (win *WebviewWindow) IsValid() bool { return win.w != nil }
+
+// NativeHandle returns the OS window handle — GtkWindow* on Linux, NSWindow* on
+// macOS — used by the native menu-bar backend. Nil if the window isn't created.
+func (win *WebviewWindow) NativeHandle() unsafe.Pointer {
+	if win.w == nil {
+		return nil
+	}
+	return win.w.Window()
+}

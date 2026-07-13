@@ -114,6 +114,8 @@ export {
   isTraySupported,
 } from './window'
 export type { WindowOptions, Capabilities } from './window'
+export { setMenu, onMenu, menuSupported } from './menu'
+export type { MenuItemSpec } from './menu'
 export type {
   OSInfo,
   PlatformInfo,

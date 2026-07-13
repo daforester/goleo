@@ -497,6 +497,21 @@ func (a *App) registerWindowCommands() {
 		return nil, nil
 	})
 
+	// Native menu bar from the frontend: build it from the JSON spec; leaf items
+	// with an id emit "menu:<id>" events. Returns ErrUnsupported where there is
+	// no native menu bar (Windows/Linux/macOS supported; else fall back to HTML).
+	a.bridge.Handle("goleo:setMenu", func(ctx context.Context, args json.RawMessage) (any, error) {
+		var req struct {
+			Items []menuSpec `json:"items"`
+		}
+		if len(args) > 0 {
+			if err := json.Unmarshal(args, &req); err != nil {
+				return nil, fmt.Errorf("invalid args: %w", err)
+			}
+		}
+		return nil, a.SetMenu(a.menuFromSpec(req.Items))
+	})
+
 	a.bridge.Handle("goleo:initialURL", func(ctx context.Context, args json.RawMessage) (any, error) {
 		return map[string]string{"url": a.initialURL}, nil
 	})

@@ -46,6 +46,40 @@ func (a *App) SetMenu(menu []MenuItem) error {
 	return a.setNativeMenu(menu)
 }
 
+// menuSpec is the JSON shape the frontend sends via goleo:setMenu (see
+// bridge/src/menu.ts). A leaf item with an ID emits a "menu:<id>" event on click
+// (no Go callback crosses the bridge).
+type menuSpec struct {
+	ID          string     `json:"id"`
+	Label       string     `json:"label"`
+	Role        string     `json:"role"`
+	Accelerator string     `json:"accelerator"`
+	Separator   bool       `json:"separator"`
+	Submenu     []menuSpec `json:"submenu"`
+}
+
+// menuFromSpec converts a frontend menu tree into []MenuItem, wiring each leaf
+// item's click to emit "menu:<id>" so the frontend can react via the bridge.
+func (a *App) menuFromSpec(specs []menuSpec) []MenuItem {
+	out := make([]MenuItem, 0, len(specs))
+	for _, s := range specs {
+		it := MenuItem{
+			Label:       s.Label,
+			Role:        MenuRole(s.Role),
+			Accelerator: s.Accelerator,
+			Separator:   s.Separator,
+		}
+		if len(s.Submenu) > 0 {
+			it.Submenu = a.menuFromSpec(s.Submenu)
+		} else if s.ID != "" && it.Role == RoleNone {
+			id := s.ID
+			it.OnClick = func() { a.Emit("menu:"+id, map[string]string{"id": id}) }
+		}
+		out = append(out, it)
+	}
+	return out
+}
+
 // MenuSupported reports whether this platform has a native menu-bar backend
 // (macOS today). Query it (or goleo:capabilities) before offering menu UI.
 func MenuSupported() bool { return platformMenu }

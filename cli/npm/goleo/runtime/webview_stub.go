@@ -2,9 +2,12 @@
 
 package runtime
 
+import "unsafe"
+
 type WebviewWindow struct{ sess *nativeSession }
 
-func (win *WebviewWindow) evaler() nativeEvaler { return nil }
+func (win *WebviewWindow) evaler() nativeEvaler         { return nil }
+func (win *WebviewWindow) NativeHandle() unsafe.Pointer { return nil }
 
 func NewWebviewWindow(cfg windowConfig) WebviewWindow {
 	return WebviewWindow{}

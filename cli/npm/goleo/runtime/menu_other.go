@@ -1,4 +1,4 @@
-//go:build !darwin || mobilebuild || js
+//go:build (!darwin && !windows && !linux) || mobilebuild || js
 
 package runtime
 

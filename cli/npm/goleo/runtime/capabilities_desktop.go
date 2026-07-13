@@ -2,11 +2,11 @@
 
 package runtime
 
-// Desktop platforms (Windows/macOS/Linux) can host native windows and a system
-// tray. The mobilebuild / js counterpart (capabilities_unsupported.go) reports
-// these as unavailable so shared app code degrades gracefully.
+// Windows + Linux desktop (macOS has its own capabilities_darwin.go): native
+// windows, system tray, and a native menu bar (Win32 / GTK3). The mobilebuild /
+// js counterpart reports these as unavailable so shared app code degrades.
 const (
 	platformWindowing = true
 	platformTray      = true
-	platformMenu      = false // native menu bar is macOS-only for now
+	platformMenu      = true
 )
