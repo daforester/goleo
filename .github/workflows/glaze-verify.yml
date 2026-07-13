@@ -73,3 +73,21 @@ jobs:
           else
             ./glazemw
           fi
+
+      # Runtime-level: a REAL goleo app exercising the actual integration —
+      # native IPC + the WebKitGTK permission auto-grant shim + mainLoopWindowManager
+      # (2nd window via App.OpenWindow). This is what validates the shim (the raw
+      # spikes can't, since it lives in the runtime).
+      - name: Build runtime-stack verify (CGO_ENABLED=0)
+        working-directory: spikes/glaze-runtime-verify
+        run: CGO_ENABLED=0 go build -o glazert .
+
+      - name: Run runtime-stack verify (native IPC + perm shim + in-proc 2nd window)
+        working-directory: spikes/glaze-runtime-verify
+        timeout-minutes: 3
+        run: |
+          if [ "${{ matrix.display }}" = "true" ]; then
+            xvfb-run -a ./glazert
+          else
+            ./glazert
+          fi

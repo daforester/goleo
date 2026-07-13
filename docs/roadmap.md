@@ -210,10 +210,11 @@ tray. Signal-based quit. Mobile stays on its own path, fully insulated.
     does the single-loop master (shared `NSApplication`/GtkApplication + `windowCount`), so extra
     windows are opened by `Dispatch`-ing `glaze.New()` onto the primary's main-thread run loop.
     `runtime/windowmanager_mainloop.go` (`mainLoopWindowManager`) implements it, selected by
-    `Config.InProcessWindows` on darwin/linux. The two-windows-one-loop mechanism **PASSED on real
-    Linux/WebKitGTK** (`spikes/glaze-multiwindow` via `scripts/verify-linux-docker.*` — Docker+WSL,
-    and on `ubuntu` in `glaze-verify.yml`); **macOS still needs the hardware run** (`macos-14`) plus
-    an app-level smoke of `mainLoopWindowManager` itself.
+    `Config.InProcessWindows` on darwin/linux. **Verified on real Linux/WebKitGTK at the
+    runtime-integration level** (`spikes/glaze-runtime-verify` — a real goleo app — via
+    `scripts/verify-linux-docker.*`/Docker+WSL and `glaze-verify.yml`): a 2nd window opened through
+    `App.OpenWindow` on the single loop, alongside native IPC and the WebKitGTK permission shim, then
+    a clean `Quit`. **macOS still needs the hardware run** (`macos-14`, same app in `glaze-verify.yml`).
   - **`goleo://` asset serving — deferred, low priority (see `SPIKES.md`).** Native IPC already
     removed the RPC surface; the residual is a loopback-only, embedded-assets-only static server.
     The only portless option that keeps a *secure context* (localStorage/getUserMedia/routing) is a

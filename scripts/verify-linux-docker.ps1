@@ -25,6 +25,15 @@ function Run-Smoke($name, $sub, $target) {
 
 Run-Smoke "webview round-trip" "spikes/glaze-webview" "./verify"
 Run-Smoke "multi-window (2 windows, 1 loop)" "spikes/glaze-multiwindow" "."
+
+# Runtime-level: a real goleo app (native IPC + permission shim +
+# mainLoopWindowManager). Mounts the repo root so the spike's replace directive
+# resolves the runtime from source.
+Write-Host ">> runtime stack (native IPC + perm shim + in-proc 2nd window)"
+docker run --rm -v "${root}:/work" -w /work/spikes/glaze-runtime-verify $image bash -c `
+  "CGO_ENABLED=0 go build -o /tmp/bin . && timeout 60 xvfb-run -a /tmp/bin"
+if ($LASTEXITCODE -ne 0) { $script:rc = 1 }
+
 $rc = $script:rc
 
 if ($rc -eq 0) { Write-Host "ALL LINUX SMOKES PASSED" -ForegroundColor Green }

@@ -218,8 +218,17 @@ the spike's `getUserMedia` probe — **that was wrong**: the spike uses RAW glaz
 happened to return `OverconstrainedError` (a no-camera device-check *before* any prompt, so no grant
 was needed); on Debian bookworm's WebKitGTK (local Docker) the same probe **hangs the GTK main loop**
 (it prompts, nothing answers) — the exact failure the shim exists to fix. The `getUserMedia` probe
-has been removed from the spike (it can't validly test a shim it doesn't include). **Verifying the
-shim needs a goleo-runtime-level test** (an app built against the runtime, which includes it) — TODO.
+has been removed from the spike (it can't validly test a shim it doesn't include).
+
+**Shim now VERIFIED on Linux via a runtime-level test (2026-07-13).** `spikes/glaze-runtime-verify`
+is a real goleo app (glaze default backend, `Config.NativeIPC` + `InProcessWindows`) whose embedded
+page calls `getUserMedia` over the secure `http://127.0.0.1` origin. Run under xvfb in the same
+Docker image where the *raw* spike hangs, it instead reports `perm ... OverconstrainedError` — i.e.
+`getUserMedia` got **past** the permission prompt without hanging → the purego shim fired. Same run
+also confirmed **native IPC** (page reached the Bridge over the native channel, `native:true`) and
+**`mainLoopWindowManager`** (a 2nd window opened via `App.OpenWindow` on the single loop, both
+windows round-tripped), then a clean `Quit`. macOS's shim is a no-op (glaze/WKWebView grants); the
+same app on `macos-14` (`glaze-verify.yml`) is the remaining check for the macOS integration.
 
 **Local Linux verification via Docker+WSL (2026-07-13):** `scripts/verify-linux-docker.*` +
 `scripts/linux-verify.Dockerfile` reproduce the `glaze-verify.yml` ubuntu job locally (golang +
