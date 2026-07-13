@@ -40,6 +40,18 @@ jobs:
           CGO_ENABLED=0 GOOS=linux  GOARCH=amd64 go build ./runtime/...
           CGO_ENABLED=0 GOOS=linux  GOARCH=arm64 go build ./runtime/...
 
+      # Cross-LINK a real executable per desktop OS. `go build ./runtime/...`
+      # only compiles a library and never links, so it misses link-time errors
+      # like the glaze/systray fakecgo _cgo_init duplicate on Mach-O. Building the
+      # runtime-verify app links Mach-O/PE/ELF from Linux with no Mac needed.
+      - name: Desktop executable cross-link (all OSes, cgo-free)
+        working-directory: spikes/glaze-runtime-verify
+        run: |
+          CGO_ENABLED=0 GOOS=darwin  GOARCH=arm64 go build -o /dev/null .
+          CGO_ENABLED=0 GOOS=darwin  GOARCH=amd64 go build -o /dev/null .
+          CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -o /dev/null .
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o /dev/null .
+
       # Mobile-safety guard: replicate the gomobile compile set on the REAL
       # mobile targets (GOOS=android/ios) with -tags mobilebuild. All desktop
       # webview/window/tray code and desktop-only feature impls must be excluded
