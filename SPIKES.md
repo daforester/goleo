@@ -331,6 +331,35 @@ when pursued: add scheme handlers **inside the glaze fork** (the fork tooling al
 have goleo serve the embedded FS through it behind an opt-in `Config`. Spike per platform
 (Linux/macOS on the CI runners) before wiring. Until then the loopback asset server stays.
 
+## Finding — macOS: glaze + gogpu/systray `fakecgo` link collision (2026-07-13)
+
+**Symptom (found by the `macos-14` runner):** linking any executable that pulls in **both** glaze
+(the webview) and the tray fails on macOS:
+`link: duplicated definition of symbol _cgo_init, from go-webgpu/goffi/internal/fakecgo and
+ebitengine/purego/internal/fakecgo`.
+
+**Cause:** glaze uses `ebitengine/purego`; `gogpu/systray` uses `go-webgpu/goffi`. Both ship a
+`fakecgo` shim (both forked from Ebitengine) that exports `_cgo_init`. The **Mach-O** linker rejects
+the duplicate; the **ELF** linker (Linux) tolerates it — so the tray + glaze link and run fine on
+Linux (proven: `glaze-runtime-verify` PASSED on Linux with the tray linked), and Windows is
+unaffected (it uses go-webview2, no purego). **macOS-only.**
+
+**Why it slipped past earlier checks:** it is a *link*-time error. `go build ./runtime/...` compiles
+a library and never links, so it passed for darwin; only building an actual executable
+(`glaze-runtime-verify`) surfaced it — first on the runner, then reproduced locally by
+**cross-linking** for darwin from Windows (`CGO_ENABLED=0 GOOS=darwin go build -o x .`). Lesson:
+cross-*link* an executable per target, not just `build ./...`.
+
+**Fix (2026-07-13):** exclude the tray on macOS. `tray_desktop.go` is now `!darwin && !mobilebuild
+&& !js` (systray on Windows/Linux, unchanged); `tray_darwin.go` provides a headless `runTrayLoop`
+(Background stays alive, cleans up on Quit) and logs that the tray is unavailable; `TraySupported()`
+returns **false** on macOS (`capabilities_darwin.go`) so `goleo:capabilities` is accurate. Verified:
+`glaze-runtime-verify` now cross-links for darwin/{amd64,arm64}; Linux/Windows keep the tray.
+
+**Proper resolution (deferred):** make the tray share one `fakecgo` with glaze — either a
+purego-based tray, or a fork of goffi/systray that defers `_cgo_init` to purego's. Until then macOS
+is tray-less with the cgo-free backend.
+
 ## Cross-cutting testing learnings (not "spikes" but hard-won)
 
 - **CI mobile guard must target GOOS=android/ios, never the host.** `linux + mobilebuild` is an

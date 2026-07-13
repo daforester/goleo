@@ -516,7 +516,10 @@ Added on top of the core bridge/feature system. Full rationale + status in
   (if set) or blocks until Quit. `Config.OnReady` runs after the server + window manager are up
   (where `OpenWindow` works, unlike `OnStartup`).
 - **Tray:** `Config.Tray` (`TrayConfig`/`TrayItem`) via `github.com/gogpu/systray` (cgo-free);
-  `runtime/tray_desktop.go` (build tag `!mobilebuild && !js`), `tray_stub.go` otherwise.
+  `runtime/tray_desktop.go` (build tag `!darwin && !mobilebuild && !js`), `tray_stub.go` on
+  mobile/wasm. **Windows + Linux only** — on **macOS** the tray is excluded (`tray_darwin.go`
+  headless no-op; `TraySupported()` → false): glaze's and systray's `fakecgo` shims both export
+  `_cgo_init` and collide at Mach-O link time (ELF/Linux tolerates it). See `SPIKES.md`.
 
 ### OS integration
 - **Single-instance** (`runtime/singleinstance/`): first launch binds a per-app loopback address;

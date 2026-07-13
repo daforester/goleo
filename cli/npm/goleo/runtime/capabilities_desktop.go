@@ -1,4 +1,4 @@
-//go:build !mobilebuild && !js
+//go:build !mobilebuild && !js && !darwin
 
 package runtime
 
