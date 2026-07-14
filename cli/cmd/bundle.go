@@ -120,7 +120,10 @@ func bundleWindows(binaryPath string, cfg bundleConfig, outDir string, sc signCo
 		return err
 	}
 	binBase := filepath.Base(binaryPath)
-	outFile := filepath.Join(outDir, fmt.Sprintf("%s-%s-setup.exe", slug(cfg.AppName), cfg.Version))
+	// NOTE: makensis cd's into the script's directory, so every path referenced by
+	// the .nsi (OutFile, File) MUST be absolute — otherwise a relative OutFile
+	// under outDir resolves to outDir/outDir (the dist\bundle\dist\bundle bug).
+	outFile, _ := filepath.Abs(filepath.Join(outDir, installerName(cfg, ".exe", "-setup")))
 	nsi := nsisScript(cfg, binaryPath, binBase, outFile)
 
 	scriptPath := filepath.Join(outDir, "installer.nsi")
@@ -214,7 +217,7 @@ func bundleDarwin(binaryPath string, cfg bundleConfig, outDir string, sc signCon
 		fmt.Printf("  Skipping .dmg: %v\n", err)
 		return nil
 	}
-	dmg := filepath.Join(outDir, fmt.Sprintf("%s-%s.dmg", slug(cfg.AppName), cfg.Version))
+	dmg, _ := filepath.Abs(filepath.Join(outDir, installerName(cfg, ".dmg", "")))
 	os.Remove(dmg)
 	cmd := exec.Command(tool, "create", "-volname", cfg.AppName, "-srcfolder", appDir, "-ov", "-format", "UDZO", dmg)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
@@ -310,6 +313,19 @@ description: "%s"
 }
 
 // slug lowercases and hyphenates an app name for use in filenames/package names.
+// installerName is the installer file name: the -o value if given (its base name,
+// minus any extension), otherwise "<slug>-<version>"; plus suffix and ext. The
+// suffix keeps the installer distinct from the app binary (e.g. myapp.exe vs
+// myapp-setup.exe) so -o can't make them collide.
+func installerName(cfg bundleConfig, ext, suffix string) string {
+	base := fmt.Sprintf("%s-%s", slug(cfg.AppName), cfg.Version)
+	if buildOutput != "" {
+		b := filepath.Base(buildOutput)
+		base = strings.TrimSuffix(b, filepath.Ext(b))
+	}
+	return base + suffix + ext
+}
+
 // to4PartVersion coerces a version like "1.2.3" into the "1.2.3.0" 4-part form
 // NSIS's VIProductVersion requires; non-numeric characters are dropped per part.
 func to4PartVersion(v string) string {

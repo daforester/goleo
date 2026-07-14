@@ -1,6 +1,9 @@
 package cmd
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 func TestSlug(t *testing.T) {
 	cases := map[string]string{
@@ -40,6 +43,51 @@ func TestGeneratedArtifacts(t *testing.T) {
 			t.Errorf("nfpm config missing %q:\n%s", want, yaml)
 		}
 	}
+}
+
+func TestBinaryOutputName(t *testing.T) {
+	win := buildTarget{OutputExt: ".exe"}
+	nix := buildTarget{OutputExt: ""}
+	cases := []struct {
+		name, o string
+		target  buildTarget
+		want    string
+	}{
+		{"default windows", "", win, "app.exe"},
+		{"default linux", "", nix, "app"},
+		{"custom windows", "myapp", win, "myapp.exe"},
+		{"custom already has ext", "myapp.exe", win, "myapp.exe"}, // no doubling
+		{"custom linux", "myapp", nix, "myapp"},
+	}
+	for _, c := range cases {
+		buildOutput = c.o
+		if got := binaryOutputName(c.target); got != c.want {
+			t.Errorf("%s: binaryOutputName(-o=%q) = %q, want %q", c.name, c.o, got, c.want)
+		}
+	}
+	buildOutput = ""
+}
+
+func TestInstallerName(t *testing.T) {
+	cfg := bundleConfig{AppName: "My App", Version: "1.2.3"}
+
+	buildOutput = ""
+	if got := installerName(cfg, ".exe", "-setup"); got != "my-app-1.2.3-setup.exe" {
+		t.Errorf("default installer name = %q, want my-app-1.2.3-setup.exe", got)
+	}
+	if got := installerName(cfg, ".dmg", ""); got != "my-app-1.2.3.dmg" {
+		t.Errorf("default dmg name = %q, want my-app-1.2.3.dmg", got)
+	}
+
+	buildOutput = "cool"
+	if got := installerName(cfg, ".exe", "-setup"); got != "cool-setup.exe" {
+		t.Errorf("-o installer name = %q, want cool-setup.exe", got)
+	}
+	buildOutput = filepath.Join("out", "cool.exe") // path + ext -> base name only
+	if got := installerName(cfg, ".exe", "-setup"); got != "cool-setup.exe" {
+		t.Errorf("-o path installer name = %q, want cool-setup.exe", got)
+	}
+	buildOutput = ""
 }
 
 func contains(s, sub string) bool {

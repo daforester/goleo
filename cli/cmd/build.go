@@ -126,11 +126,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if buildBundle || buildPublish {
-		outName := buildOutput
-		if outName == "" {
-			outName = "app"
-		}
-		binPath, _ := filepath.Abs(outName + target.OutputExt)
+		binPath, _ := filepath.Abs(binaryOutputName(target))
 		cfg := loadBundleConfig(".")
 		if buildBundle {
 			if err := runBundle(target, binPath, cfg); err != nil {
@@ -175,11 +171,22 @@ func buildFrontendProject(frontendDir, distDir string, extraEnv []string) error 
 	return nil
 }
 
-func buildForDesktop(target buildTarget, distDir string) error {
-	outputName := buildOutput
-	if outputName == "" {
-		outputName = "app"
+// binaryOutputName is the built binary's file name: the -o value (default "app")
+// plus the target's extension — without doubling it when -o already includes the
+// extension (so `-o app.exe` yields app.exe, not app.exe.exe).
+func binaryOutputName(target buildTarget) string {
+	name := buildOutput
+	if name == "" {
+		name = "app"
 	}
+	if target.OutputExt != "" && !strings.EqualFold(filepath.Ext(name), target.OutputExt) {
+		name += target.OutputExt
+	}
+	return name
+}
+
+func buildForDesktop(target buildTarget, distDir string) error {
+	outputName := binaryOutputName(target)
 
 	env := os.Environ()
 	env = append(env, fmt.Sprintf("GOOS=%s", target.GOOS))
@@ -230,7 +237,7 @@ func buildForDesktop(target buildTarget, distDir string) error {
 	if cgoWebview {
 		args = append(args, "-tags", "goleo_cgo_webview")
 	}
-	args = append(args, "-o", outputName+target.OutputExt, pkgDir)
+	args = append(args, "-o", outputName, pkgDir)
 
 	build := exec.Command("go", args...)
 	build.Env = env
@@ -254,7 +261,7 @@ func buildForDesktop(target buildTarget, distDir string) error {
 		return fmt.Errorf("go build failed: %w", err)
 	}
 
-	absPath, _ := filepath.Abs(outputName + target.OutputExt)
+	absPath, _ := filepath.Abs(outputName)
 	fmt.Printf("  Build complete: %s\n", absPath)
 	return nil
 }
