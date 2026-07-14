@@ -67,7 +67,11 @@ npm run goleo:bundle-linux      # .deb + .rpm (via nfpm)
 npm run goleo:bundle-darwin     # .app + .dmg
 ```
 
-Or: `goleo build <target> --bundle`. Output lands in `dist/bundle/`.
+Or: `goleo build <target> --bundle`. Output lands in `dist/bundle/`
+(default name `<app>-<version>-setup.exe` / `.dmg` / `.deb`). Pass `-o NAME` to
+name the installer — e.g. `goleo build windows --bundle -o myapp` →
+`dist/bundle/myapp-setup.exe` (the `-setup` suffix keeps it distinct from the
+`myapp.exe` binary).
 
 Each installer reads the same `bundle` metadata:
 
