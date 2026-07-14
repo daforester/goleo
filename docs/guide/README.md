@@ -35,6 +35,7 @@ and platform packaging.
 8. [Native menus](08-menus.md) — the menu bar, roles, accelerators, the bridge menu API.
 9. [System tray](09-systray.md) — tray icon + menu, background apps.
 10. [Mobile](10-mobile.md) — dev on a real device, sideloading, permissions, providers.
+11. [Host features tour](11-host-features.md) — notifications, dialogs, clipboard, filesystem, geolocation, battery, camera, Bluetooth, NFC, share, store & more.
 
 ## The 60-second version
 

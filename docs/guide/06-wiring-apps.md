@@ -124,6 +124,10 @@ individual `runtime.Register*` calls); unused features aren't compiled in. On
 mobile, features route to platform providers; on PWA, to the Web API where
 available.
 
+**→ See the full working tour of every host feature — notifications, dialogs,
+clipboard, filesystem, geolocation, battery, camera, Bluetooth, NFC, share, store,
+and more — in [Host features](11-host-features.md).**
+
 ## Multiple windows
 
 ```go
