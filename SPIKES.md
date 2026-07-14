@@ -472,8 +472,11 @@ hanging (kept off the upstream scheme PR — it's goleo policy). **go-webview2 d
 entirely — glaze is the sole Windows binding (`runtime/webview_windows.go` + the dep
 removed).
 
-**Remaining:** functional/visual check of the native menu bar on glaze-Windows (install didn't crash
-in the scheme-verify run; WndProc subclass hooks glaze's HWND — needs a human eyeball on a GUI build).
+**Native menu bar on glaze-Windows — ✅ visually confirmed working (2026-07-14)** (user-verified on a
+GUI build; the user32 `HMENU` + WndProc subclass hooks glaze's HWND correctly). **So the
+Windows→glaze migration is fully verified end-to-end** — webview, native IPC, custom-scheme assets,
+in-process multi-window, tray, native menu bar, permission auto-grant, and clean Quit all confirmed
+on real WebView2. Nothing outstanding.
 
 ## Cross-cutting testing learnings (not "spikes" but hard-won)
 

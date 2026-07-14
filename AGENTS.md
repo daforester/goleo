@@ -379,7 +379,7 @@ unification, **all three desktops use ONE cgo-free binding by default**:
   handler in the glaze fork's WebView2 backend on **Windows** (getUserMedia would
   otherwise hang on an unanswered prompt); no-op on macOS. Verified on real macOS +
   Linux (`.github/workflows/glaze-verify.yml`) and Windows (local: native IPC, scheme
-  assets, in-process multi-window, tray, permission grant, clean Quit).
+  assets, in-process multi-window, tray, native menu bar, permission grant, clean Quit).
 - **Opt-in fallback (one release, then removed):**
   - **macOS/Linux cgo webview_go (`-tags goleo_cgo_webview`):** `runtime/webview.go`
     (`github.com/webview/webview_go`, cgo WebKitGTK/WKWebView); `goleo build` selects it
