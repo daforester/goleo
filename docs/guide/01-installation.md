@@ -49,9 +49,13 @@ detected at build time. Install only the one(s) you target:
 
 | Target installer | Tool | Install |
 |------------------|------|---------|
-| Windows `.exe` (NSIS) | `makensis` | e.g. `choco install nsis` |
+| Windows `.exe` (NSIS) | `makensis` | **Auto-installed** by `goleo build --bundle` (winget/choco/scoop) if missing — or `choco install nsis` |
 | macOS `.dmg` / `.app` | `hdiutil` (built in) | — |
 | Linux `.deb` / `.rpm` | `nfpm` | `go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest` |
+
+> On Windows, NSIS is fetched automatically the first time you bundle (set
+> `GOLEO_NO_INSTALL=1` to opt out). The macOS/Linux packagers are best-effort
+> auto-installed too (Homebrew / apt / dnf / pacman) where available.
 
 The app icon + version metadata come from `goleo.json` and need no extra tools —
 see [Packaging, icons & metadata](04-packaging-icons.md).

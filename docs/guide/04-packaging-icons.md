@@ -78,8 +78,11 @@ Each installer reads the same `bundle` metadata:
 - **Linux**: `.deb`/`.rpm` with name, version, maintainer (`publisher`),
   `description`, `homepage`, and `category`.
 
-> Installers require the per-OS packager (`makensis`, `hdiutil`, `nfpm`) — see
-> [Installation](01-installation.md). A missing packager produces a clear error.
+> Installers use the per-OS packager (`makensis`, `hdiutil`, `nfpm`). On Windows,
+> `goleo build --bundle` **auto-installs NSIS** if `makensis` is missing (via
+> `winget`, `choco`, or `scoop`, and it finds NSIS's standard install dir even when
+> it's not on `PATH`). Set `GOLEO_NO_INSTALL=1` to disable auto-install and get a
+> plain error instead. See [Installation](01-installation.md).
 
 ## Mobile identity
 

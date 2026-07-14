@@ -111,7 +111,7 @@ func requireTool(name, hint string) (string, error) {
 // --- Windows (NSIS) ---
 
 func bundleWindows(binaryPath string, cfg bundleConfig, outDir string, sc signConfig) error {
-	tool, err := requireTool("makensis", "https://nsis.sourceforge.io")
+	tool, err := ensureMakensis() // detects makensis; auto-installs NSIS if missing
 	if err != nil {
 		return err
 	}
