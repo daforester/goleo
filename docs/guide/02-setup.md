@@ -10,6 +10,11 @@ cd frontend && npm install && cd ..
 
 (`npm create goleo-app@latest my-app` does the same via npm.)
 
+`goleo new` also runs `go mod vendor`, so the project ships with a committed
+`vendor/` containing all Go dependencies — including the pinned `glaze` webview
+fork. Your project then **builds offline** and is insulated from upstream
+changes (matching how goleo itself vendors). Commit `vendor/`.
+
 ## Project structure
 
 ```

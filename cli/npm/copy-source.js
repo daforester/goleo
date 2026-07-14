@@ -24,6 +24,13 @@ if (existsSync(resolve(PROJECT_ROOT, 'go.sum'))) {
   cpSync(resolve(PROJECT_ROOT, 'go.sum'), resolve(GOLEO_DIR, 'go.sum'))
 }
 
+// Copy the vendored dependencies (including the pinned github.com/crgimenes/glaze
+// fork) so the bundled goleo module is self-contained and builds without fetching
+// third-party code from the network.
+if (existsSync(resolve(PROJECT_ROOT, 'vendor'))) {
+  cpSync(resolve(PROJECT_ROOT, 'vendor'), resolve(GOLEO_DIR, 'vendor'), { recursive: true })
+}
+
 // Copy bridge npm package (for npm link @goleo/bridge)
 cpSync(resolve(PROJECT_ROOT, 'bridge'), resolve(GOLEO_DIR, 'bridge'), { recursive: true })
 

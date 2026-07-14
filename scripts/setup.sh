@@ -71,11 +71,38 @@ cp goleo "$ROOT/cli/npm/bin/goleo"
 ok "goleo binary copied to cli/npm/bin/"
 popd > /dev/null
 
+# 3b. Bundle the Go source (+ vendored deps, incl. the pinned glaze fork) in the
+#     npm package, so the CLI can create the local replace directive and build
+#     without fetching third-party code. (Parity with scripts/setup.ps1.)
+step "Bundling Go source in npm package..."
+pushd "$ROOT/cli/npm" > /dev/null
+node copy-source.js || fail "copy-source.js failed"
+ok "Go source (+ vendor) bundled"
+popd > /dev/null
+
 # 4. Link @goleo/cli
 pushd "$ROOT/cli/npm" > /dev/null
 npm link
 ok "@goleo/cli -> global"
 popd > /dev/null
+
+# 4b. Copy the bundled source to the npm global install so a globally-linked
+#     `goleo` resolves the module (npm link doesn't run the copy-source step).
+step "Copying goleo source to the global install..."
+GLOBAL_CLI="$(npm root -g)/@goleo/cli"
+if [ -d "$GLOBAL_CLI" ]; then
+  GLOBAL_GOLEO="$GLOBAL_CLI/goleo"
+  rm -rf "$GLOBAL_GOLEO"
+  mkdir -p "$GLOBAL_GOLEO"
+  cp "$ROOT/go.mod" "$GLOBAL_GOLEO/go.mod"
+  [ -f "$ROOT/go.sum" ] && cp "$ROOT/go.sum" "$GLOBAL_GOLEO/go.sum"
+  cp -r "$ROOT/runtime" "$GLOBAL_GOLEO/runtime"
+  cp -r "$ROOT/bridge" "$GLOBAL_GOLEO/bridge"
+  [ -d "$ROOT/vendor" ] && cp -r "$ROOT/vendor" "$GLOBAL_GOLEO/vendor"
+  ok "goleo source (+ vendored deps) copied to global install"
+else
+  echo -e "   ${YELLOW}Warning: @goleo/cli not found at npm global root - source not copied${NC}"
+fi
 
 # 5. Install root workspace deps
 step "Installing workspace dependencies..."

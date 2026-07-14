@@ -90,7 +90,10 @@ if (Test-Path "$globalCliDir") {
     Copy-Item "$repoRoot\go.sum" "$globalGoleoDir\go.sum" -Force
     Copy-Item -Recurse "$repoRoot\runtime" "$globalGoleoDir\runtime" -Force
     Copy-Item -Recurse "$repoRoot\bridge" "$globalGoleoDir\bridge" -Force
-    Write-Host "   goleo source copied to global install" -ForegroundColor Green
+    if (Test-Path "$repoRoot\vendor") {
+        Copy-Item -Recurse "$repoRoot\vendor" "$globalGoleoDir\vendor" -Force
+    }
+    Write-Host "   goleo source (+ vendored deps) copied to global install" -ForegroundColor Green
 } else {
     Write-Host "   Warning: @goleo/cli not found at npm global root - source not copied" -ForegroundColor Yellow
 }

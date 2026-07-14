@@ -90,8 +90,9 @@ func runNew(cmd *cobra.Command, args []string) error {
 	fmt.Println()
 
 	fmt.Println("  Resolving Go dependencies...")
-	if err := ensureLocalReplace(dir); err != nil {
-		fmt.Printf("  Warning: %v\n", err)
+	replaceErr := ensureLocalReplace(dir)
+	if replaceErr != nil {
+		fmt.Printf("  Warning: %v\n", replaceErr)
 		fmt.Println()
 		fmt.Println("  Before running goleo dev, build, or emulate, set GOLEO_ROOT:")
 		fmt.Println("    $env:GOLEO_ROOT = \"C:\\path\\to\\goleo\"")
@@ -115,6 +116,21 @@ func runNew(cmd *cobra.Command, args []string) error {
 		fmt.Println("  created backend/main.go (generated)")
 		fmt.Println("  created backend/gomobile/gomobile.go (generated)")
 		fmt.Println("  created backend/gomobile/notifier.go (generated)")
+	}
+
+	// Vendor the project so it builds offline and its deps — including the pinned
+	// glaze fork — are committed in the project (surviving upstream changes),
+	// matching goleo's own vendor-everything approach. Best-effort: on failure the
+	// project simply fetches deps from the network on the first build instead.
+	if replaceErr == nil {
+		fmt.Println("  Vendoring dependencies (go mod vendor)...")
+		vendor := exec.Command("go", "mod", "vendor")
+		vendor.Dir = dir
+		vendor.Stdout = os.Stdout
+		vendor.Stderr = os.Stderr
+		if err := vendor.Run(); err != nil {
+			fmt.Printf("  Warning: go mod vendor failed (deps will be fetched on first build): %v\n", err)
+		}
 	}
 
 	fmt.Println()
