@@ -146,6 +146,20 @@ func nsisScript(cfg bundleConfig, binaryPath, binBase, outFile string) string {
 	fmt.Fprintf(&b, "OutFile %q\n", outFile)
 	fmt.Fprintf(&b, "InstallDir \"$PROGRAMFILES64\\%s\"\n", cfg.AppName)
 	fmt.Fprintf(&b, "RequestExecutionLevel admin\n")
+	// Installer metadata (Details tab of the setup .exe).
+	fmt.Fprintf(&b, "VIProductVersion %q\n", to4PartVersion(cfg.Version))
+	fmt.Fprintf(&b, "VIAddVersionKey \"ProductName\" %q\n", cfg.AppName)
+	fmt.Fprintf(&b, "VIAddVersionKey \"ProductVersion\" %q\n", cfg.Version)
+	if cfg.Description != "" {
+		fmt.Fprintf(&b, "VIAddVersionKey \"FileDescription\" %q\n", cfg.Description)
+	}
+	if cfg.Publisher != "" {
+		fmt.Fprintf(&b, "VIAddVersionKey \"CompanyName\" %q\n", cfg.Publisher)
+		fmt.Fprintf(&b, "BrandingText %q\n", cfg.Publisher)
+	}
+	if cfg.Copyright != "" {
+		fmt.Fprintf(&b, "VIAddVersionKey \"LegalCopyright\" %q\n", cfg.Copyright)
+	}
 	b.WriteString("Page directory\nPage instfiles\nUninstPage uninstConfirm\nUninstPage instfiles\n")
 	b.WriteString("Section\n  SetOutPath $INSTDIR\n")
 	fmt.Fprintf(&b, "  File %q\n", binaryPath)
@@ -273,18 +287,51 @@ func nfpmConfig(cfg bundleConfig, binaryPath, binBase string) string {
 	if maintainer == "" {
 		maintainer = "unknown <noreply@example.com>"
 	}
+	desc := cfg.Description
+	if desc == "" {
+		desc = cfg.AppName
+	}
+	extra := ""
+	if cfg.Homepage != "" {
+		extra += fmt.Sprintf("homepage: %q\n", cfg.Homepage)
+	}
+	if cfg.Category != "" {
+		extra += fmt.Sprintf("section: %q\n", cfg.Category)
+	}
 	return fmt.Sprintf(`name: "%s"
 arch: "amd64"
 version: "%s"
 maintainer: "%s"
 description: "%s"
-contents:
+%scontents:
   - src: "%s"
     dst: "/usr/bin/%s"
-`, slug(cfg.AppName), cfg.Version, maintainer, cfg.AppName, binaryPath, binBase)
+`, slug(cfg.AppName), cfg.Version, maintainer, desc, extra, binaryPath, binBase)
 }
 
 // slug lowercases and hyphenates an app name for use in filenames/package names.
+// to4PartVersion coerces a version like "1.2.3" into the "1.2.3.0" 4-part form
+// NSIS's VIProductVersion requires; non-numeric characters are dropped per part.
+func to4PartVersion(v string) string {
+	parts := strings.Split(v, ".")
+	out := make([]string, 4)
+	for i := range out {
+		out[i] = "0"
+		if i < len(parts) {
+			n := strings.Map(func(r rune) rune {
+				if r >= '0' && r <= '9' {
+					return r
+				}
+				return -1
+			}, parts[i])
+			if n != "" {
+				out[i] = n
+			}
+		}
+	}
+	return strings.Join(out, ".")
+}
+
 func slug(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
 	var b strings.Builder

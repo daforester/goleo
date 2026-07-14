@@ -210,7 +210,21 @@ func buildForDesktop(target buildTarget, distDir string) error {
 		}
 	}
 
-	ldflags := fmt.Sprintf("-s -w -X main.Version=%s", "0.1.0")
+	cfg := loadBundleConfig(".")
+
+	// Windows: embed the app icon + version info into the .exe (Details tab) from
+	// goleo.json's bundle section. Best-effort — a failure leaves the default icon.
+	if target.GOOS == "windows" {
+		cleanup, err := writeWindowsResource(cfg, pkgDir, target.GOARCH)
+		if err != nil {
+			fmt.Println("  Warning: could not embed Windows icon/version info:", err)
+		} else if cleanup != nil {
+			defer cleanup()
+			fmt.Println("  Embedding app icon + version info into the .exe")
+		}
+	}
+
+	ldflags := fmt.Sprintf("-s -w -X main.Version=%s", cfg.Version)
 
 	args := []string{"build", "-ldflags", ldflags}
 	if cgoWebview {

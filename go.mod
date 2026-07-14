@@ -9,12 +9,14 @@ require (
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/gogpu/systray v0.1.1
 	github.com/gorilla/websocket v1.5.1
+	github.com/josephspurrier/goversioninfo v1.7.0
 	github.com/spf13/cobra v1.8.0
 	github.com/webview/webview_go v0.0.0-20240831120633-6173450d4dd6
 	golang.org/x/sys v0.46.0
 )
 
 require (
+	github.com/akavel/rsrc v0.10.2 // indirect
 	github.com/dlclark/regexp2/v2 v2.2.1 // indirect
 	github.com/go-sourcemap/sourcemap v2.1.3+incompatible // indirect
 	github.com/go-webgpu/goffi v0.5.5 // indirect
