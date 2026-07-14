@@ -40,6 +40,9 @@ goleo/
 │       └── types.ts       # TypeScript type definitions
 ├── templates/app/         # User project templates (consumed by goleo new)
 ├── create-goleo-app/      # npm create goleo-app scaffold package
+├── docs/
+│   └── guide/             # Developer Guide (multi-page): install, setup, build,
+│                          # packaging/icons, deploy, wiring, RPC, menus, tray, mobile
 └── scripts/               # Utility scripts
 ```
 

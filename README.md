@@ -23,6 +23,13 @@ const msg = await invoke<string>('greet', { name: 'World' })   // → "Hello, Wo
 
 ---
 
+## 📖 Developer Guide
+
+Full step-by-step docs live in **[`docs/guide/`](docs/guide/README.md)** —
+installation, project setup, building, packaging (icons + metadata + installers),
+deploying & auto-update, wiring up your app, RPC, native menus, system tray, and
+mobile (device dev + sideloading).
+
 ## Why Goleo
 
 - 🖥️ **One codebase, six targets** — Windows, macOS, Linux, Android, iOS, PWA.
