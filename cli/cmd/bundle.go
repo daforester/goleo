@@ -16,9 +16,15 @@ type bundleConfig struct {
 	Version    string
 	Identifier string // reverse-DNS, e.g. com.example.app
 	Publisher  string
-	IconICO    string // Windows icon path
-	IconICNS   string // macOS icon path
-	IconPNG    string // Linux icon path
+	Description string // one-line app description (installers + exe version info)
+	Copyright  string // e.g. "© 2026 Example Ltd" (exe version info, .deb)
+	Category   string // freedesktop/macOS category (e.g. "Utility")
+	Homepage   string // project/homepage URL
+
+	Icon     string // single source icon (PNG); platform variants derived from it
+	IconICO  string // Windows icon path (overrides Icon)
+	IconICNS string // macOS icon path (overrides Icon)
+	IconPNG  string // Linux icon path (overrides Icon)
 
 	// Publish (updater manifest)
 	UpdateURLBase string // base URL where update artifacts are hosted
@@ -53,6 +59,11 @@ func loadBundleConfig(projectDir string) bundleConfig {
 			cfg.Identifier = v
 		}
 		cfg.Publisher = str("publisher")
+		cfg.Description = str("description")
+		cfg.Copyright = str("copyright")
+		cfg.Category = str("category")
+		cfg.Homepage = str("homepage")
+		cfg.Icon = str("icon")
 		cfg.IconICO = str("icon_ico")
 		cfg.IconICNS = str("icon_icns")
 		cfg.IconPNG = str("icon_png")

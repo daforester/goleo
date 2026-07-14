@@ -7,6 +7,18 @@
     "dev_command": "npm run dev",
     "dist_dir": "dist"
   },
+  "bundle": {
+    "identifier": "com.example.__GOLEO_APP_NAME__",
+    "publisher": "",
+    "description": "",
+    "copyright": "",
+    "category": "",
+    "homepage": "",
+    "icon": "assets/icon.png",
+    "icon_ico": "",
+    "icon_icns": "",
+    "icon_png": ""
+  },
   "mobile": {
     "android": {
       "min_sdk": 24,

@@ -32,5 +32,6 @@ func init() {
 	rootCmd.AddCommand(devCmd)
 	rootCmd.AddCommand(buildCmd)
 	rootCmd.AddCommand(emulateCmd)
+	rootCmd.AddCommand(installCmd)
 	rootCmd.AddCommand(versionCmd)
 }

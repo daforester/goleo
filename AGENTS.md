@@ -182,9 +182,15 @@ The server auto-selects a port if the configured one is in use and sets CORS hea
 | goleo build windows | Cross-compile for Windows amd64 |
 | goleo build linux | Cross-compile for Linux amd64 |
 | goleo build darwin | Cross-compile for macOS amd64 |
-| goleo build android | Build Android .aar via gomobile |
+| goleo build android | Build an installable Android .apk (gomobile AAR + Gradle) |
 | goleo build ios | Build iOS .xcframework via gomobile |
 | goleo build pwa | Build Progressive Web App (no Go backend) |
+| goleo build --bundle | Also package the desktop app into a native installer (dist/bundle/) |
+| goleo build --publish | Also write an ed25519-signed update manifest (needs GOLEO_UPDATE_PRIVKEY) |
+| goleo emulate android | Run in dev mode on a connected Android device or emulator |
+| goleo install android | Sideload the built app.apk onto a connected device + launch it |
+| goleo generate types | Generate frontend/src/goleo.d.ts (typed invoke() overloads) |
+| goleo generate updater-key | Generate an ed25519 keypair for signing update manifests |
 | goleo version | Print version |
 
 ### Build Targets
@@ -273,17 +279,33 @@ my-app/
 `json
 {
   "scripts": {
-    "goleo:dev": "goleo dev",
-    "goleo:dev-pwa": "goleo dev pwa",
-    "goleo:build": "goleo build",
+    "goleo:dev": "goleo dev",                                  // desktop dev (Go + Vite HMR)
+    "goleo:dev-pwa": "goleo dev pwa",                          // PWA dev (Vite only)
+    "goleo:dev-android": "goleo emulate android",              // dev on a connected device / emulator
+
+    "goleo:build": "goleo build",                             // standalone binary (current OS)
     "goleo:build-windows": "goleo build windows",
     "goleo:build-linux": "goleo build linux",
     "goleo:build-darwin": "goleo build darwin",
-    "goleo:build-android": "goleo build android",
+    "goleo:build-android": "goleo build android",              // installable app.apk
     "goleo:build-ios": "goleo build ios",
-    "goleo:build-pwa": "goleo build pwa"
+    "goleo:build-pwa": "goleo build pwa",
+
+    "goleo:bundle": "goleo build --bundle",                   // native installer (current OS)
+    "goleo:bundle-windows": "goleo build windows --bundle",   // NSIS .exe installer
+    "goleo:bundle-linux": "goleo build linux --bundle",       // .deb / .rpm
+    "goleo:bundle-darwin": "goleo build darwin --bundle",     // .app + .dmg
+
+    "goleo:publish": "goleo build --publish",                 // signed update manifest
+    "goleo:sideload-android": "goleo build android && goleo install android",
+    "goleo:types": "goleo generate types"                     // typed bridge d.ts
   }
 }
+
+Standalone binaries come from `goleo:build*`; native installers from `goleo:bundle*`
+(both read icon + metadata from `goleo.json`'s `bundle` section — see the Packaging
+guide). `goleo:sideload-android` builds the APK then `adb install`s it to a connected
+device.
 `
 
 ## Getting Started

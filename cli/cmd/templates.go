@@ -683,6 +683,8 @@ var tmplRootPackageJSON = `{
   "scripts": {
     "goleo:dev": "goleo dev",
     "goleo:dev-pwa": "goleo dev pwa",
+    "goleo:dev-android": "goleo emulate android",
+
     "goleo:build": "goleo build",
     "goleo:build-windows": "goleo build windows",
     "goleo:build-linux": "goleo build linux",
@@ -690,8 +692,15 @@ var tmplRootPackageJSON = `{
     "goleo:build-android": "goleo build android",
     "goleo:build-ios": "goleo build ios",
     "goleo:build-pwa": "goleo build pwa",
-    "goleo:emulate": "goleo emulate android",
-    "goleo:emulate-ios": "goleo emulate ios"
+
+    "goleo:bundle": "goleo build --bundle",
+    "goleo:bundle-windows": "goleo build windows --bundle",
+    "goleo:bundle-linux": "goleo build linux --bundle",
+    "goleo:bundle-darwin": "goleo build darwin --bundle",
+
+    "goleo:publish": "goleo build --publish",
+    "goleo:sideload-android": "goleo build android && goleo install android",
+    "goleo:types": "goleo generate types"
   }
 }
 `
@@ -704,6 +713,18 @@ var tmplGoleoJSON = `{
     "build_command": "npm run build",
     "dev_command": "npm run dev",
     "dist_dir": "dist"
+  },
+  "bundle": {
+    "identifier": "com.example.{{.Name}}",
+    "publisher": "",
+    "description": "",
+    "copyright": "",
+    "category": "",
+    "homepage": "",
+    "icon": "assets/icon.png",
+    "icon_ico": "",
+    "icon_icns": "",
+    "icon_png": ""
   },
   "mobile": {
     "android": {
