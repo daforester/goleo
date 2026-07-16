@@ -39,7 +39,6 @@ goleo/
 │       ├── bridge.ts      # WebSocket/HTTP bridge implementation
 │       └── types.ts       # TypeScript type definitions
 ├── templates/app/         # User project templates (consumed by goleo new)
-├── create-goleo-app/      # npm create goleo-app scaffold package
 ├── docs/
 │   └── guide/             # Developer Guide (multi-page): install, setup, build,
 │                          # packaging/icons, deploy, wiring, RPC, menus, tray, mobile
@@ -314,11 +313,11 @@ device.
 ## Getting Started
 
 `ash
-# Install the CLI
-go install github.com/daforester/goleo/cli/goleo@latest
+# Install the CLI (npm, or `go install github.com/daforester/goleo/cli/goleo@latest`)
+npm install -g @goleo/cli
 
-# Or use npm scaffold
-npm create goleo-app@latest my-app
+# Scaffold a project (or, no global install: npx @goleo/cli new my-app)
+goleo new my-app
 cd my-app
 cd frontend && npm install && cd ..
 goleo dev        # Start development
@@ -621,7 +620,7 @@ Added on top of the core bridge/feature system. Full rationale + status in
   (`https://goleo.localhost`) via `spikes/goleo-scheme-verify`. **Requires the glaze fork** (`NewWithOptions`): goleo pins
   `crgimenes/glaze => daforester/glaze` via `replace`, and because Go `replace` directives don't
   transit, **any downstream module importing goleo's runtime needs the same replace** — `goleo new`
-  and `create-goleo-app` scaffold it into the generated `go.mod`. See `SPIKES.md` (2026-07-13).
+  scaffolds it into the generated `go.mod`. See `SPIKES.md` (2026-07-13).
 
 ### GUI lifecycle threading (fixed alongside native IPC)
 Two pre-existing defects surfaced by driving `Quit()` end-to-end:

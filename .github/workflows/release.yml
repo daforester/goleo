@@ -10,9 +10,9 @@ name: release
 #     Owner:      daforester
 #     Repository: goleo
 #     Workflow:   release.yml
-# Packages: @goleo/bridge, @goleo/cli, create-goleo-app, and the six
-# @goleo/cli-<os>-<arch> platform packages. See RELEASING.md (incl. the
-# first-publish bootstrap for brand-new package names).
+# Packages: @goleo/bridge, @goleo/cli, and the six @goleo/cli-<os>-<arch>
+# platform packages. See RELEASING.md (incl. the first-publish bootstrap for
+# brand-new package names).
 #
 # Cross-compiles every platform binary CGO_ENABLED=0 from this one Linux runner
 # (the glaze webview backend is cgo-free), so no per-OS runners are needed.
@@ -49,10 +49,8 @@ jobs:
       - name: Install workspace dependencies
         run: npm install
 
-      - name: Build TypeScript packages
-        run: |
-          npm run build:bridge
-          npm run build:create-app
+      - name: Build TypeScript package (@goleo/bridge)
+        run: npm run build:bridge
 
       - name: Bundle Go source + build platform binary packages
         run: |
@@ -70,6 +68,3 @@ jobs:
 
       - name: Publish @goleo/bridge
         run: npm publish -w bridge
-
-      - name: Publish create-goleo-app
-        run: npm publish -w create-goleo-app

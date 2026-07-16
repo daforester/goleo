@@ -8,7 +8,7 @@ cd my-app
 cd frontend && npm install && cd ..
 ```
 
-(`npm create goleo-app@latest my-app` does the same via npm.)
+(No global install? `npx @goleo/cli new my-app` does the same.)
 
 `goleo new` also runs `go mod vendor`, so the project ships with a committed
 `vendor/` containing all Go dependencies — including the pinned `glaze` webview

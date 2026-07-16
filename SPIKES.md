@@ -395,7 +395,7 @@ needs the vhost rework — follow-up). Verified end-to-end on Linux GTK3+GTK4 (D
 `spikes/goleo-scheme-verify` (`goleo://app` reports `isSecureContext` + localStorage + WebCrypto over
 native IPC, no TCP port) — the full `glaze-verify.yml` matrix is green including the goleo integration
 (not just glaze in isolation). Downstream consumers need the fork `replace` (Go replaces don't
-transit), so `goleo new` / `create-goleo-app` scaffold it. Upstream issue: `GLAZE_ISSUE.md`.
+transit), so `goleo new` scaffolds it. Upstream issue: `GLAZE_ISSUE.md`.
 **Remaining: Windows `SchemeAssets`** still falls back to loopback (`go-webview2` needs a vhost hook —
 see below).
 

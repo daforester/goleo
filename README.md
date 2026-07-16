@@ -53,11 +53,11 @@ mobile (device dev + sideloading).
 ## Quick start
 
 ```bash
-# Install the CLI
-go install github.com/daforester/goleo/cli/goleo@latest
+# Install the CLI (npm, or `go install github.com/daforester/goleo/cli/goleo@latest`)
+npm install -g @goleo/cli
 
 # Scaffold a project (Vue + Vite + @goleo/bridge)
-npm create goleo-app@latest my-app     # or: goleo new my-app
+goleo new my-app                       # or, no global install: npx @goleo/cli new my-app
 cd my-app
 cd frontend && npm install && cd ..
 

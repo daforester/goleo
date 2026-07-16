@@ -29,13 +29,6 @@ if ($LASTEXITCODE -ne 0) { Write-Host "bridge build failed" -ForegroundColor Red
 Write-Host "   @goleo/bridge built" -ForegroundColor Green
 Pop-Location
 
-Push-Location "$PSScriptRoot\..\create-goleo-app"
-npm install
-npm run build
-if ($LASTEXITCODE -ne 0) { Write-Host "create-goleo-app build failed" -ForegroundColor Red; exit 1 }
-Write-Host "   create-goleo-app built" -ForegroundColor Green
-Pop-Location
-
 # 2. Link packages globally
 Write-Host ""
 Write-Host ">> Linking packages globally..." -ForegroundColor Yellow
@@ -43,11 +36,6 @@ Write-Host ">> Linking packages globally..." -ForegroundColor Yellow
 Push-Location "$PSScriptRoot\..\bridge"
 npm link
 Write-Host "   @goleo/bridge -> global" -ForegroundColor Green
-Pop-Location
-
-Push-Location "$PSScriptRoot\..\create-goleo-app"
-npm link
-Write-Host "   create-goleo-app -> global" -ForegroundColor Green
 Pop-Location
 
 # 3. Build the Go CLI binary
@@ -115,7 +103,7 @@ if ($pathEntries -notcontains $NpmBin) {
 }
 Write-Host ""
 Write-Host "Try these commands from anywhere:" -ForegroundColor White
-Write-Host "  npx create-goleo-app my-test-app" -ForegroundColor Green
+Write-Host "  npx goleo new my-test-app" -ForegroundColor Green
 Write-Host "  npx goleo version" -ForegroundColor Green
 Write-Host ""
 Write-Host "In the scaffolded project (until published):" -ForegroundColor White

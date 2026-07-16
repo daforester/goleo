@@ -40,23 +40,12 @@ npm run build || fail "bridge build failed"
 ok "@goleo/bridge built"
 popd > /dev/null
 
-pushd "$ROOT/create-goleo-app" > /dev/null
-npm install --silent
-npm run build || fail "create-goleo-app build failed"
-ok "create-goleo-app built"
-popd > /dev/null
-
 # 2. Link packages globally
 step "Linking packages globally..."
 
 pushd "$ROOT/bridge" > /dev/null
 npm link
 ok "@goleo/bridge -> global"
-popd > /dev/null
-
-pushd "$ROOT/create-goleo-app" > /dev/null
-npm link
-ok "create-goleo-app -> global"
 popd > /dev/null
 
 # 3. Build the Go CLI binary
@@ -120,7 +109,7 @@ case ":$PATH:" in
 esac
 echo ""
 echo -e "Try these commands from anywhere:"
-echo -e "  ${GREEN}npx create-goleo-app my-test-app${NC}"
+echo -e "  ${GREEN}npx goleo new my-test-app${NC}"
 echo -e "  ${GREEN}npx goleo version${NC}"
 echo ""
 echo -e "In the scaffolded project (until published):"

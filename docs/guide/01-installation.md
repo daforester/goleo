@@ -12,16 +12,18 @@ Extra tools are only needed for native installers and mobile (see below).
 
 Two options — pick one:
 
-**Go install (recommended):**
+**npm (recommended):**
+```bash
+npm install -g @goleo/cli
+```
+Installs the matching prebuilt binary for your OS/CPU automatically. Or run it
+without a global install: `npx @goleo/cli <command>`.
+
+**Go install (alternative):**
 ```bash
 go install github.com/daforester/goleo/cli/goleo@latest
 ```
 Ensure `$(go env GOPATH)/bin` is on your `PATH` so `goleo` is found.
-
-**npm scaffold (also installs a bundled CLI):**
-```bash
-npm create goleo-app@latest my-app
-```
 
 Verify:
 ```bash

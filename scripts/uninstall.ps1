@@ -17,7 +17,7 @@ $RepoRoot = Resolve-Path "$PSScriptRoot\.."
 
 # 1. Unlink the globally linked packages (best-effort — ignore if not present).
 Write-Host ">> Unlinking global packages..." -ForegroundColor Yellow
-foreach ($pkg in @("@goleo/cli", "@goleo/bridge", "create-goleo-app")) {
+foreach ($pkg in @("@goleo/cli", "@goleo/bridge")) {
     try {
         npm rm -g $pkg 2>$null | Out-Null
         Write-Host "   removed global link: $pkg" -ForegroundColor Green

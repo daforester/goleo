@@ -30,7 +30,7 @@ info "=== Goleo Local Teardown ==="
 
 # 1. Unlink the globally linked packages (best-effort — ignore if not present).
 step "Unlinking global packages..."
-for pkg in "@goleo/cli" "@goleo/bridge" "create-goleo-app"; do
+for pkg in "@goleo/cli" "@goleo/bridge"; do
   if npm rm -g "$pkg" >/dev/null 2>&1; then
     ok "removed global link: $pkg"
   else
