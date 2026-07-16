@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -55,25 +56,36 @@ func ensureLocalReplace(projectDir string) error {
 // CLI's own version for reproducibility, falling back to @latest if that exact
 // version isn't tagged as a Go module yet.
 func ensureGoleoRequire(projectDir string) error {
-	spec := "latest"
+	// Try the CLI's exact version first (reproducible), but quietly — the
+	// matching Go-module git tag may not exist yet if npm was published without
+	// it, and `go get`'s raw 404 output would look alarming. Only if that misses
+	// do we fall back to @latest, visibly.
 	if v := resolveVersion(); semverRe.MatchString(v) {
-		spec = "v" + v
+		if _, err := goGetQuiet(projectDir, goleoModule+"@v"+v); err == nil {
+			return nil
+		}
+		fmt.Printf("  %s@v%s not tagged as a Go module yet — using @latest\n", goleoModule, v)
 	}
 	// `go get` refuses to run under -mod=vendor (scaffolds commit a vendor/), so
 	// force -mod=mod to resolve from the module cache/proxy.
-	if err := runGo(projectDir, modModEnv(), "get", goleoModule+"@"+spec); err == nil {
-		return nil
-	} else if spec != "latest" {
-		fmt.Printf("  %s@%s not available on the proxy yet — using @latest\n", goleoModule, spec)
-		if err2 := runGo(projectDir, modModEnv(), "get", goleoModule+"@latest"); err2 == nil {
-			return nil
-		}
-		return err
-	} else {
+	if err := runGo(projectDir, modModEnv(), "get", goleoModule+"@latest"); err != nil {
 		return fmt.Errorf("could not resolve %s from the Go module proxy: %w\n"+
 			"Check your network connection (the first build needs to download it),\n"+
 			"or, if developing goleo itself, set GOLEO_ROOT to your local checkout.", goleoModule, err)
 	}
+	return nil
+}
+
+// goGetQuiet runs `go get <spec>` capturing output, so an expected miss (the
+// pinned version not being tagged yet) doesn't spew go's raw error.
+func goGetQuiet(projectDir, spec string) (string, error) {
+	cmd := exec.Command("go", "get", spec)
+	cmd.Dir = projectDir
+	cmd.Env = modModEnv()
+	var buf bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &buf, &buf
+	err := cmd.Run()
+	return buf.String(), err
 }
 
 var semverRe = regexp.MustCompile(`^\d+\.\d+\.\d+`)
