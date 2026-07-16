@@ -491,3 +491,34 @@ on real WebView2. Nothing outstanding.
   works in emulation. (Discovered via "clipboard doesn't work on Android".)
 - **A cgo webview + `CGO_ENABLED=0` are mutually exclusive** — the root cause behind several
   findings above; the cgo-free bindings are what let goleo keep `CGO_ENABLED=0`.
+- **A vendored project can't build for mobile in vendor mode.** Scaffolded projects commit a
+  `vendor/` (offline desktop builds + pinned glaze fork), which makes Go auto-select
+  `-mod=vendor`. But `gomobile bind` pulls in `golang.org/x/mobile`'s bind-support packages that
+  `vendor/` does not contain (they're only reached through gomobile's *generated* code), and
+  `go get -tool …/gobind` outright refuses to run under `-mod=vendor`. So the mobile build path
+  forces `GOFLAGS=-mod=mod` on every `go`/`gomobile` invocation (`modModEnv`/`goToolEnv`/
+  `setMobileEnv` in `cli/cmd`), resolving those deps from the module cache instead. `go mod tidy`
+  is unaffected (it always ignores `-mod`). Verified: `goleo build android` on a freshly
+  scaffolded+vendored project failed with `gomobile: missing golang.org/x/mobile dependency`
+  until this fix, then produced a working APK.
+- **The mobile native shell is a fixed all-providers shell, so its provider bindings must
+  always be bound.** `MainActivity.java` (and `AppDelegate.swift`) unconditionally import and wire
+  every native provider (`gomobile.BatteryProvider`, `Gomobile.setBLEProvider(...)`, …). But the
+  gomobile provider files (`backend/gomobile/battery.go`, …) and their `runtime.Set*Provider`
+  re-exports are gated `//go:build mobilebuild && goleo_<feature>`, and `mobileBindTags` originally
+  only enabled a feature tag when the app called its `Register*`. So the **default scaffold** (all
+  `Register*` commented out) — and any app not enabling *every* feature — failed to build with
+  `error: cannot find symbol gomobile.BatteryProvider`: the shell references a binding gobind never
+  generated. Fix: `mobileBindTags` now always includes the 8 native-shell provider tags
+  (`nativeShellProviderTags`: battery, wakelock, sensors, background, nfc, ble, clipboard, share),
+  so the provider↔native bridge is always bound; per-feature *bridge-command registration* stays
+  opt-in via `Register*` (detected as before) and manifest permissions stay scan-driven. iOS wires
+  7 of the 8 (no NFC/BLE) — forcing all 8 is a harmless superset there. **Verified:** `goleo build
+  android` on a scaffold went from this compile error to a working APK once the tags were forced.
+- **Icon generation is pure Go.** A single `bundle.icon` PNG (recommended 1024²) is downscaled
+  (area-averaging in premultiplied-alpha space) and re-encoded into every platform artifact —
+  multi-size Windows `.ico`, macOS `.icns`, Linux hicolor PNG + `.desktop`, Android
+  `mipmap-*/ic_launcher(+_round).png`, iOS `AppIcon.appiconset` — with no ImageMagick / iconutil /
+  external tooling (`cli/cmd/icons.go`, unit-tested in `icons_test.go`). Mobile icons are only
+  wired into the manifest/xcodegen when a source icon resolves, so a project without one keeps the
+  platform default rather than referencing a missing resource.

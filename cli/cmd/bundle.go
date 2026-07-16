@@ -153,6 +153,7 @@ func nsisScript(cfg bundleConfig, binaryPath, binBase, outFile string) string {
 	fmt.Fprintf(&b, "VIProductVersion %q\n", to4PartVersion(cfg.Version))
 	fmt.Fprintf(&b, "VIAddVersionKey \"ProductName\" %q\n", cfg.AppName)
 	fmt.Fprintf(&b, "VIAddVersionKey \"ProductVersion\" %q\n", cfg.Version)
+	fmt.Fprintf(&b, "VIAddVersionKey \"FileVersion\" %q\n", cfg.Version) // NSIS requires this alongside VIProductVersion
 	if cfg.Description != "" {
 		fmt.Fprintf(&b, "VIAddVersionKey \"FileDescription\" %q\n", cfg.Description)
 	}
@@ -195,9 +196,18 @@ func bundleDarwin(binaryPath string, cfg bundleConfig, outDir string, sc signCon
 		return err
 	}
 	os.Chmod(filepath.Join(macOS, binBase), 0o755)
+	// Icon: an explicit .icns wins; otherwise derive one from the single source PNG.
 	if cfg.IconICNS != "" {
 		if _, err := os.Stat(cfg.IconICNS); err == nil {
 			copyFile(cfg.IconICNS, filepath.Join(resources, "icon.icns"))
+		}
+	} else if src, ok := resolveSourceIcon(cfg); ok {
+		if img, err := loadPNG(src); err == nil {
+			if err := writeICNS(img, filepath.Join(resources, "icon.icns")); err != nil {
+				fmt.Println("  Warning: could not generate .icns:", err)
+			} else {
+				fmt.Println("  Generated icon.icns from bundle.icon")
+			}
 		}
 	}
 	plist := infoPlist(cfg, binBase)
@@ -268,7 +278,29 @@ func bundleLinux(binaryPath string, cfg bundleConfig, outDir string, sc signConf
 		return err
 	}
 	binBase := filepath.Base(binaryPath)
-	nfpmYAML := nfpmConfig(cfg, binaryPath, binBase)
+
+	// Desktop integration: install a hicolor icon (from bundle.icon_png or derived
+	// from the single bundle.icon) plus a .desktop launcher entry.
+	iconPath := ""
+	if cfg.IconPNG != "" {
+		if _, err := os.Stat(cfg.IconPNG); err == nil {
+			iconPath, _ = filepath.Abs(cfg.IconPNG)
+		}
+	} else if src, ok := resolveSourceIcon(cfg); ok {
+		if img, err := loadPNG(src); err == nil {
+			gen := filepath.Join(outDir, slug(cfg.AppName)+".png")
+			if err := writeResizedPNG(img, 256, gen); err == nil {
+				iconPath, _ = filepath.Abs(gen)
+			}
+		}
+	}
+	desktopPath := filepath.Join(outDir, slug(cfg.AppName)+".desktop")
+	if err := os.WriteFile(desktopPath, []byte(desktopEntry(cfg, binBase)), 0o644); err != nil {
+		return err
+	}
+	desktopPath, _ = filepath.Abs(desktopPath)
+
+	nfpmYAML := nfpmConfig(cfg, binaryPath, binBase, iconPath, desktopPath)
 	cfgPath := filepath.Join(outDir, "nfpm.yaml")
 	if err := os.WriteFile(cfgPath, []byte(nfpmYAML), 0o644); err != nil {
 		return err
@@ -285,7 +317,7 @@ func bundleLinux(binaryPath string, cfg bundleConfig, outDir string, sc signConf
 	return nil
 }
 
-func nfpmConfig(cfg bundleConfig, binaryPath, binBase string) string {
+func nfpmConfig(cfg bundleConfig, binaryPath, binBase, iconPath, desktopPath string) string {
 	maintainer := cfg.Publisher
 	if maintainer == "" {
 		maintainer = "unknown <noreply@example.com>"
@@ -301,15 +333,45 @@ func nfpmConfig(cfg bundleConfig, binaryPath, binBase string) string {
 	if cfg.Category != "" {
 		extra += fmt.Sprintf("section: %q\n", cfg.Category)
 	}
+	contents := fmt.Sprintf(`  - src: "%s"
+    dst: "/usr/bin/%s"
+`, filepath.ToSlash(binaryPath), binBase)
+	if desktopPath != "" {
+		contents += fmt.Sprintf(`  - src: "%s"
+    dst: "/usr/share/applications/%s.desktop"
+`, filepath.ToSlash(desktopPath), slug(cfg.AppName))
+	}
+	if iconPath != "" {
+		contents += fmt.Sprintf(`  - src: "%s"
+    dst: "/usr/share/icons/hicolor/256x256/apps/%s.png"
+`, filepath.ToSlash(iconPath), slug(cfg.AppName))
+	}
 	return fmt.Sprintf(`name: "%s"
 arch: "amd64"
 version: "%s"
 maintainer: "%s"
 description: "%s"
 %scontents:
-  - src: "%s"
-    dst: "/usr/bin/%s"
-`, slug(cfg.AppName), cfg.Version, maintainer, desc, extra, binaryPath, binBase)
+%s`, slug(cfg.AppName), cfg.Version, maintainer, desc, extra, contents)
+}
+
+// desktopEntry builds a freedesktop .desktop launcher for the installed binary.
+func desktopEntry(cfg bundleConfig, binBase string) string {
+	categories := cfg.Category
+	if categories == "" {
+		categories = "Utility"
+	}
+	entry := "[Desktop Entry]\n" +
+		"Type=Application\n" +
+		fmt.Sprintf("Name=%s\n", cfg.AppName) +
+		fmt.Sprintf("Exec=/usr/bin/%s\n", binBase) +
+		fmt.Sprintf("Icon=%s\n", slug(cfg.AppName)) +
+		"Terminal=false\n" +
+		fmt.Sprintf("Categories=%s;\n", categories)
+	if cfg.Description != "" {
+		entry += fmt.Sprintf("Comment=%s\n", cfg.Description)
+	}
+	return entry
 }
 
 // slug lowercases and hyphenates an app name for use in filenames/package names.

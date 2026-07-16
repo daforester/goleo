@@ -37,8 +37,8 @@ func TestGeneratedArtifacts(t *testing.T) {
 		}
 	}
 
-	yaml := nfpmConfig(cfg, "/tmp/app", "app")
-	for _, want := range []string{"name: \"my-app\"", "version: \"1.2.3\"", "Acme", "/usr/bin/app"} {
+	yaml := nfpmConfig(cfg, "/tmp/app", "app", "", "/tmp/my-app.desktop")
+	for _, want := range []string{"name: \"my-app\"", "version: \"1.2.3\"", "Acme", "/usr/bin/app", "my-app.desktop"} {
 		if !contains(yaml, want) {
 			t.Errorf("nfpm config missing %q:\n%s", want, yaml)
 		}

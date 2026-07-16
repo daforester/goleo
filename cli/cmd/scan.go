@@ -243,19 +243,56 @@ func detectFeatureUsage(projectDir string) ([]string, error) {
 	return tags, nil
 }
 
+// nativeShellProviderTags are the feature tags whose native-provider bindings
+// the mobile shell (Android MainActivity.java / iOS AppDelegate.swift) wires
+// *unconditionally* — it always imports gomobile.BatteryProvider, calls
+// Gomobile.setBLEProvider(...), etc. Because the shell is a fixed source file
+// (not trimmed per project), the Go side of that contract must always be
+// present in the gomobile bind, so gobind generates every provider interface +
+// Set* function the shell references. Otherwise the shell fails to compile
+// ("cannot find symbol gomobile.BatteryProvider") for any app that doesn't
+// happen to register all of these features. These are always bound for mobile;
+// the app still opts in to each feature's *bridge commands* by calling the
+// corresponding Register* (which is what detectFeatureUsage picks up).
+var nativeShellProviderTags = []string{
+	"goleo_battery",
+	"goleo_wakelock",
+	"goleo_sensors",
+	"goleo_background",
+	"goleo_nfc",
+	"goleo_ble",
+	"goleo_clipboard",
+	"goleo_share",
+}
+
 // mobileBindTags returns the -tags value for `gomobile bind`: the
-// always-required "mobilebuild" plus whatever permission-gated feature tags
-// detectFeatureUsage finds in the project's own source (so RegisterCamera(),
-// RegisterBattery(), etc. actually resolve when compiling for
-// android/ios — those symbols only exist under their own goleo_* tag on
-// mobile — without the caller having to track and pass tags by hand).
+// always-required "mobilebuild", the native-shell provider tags (see
+// nativeShellProviderTags), plus whatever additional permission-gated feature
+// tags detectFeatureUsage finds in the project's own source (so RegisterCamera(),
+// RegisterGeolocation(), etc. also resolve when compiling for android/ios —
+// those symbols only exist under their own goleo_* tag on mobile — without the
+// caller having to track and pass tags by hand).
 func mobileBindTags(projectDir string) (string, error) {
-	tags, err := detectFeatureUsage(projectDir)
+	detected, err := detectFeatureUsage(projectDir)
 	if err != nil {
 		return "", err
 	}
-	if len(tags) > 0 {
-		fmt.Printf("  Detected mobile features: %s\n", strings.Join(tags, ", "))
+	set := map[string]bool{}
+	var tags []string
+	add := func(t string) {
+		if !set[t] {
+			set[t] = true
+			tags = append(tags, t)
+		}
+	}
+	for _, t := range nativeShellProviderTags {
+		add(t)
+	}
+	for _, t := range detected {
+		add(t)
+	}
+	if len(detected) > 0 {
+		fmt.Printf("  Detected mobile features: %s\n", strings.Join(detected, ", "))
 	}
 	return strings.Join(append([]string{"mobilebuild"}, tags...), ","), nil
 }

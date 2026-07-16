@@ -72,9 +72,33 @@ func prependPath(env []string, dir string) []string {
 	return append(env, "PATH="+dir)
 }
 
+// upsertEnv sets key=val in env, replacing any existing entry (case-insensitive
+// key match) rather than appending a duplicate — duplicate keys are resolved
+// inconsistently across platforms.
+func upsertEnv(env []string, key, val string) []string {
+	for i, e := range env {
+		if eq := strings.IndexByte(e, '='); eq >= 0 && strings.EqualFold(e[:eq], key) {
+			env[i] = key + "=" + val
+			return env
+		}
+	}
+	return append(env, key+"="+val)
+}
+
+// modModEnv returns the current environment with -mod=mod forced, for the plain
+// `go` invocations (go mod tidy, go get -tool) in the mobile build path — see
+// goToolEnv for why vendored projects must leave vendor mode to build for mobile.
+func modModEnv() []string {
+	return upsertEnv(os.Environ(), "GOFLAGS", "-mod=mod")
+}
+
 // goToolEnv returns the current environment with the Go bin directory prepended
 // to PATH, so a go-installed tool (e.g. gomobile) can find the other tools it
 // shells out to (e.g. gobind) even when GOPATH/bin is not on the user's PATH.
+// It also forces -mod=mod: gomobile bind pulls in golang.org/x/mobile's bind
+// support packages that a project's committed vendor/ does not contain (they are
+// only reached through gomobile's generated code), so a vendored project must
+// leave vendor mode for the mobile toolchain to resolve them from the cache.
 func goToolEnv() []string {
-	return prependPath(os.Environ(), goBinDir())
+	return upsertEnv(prependPath(os.Environ(), goBinDir()), "GOFLAGS", "-mod=mod")
 }

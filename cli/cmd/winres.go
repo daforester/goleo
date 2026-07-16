@@ -1,10 +1,7 @@
 package cmd
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
-	"image/png"
 	"os"
 	"path/filepath"
 
@@ -71,56 +68,8 @@ func resolveWindowsICO(cfg bundleConfig) (string, func(), error) {
 	}
 	if cfg.Icon != "" {
 		if _, err := os.Stat(cfg.Icon); err == nil {
-			return pngToICO(cfg.Icon)
+			return pngToICOMulti(cfg.Icon) // multi-size .ico from the source PNG
 		}
 	}
 	return "", nil, nil
-}
-
-// pngToICO wraps a PNG in a single-entry .ico (Windows Vista+ reads PNG-encoded
-// icon entries directly), writing it to a temp file. Returns the path + a cleanup.
-func pngToICO(pngPath string) (string, func(), error) {
-	data, err := os.ReadFile(pngPath)
-	if err != nil {
-		return "", nil, err
-	}
-	dim, err := png.DecodeConfig(bytes.NewReader(data))
-	if err != nil {
-		return "", nil, fmt.Errorf("%s is not a valid PNG: %w", pngPath, err)
-	}
-	dimByte := func(n int) byte {
-		if n >= 256 {
-			return 0 // 0 means 256 in an ICONDIRENTRY
-		}
-		return byte(n)
-	}
-
-	buf := &bytes.Buffer{}
-	le := binary.LittleEndian
-	// ICONDIR: reserved=0, type=1 (icon), count=1
-	_ = binary.Write(buf, le, uint16(0))
-	_ = binary.Write(buf, le, uint16(1))
-	_ = binary.Write(buf, le, uint16(1))
-	// ICONDIRENTRY (16 bytes)
-	buf.WriteByte(dimByte(dim.Width))
-	buf.WriteByte(dimByte(dim.Height))
-	buf.WriteByte(0) // color count
-	buf.WriteByte(0) // reserved
-	_ = binary.Write(buf, le, uint16(1))            // color planes
-	_ = binary.Write(buf, le, uint16(32))           // bits per pixel
-	_ = binary.Write(buf, le, uint32(len(data)))    // size of PNG data
-	_ = binary.Write(buf, le, uint32(6+16))         // offset to PNG data
-	buf.Write(data)
-
-	tmp, err := os.CreateTemp("", "goleo-icon-*.ico")
-	if err != nil {
-		return "", nil, err
-	}
-	if _, err := tmp.Write(buf.Bytes()); err != nil {
-		tmp.Close()
-		os.Remove(tmp.Name())
-		return "", nil, err
-	}
-	tmp.Close()
-	return tmp.Name(), func() { os.Remove(tmp.Name()) }, nil
 }

@@ -19,3 +19,4 @@ targets:
       base:
         INFOPLIST_FILE: App/Info.plist
         PRODUCT_BUNDLE_IDENTIFIER: {{.PackageName}}
+        {{if .HasIcon}}ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon{{end}}

@@ -18,6 +18,7 @@ type mobileConfig struct {
 	PackageName string
 	AppName     string
 	DevPort     int
+	HasIcon     bool // a bundle.icon source resolved → manifest/xcodegen wire it in
 }
 
 func loadMobileConfig(projectDir string) mobileConfig {

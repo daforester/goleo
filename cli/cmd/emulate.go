@@ -282,8 +282,16 @@ func buildAndDeployDev(deps *androidDeps, deviceID, pkgName string) error {
 	// Generate Android project
 	os.RemoveAll(buildDir)
 	mobileCfg := loadMobileConfig(".")
+	iconSrc, hasIcon := mobileIconSource()
+	mobileCfg.HasIcon = hasIcon
 	if err := extractMobileTemplate("android-dev", buildDir, &mobileCfg); err != nil {
 		return fmt.Errorf("generating dev Android project: %w", err)
+	}
+	if hasIcon {
+		resDir := filepath.Join(buildDir, "app", "src", "main", "res")
+		if err := generateAndroidIcons(iconSrc, resDir); err != nil {
+			fmt.Println("  Warning: could not generate launcher icons:", err)
+		}
 	}
 
 	libsDir := filepath.Join(buildDir, "app", "libs")

@@ -284,6 +284,7 @@ func buildAndroidDev(deps *androidDeps) (string, error) {
 
 	fmt.Println("  Building Go mobile library with gomobile...")
 	goGet := exec.Command("go", "get", "-tool", "golang.org/x/mobile/cmd/gobind")
+	goGet.Env = modModEnv() // `go get` refuses to run in a vendored project's -mod=vendor
 	goGet.Stdout = os.Stdout
 	goGet.Stderr = os.Stderr
 	if err := goGet.Run(); err != nil {
@@ -323,8 +324,18 @@ func buildAndroidDev(deps *androidDeps) (string, error) {
 
 	fmt.Println("  Generating dev Android project...")
 	mobileCfg := loadMobileConfig(".")
+	iconSrc, hasIcon := mobileIconSource()
+	mobileCfg.HasIcon = hasIcon
 	if err := extractMobileTemplate("android-dev", buildDir, &mobileCfg); err != nil {
 		return "", fmt.Errorf("generating dev Android project: %w", err)
+	}
+	if hasIcon {
+		resDir := filepath.Join(buildDir, "app", "src", "main", "res")
+		if err := generateAndroidIcons(iconSrc, resDir); err != nil {
+			fmt.Println("  Warning: could not generate launcher icons:", err)
+		} else {
+			fmt.Println("  Generated launcher icons from bundle.icon")
+		}
 	}
 
 	libsDir := filepath.Join(buildDir, "app", "libs")
@@ -415,6 +426,7 @@ func buildForAndroid(distDir string, deps *androidDeps) error {
 
 	fmt.Println("  Adding golang.org/x/mobile tool dependency...")
 	goGet := exec.Command("go", "get", "-tool", "golang.org/x/mobile/cmd/gobind")
+	goGet.Env = modModEnv() // `go get` refuses to run in a vendored project's -mod=vendor
 	goGet.Stdout = os.Stdout
 	goGet.Stderr = os.Stderr
 	if err := goGet.Run(); err != nil {
@@ -441,8 +453,18 @@ func buildForAndroid(distDir string, deps *androidDeps) error {
 
 	fmt.Println("  Generating Android project...")
 	mobileCfg := loadMobileConfig(".")
+	iconSrc, hasIcon := mobileIconSource()
+	mobileCfg.HasIcon = hasIcon
 	if err := extractMobileTemplate("android", buildDir, &mobileCfg); err != nil {
 		return fmt.Errorf("generating Android project: %w", err)
+	}
+	if hasIcon {
+		resDir := filepath.Join(buildDir, "app", "src", "main", "res")
+		if err := generateAndroidIcons(iconSrc, resDir); err != nil {
+			fmt.Println("  Warning: could not generate launcher icons:", err)
+		} else {
+			fmt.Println("  Generated launcher icons from bundle.icon")
+		}
 	}
 
 	libsDir := filepath.Join(buildDir, "app", "libs")
@@ -508,6 +530,11 @@ func setMobileEnv(cmd *exec.Cmd, deps *androidDeps) {
 	if deps.NDKDir != "" {
 		env = append(env, "ANDROID_NDK_HOME="+deps.NDKDir)
 	}
+	// Force -mod=mod: gomobile bind needs golang.org/x/mobile's bind-support
+	// packages, which a project's committed vendor/ does not contain (they are
+	// only reached via gomobile's generated code). A vendored project must leave
+	// vendor mode for the mobile toolchain to resolve them.
+	env = upsertEnv(env, "GOFLAGS", "-mod=mod")
 	cmd.Env = env
 }
 
@@ -566,6 +593,7 @@ func buildForIOS(distDir string) error {
 
 	fmt.Println("  Adding golang.org/x/mobile tool dependency...")
 	goGet := exec.Command("go", "get", "-tool", "golang.org/x/mobile/cmd/gobind")
+	goGet.Env = modModEnv() // `go get` refuses to run in a vendored project's -mod=vendor
 	goGet.Stdout = os.Stdout
 	goGet.Stderr = os.Stderr
 	if err := goGet.Run(); err != nil {
@@ -597,8 +625,18 @@ func buildForIOS(distDir string) error {
 
 	fmt.Println("  Generating iOS project...")
 	mobileCfg := loadMobileConfig(".")
+	iconSrc, hasIcon := mobileIconSource()
+	mobileCfg.HasIcon = hasIcon
 	if err := extractMobileTemplate("ios", buildDir, &mobileCfg); err != nil {
 		return fmt.Errorf("generating iOS project: %w", err)
+	}
+	if hasIcon {
+		assetsDir := filepath.Join(buildDir, "App", "Assets.xcassets")
+		if err := generateIOSAppIcon(iconSrc, assetsDir); err != nil {
+			fmt.Println("  Warning: could not generate AppIcon set:", err)
+		} else {
+			fmt.Println("  Generated AppIcon.appiconset from bundle.icon")
+		}
 	}
 
 	if err := copyDir(xcfPath, filepath.Join(buildDir, xcfName)); err != nil {

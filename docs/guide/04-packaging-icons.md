@@ -28,16 +28,22 @@ installers**.
 
 ### The app icon
 
-Provide **one** `icon` (a square PNG — 256×256 or larger) and Goleo derives the
-per-platform variants it needs. For full control, set the explicit
-`icon_ico` / `icon_icns` / `icon_png` paths (these override `icon`).
+Provide **one** `icon` — a square PNG, ideally **1024×1024** (it's downscaled, not
+upscaled) — and Goleo generates every per-platform artifact from it, in pure Go, at
+build time (no ImageMagick / iconutil / external tooling). For full control, set the
+explicit `icon_ico` / `icon_icns` / `icon_png` paths, which override `icon`.
 
-| Where the icon shows up | Source | Notes |
-|-------------------------|--------|-------|
-| **Windows `.exe`** (Explorer, taskbar) | `icon_ico`, else generated from `icon` | Embedded into the executable at build time. |
-| **Windows installer** (NSIS) | same | Plus version metadata (below). |
-| **macOS `.app` / `.dmg`** | `icon_icns` | Set `icon_icns` for macOS bundles. |
-| **Linux `.deb` / desktop entry** | `icon_png`, else `icon` | PNG is used directly. |
+| Where the icon shows up | Source | Generated artifact |
+|-------------------------|--------|--------------------|
+| **Windows `.exe`** (Explorer, taskbar) | `icon_ico`, else `icon` | Multi-size `.ico` (16→256) embedded in the exe |
+| **Windows installer** (NSIS) | same | (uses the embedded exe icon) + version metadata |
+| **macOS `.app` / `.dmg`** | `icon_icns`, else `icon` | `icon.icns` (32→1024, all Retina scales) |
+| **Linux `.deb`/`.rpm`** | `icon_png`, else `icon` | 256×256 hicolor PNG + a `.desktop` launcher entry |
+| **Android** launcher | `icon` | `mipmap-*/ic_launcher.png` + round variants (all densities) |
+| **iOS** app icon | `icon` | `AppIcon.appiconset` (1024 universal) wired via xcodegen |
+
+Every artifact is derived automatically — you don't run any icon step. If no `icon`
+(and no explicit override) is set, each platform keeps its default icon.
 
 > Tip: put your source icon at `assets/icon.png` (the scaffold points there).
 
@@ -77,10 +83,11 @@ Each installer reads the same `bundle` metadata:
 
 - **Windows (NSIS)**: app name, install dir, Start-menu shortcut, uninstaller, and
   version metadata (`VIProductVersion`, product/company/copyright).
-- **macOS**: a `.app` with your `CFBundleIdentifier`, version, and `icon.icns`,
-  wrapped in a `.dmg`.
+- **macOS**: a `.app` with your `CFBundleIdentifier`, version, and a generated
+  `icon.icns`, wrapped in a `.dmg`.
 - **Linux**: `.deb`/`.rpm` with name, version, maintainer (`publisher`),
-  `description`, `homepage`, and `category`.
+  `description`, `homepage`, `category`, a generated hicolor icon, and a
+  `.desktop` launcher entry (so it appears in the applications menu).
 
 > Installers use the per-OS packager (`makensis`, `hdiutil`, `nfpm`). On Windows,
 > `goleo build --bundle` **auto-installs NSIS** if `makensis` is missing (via
@@ -99,8 +106,12 @@ Set the Android package name and iOS bundle id under `mobile` in `goleo.json`:
 }
 ```
 
-Mobile launcher icons follow the platform project conventions (Android
-`res/mipmap`, iOS asset catalog).
+The **launcher icon** on both mobile platforms is generated from the single
+`bundle.icon` (see the table above) — Android gets density-bucketed
+`res/mipmap-*/ic_launcher.png` (square) and `ic_launcher_round.png` (circular),
+referenced from the merged `AndroidManifest.xml`; iOS gets an
+`AppIcon.appiconset` wired into the Xcode project. No per-platform icon assets to
+maintain by hand.
 
 ## Signing (optional)
 

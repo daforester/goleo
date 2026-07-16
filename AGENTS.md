@@ -640,8 +640,15 @@ Two pre-existing defects surfaced by driving `Quit()` end-to-end:
   no token needed — while `Policy` still gates every call.
 
 ### Distribution (CLI, `cli/cmd/`)
-- `bundle.go` — `goleo build --bundle`: NSIS (Windows), `.app`+`.dmg` (macOS), `.deb`/`.rpm`
-  (nfpm, Linux). `signing.go` — env-driven Authenticode / codesign+notarytool.
+- `bundle.go` — `goleo build --bundle`: NSIS (Windows, auto-installs `makensis` via winget/choco/
+  scoop), `.app`+`.dmg` (macOS), `.deb`/`.rpm` (nfpm, Linux — with a generated hicolor icon +
+  `.desktop` entry). `signing.go` — env-driven Authenticode / codesign+notarytool.
+- **Icons (`icons.go`, pure Go — no ImageMagick/iconutil):** one `bundle.icon` PNG (≈1024²) is
+  area-averaged/re-encoded into every artifact — multi-size Windows `.ico` (embedded via
+  `winres.go`/goversioninfo), macOS `.icns`, Linux hicolor PNG, Android `mipmap-*/ic_launcher(+
+  _round).png`, iOS `AppIcon.appiconset`. Explicit `icon_ico/icns/png` override. Mobile icons are
+  injected into the extracted project after `extractMobileTemplate` and referenced from the manifest/
+  xcodegen only when a source icon resolves (`mobileConfig.HasIcon`). Unit-tested in `icons_test.go`.
 - `publish.go` — `goleo build --publish`: stages a platform artifact, SHA256s it, and merges a
   `Release` into an ed25519-signed `manifest.json` (`updater.SignManifest`). `generate updater-key`.
 - **Updater** (`runtime/updater/`): `RegisterUpdater(b, UpdaterConfig{ManifestURL, PublicKey,
@@ -654,3 +661,33 @@ Two pre-existing defects surfaced by driving `Quit()` end-to-end:
 ### Capability guards
 - `runtime/capabilities*.go`: `WindowingSupported()`/`TraySupported()` + `errors.ErrUnsupported`
   guards; `goleo:capabilities` query. Desktop-only APIs degrade gracefully on mobile/PWA.
+
+## Session Summary (Jul 16, 2026) — icons + Android validated end-to-end
+
+- **App-icon generation (all platforms), pure Go.** New `cli/cmd/icons.go` (+ `icons_test.go`)
+  turns a single `bundle.icon` PNG into every platform artifact; wired into `winres.go` (Windows
+  exe, now multi-size), `bundle.go` (macOS `.icns`, Linux hicolor PNG + generated `.desktop`), and
+  the mobile build path. See Distribution → Icons above and `docs/guide/04-packaging-icons.md`.
+- **Mobile launcher icons.** Android `mipmap-*/ic_launcher(+_round).png` (all densities, round via
+  a circular alpha mask) referenced from a `{{if .HasIcon}}`-gated `android:icon` in the manifest;
+  iOS `AppIcon.appiconset` gated by `ASSETCATALOG_COMPILER_APPICON_NAME` in `xcodegen.yml`.
+- **Fixed: mobile builds broke for vendored projects and for any app not enabling every feature.**
+  Two real bugs, both in `SPIKES.md`:
+  1. A scaffolded project commits `vendor/` → Go picks `-mod=vendor`, but `gomobile bind` needs
+     `golang.org/x/mobile` bind-support packages absent from `vendor/`, and `go get -tool` refuses
+     to run under vendor mode. Mobile build path now forces `GOFLAGS=-mod=mod` (`modModEnv`/
+     `goToolEnv`/`setMobileEnv` in `cli/cmd/gotools.go`,`build.go`).
+  2. The native shell (`MainActivity.java`/`AppDelegate.swift`) unconditionally wires all 8 native
+     providers, but their gomobile bindings were gated behind per-feature `goleo_*` tags only
+     enabled when the app called `Register*` — so the default scaffold failed with `cannot find
+     symbol gomobile.BatteryProvider`. `mobileBindTags` (`scan.go`) now always binds
+     `nativeShellProviderTags` (battery/wakelock/sensors/background/nfc/ble/clipboard/share);
+     per-feature *bridge-command registration* stays opt-in via `Register*`.
+- **Verified on a real Android emulator (API 36, x86_64):** `goleo build android` on a freshly
+  scaffolded+vendored project produced a 66 MB APK (4 ABIs, all launcher-icon densities, all demo
+  permissions), installed and launched; the Go backend + bridge ran (invoke + push events), and
+  **native providers round-tripped live** — battery (real level), clipboard (write→read), FS
+  (write→read via `SetHomeDir`), wake-lock, sensors (confirmed registered with the OS
+  SensorManager), share. Camera/BLE/NFC need real peripherals (not on the emulator) but their
+  bindings compile + are wired and permissions are present. NSIS bundle verified end-to-end on
+  Windows (real installer, no path doubling) via `nsis_integration_test.go`.
