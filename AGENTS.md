@@ -177,7 +177,7 @@ The server auto-selects a port if the configured one is in use and sets CORS hea
 
 | Command | Description |
 |---------|-------------|
-| goleo new <name> | Scaffold a new Goleo project |
+| goleo new <name> | Scaffold a new Goleo project (prompts for minimal vs demo; `--demo` / `--template`) |
 | goleo dev | Start development mode (Go + Vite with HMR) |
 | goleo dev pwa | Start PWA development mode (Vite only, no Go backend) |
 | goleo build | Build for current platform |

@@ -1,11 +1,13 @@
 package cmd
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"text/template"
 
 	"github.com/spf13/cobra"
@@ -16,6 +18,46 @@ var newCmd = &cobra.Command{
 	Short: "Create a new Goleo project",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runNew,
+}
+
+var (
+	newTemplate string
+	newDemo     bool
+)
+
+func init() {
+	newCmd.Flags().StringVar(&newTemplate, "template", "", "Project template: minimal or demo (prompts if omitted and interactive)")
+	newCmd.Flags().BoolVar(&newDemo, "demo", false, "Shorthand for --template demo (full host-feature showcase)")
+}
+
+// chooseTemplate resolves which starter to scaffold: the --template/--demo flags
+// win; otherwise it prompts on an interactive terminal, and defaults to
+// "minimal" when non-interactive (CI, piped input).
+func chooseTemplate() (string, error) {
+	t := strings.ToLower(strings.TrimSpace(newTemplate))
+	if t == "" && newDemo {
+		t = "demo"
+	}
+	switch t {
+	case "minimal", "demo":
+		return t, nil
+	case "":
+		// prompt / default below
+	default:
+		return "", fmt.Errorf("unknown template %q (want: minimal or demo)", newTemplate)
+	}
+	if fi, err := os.Stdin.Stat(); err != nil || (fi.Mode()&os.ModeCharDevice) == 0 {
+		return "minimal", nil // non-interactive
+	}
+	fmt.Println("Choose a template:")
+	fmt.Println("  1) minimal — a clean starter (default)")
+	fmt.Println("  2) demo    — full showcase of every host feature")
+	fmt.Print("Template [1/2]: ")
+	line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+	if s := strings.TrimSpace(line); s == "2" || strings.EqualFold(s, "demo") {
+		return "demo", nil
+	}
+	return "minimal", nil
 }
 
 type projectConfig struct {
@@ -36,7 +78,12 @@ func runNew(cmd *cobra.Command, args []string) error {
 		ModuleName: fmt.Sprintf("goleo/%s", name),
 	}
 
-	fmt.Printf("Creating new Goleo project: %s\n", name)
+	template, err := chooseTemplate()
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Creating new Goleo project: %s (%s template)\n", name, template)
 	fmt.Println()
 
 	for _, sub := range []string{
@@ -53,38 +100,45 @@ func runNew(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	files := map[string]string{
-		"backend/app/app.go":             tmplAppGo,
-		"backend/init.js":                tmplInitJS,
-		"backend/commands/commands.go":   tmplBackendCommandsGo,
-		"backend/frontend/dist/.gitkeep": "",
-		"go.mod":                         tmplGoMod,
-		"frontend/package.json":          tmplFrontendPackageJSON,
-		"frontend/index.html":            tmplIndexHTML,
-		"frontend/vite.config.ts":        tmplViteConfig,
-		"frontend/tsconfig.json":         tmplTsconfig,
-		"frontend/env.d.ts":              tmplEnvDTS,
-		"frontend/src/main.ts":           tmplMainTS,
-		"frontend/src/App.vue":           tmplAppVue,
-		"frontend/src/style.css":         tmplStyleCSS,
-		"frontend/public/sw.js":          tmplSWJS,
-		"frontend/public/manifest.json":  tmplManifestJSON,
-		"frontend/dist/.gitkeep":         "",
-		"package.json":                   tmplRootPackageJSON,
-		"goleo.json":                     tmplGoleoJSON,
-		".gitignore":                     tmplGitignore,
-	}
+	if template == "demo" {
+		if err := extractDemoTemplate(dir, name); err != nil {
+			return fmt.Errorf("extracting demo template: %w", err)
+		}
+		fmt.Println("  created full-feature demo project")
+	} else {
+		files := map[string]string{
+			"backend/app/app.go":             tmplAppGo,
+			"backend/init.js":                tmplInitJS,
+			"backend/commands/commands.go":   tmplBackendCommandsGo,
+			"backend/frontend/dist/.gitkeep": "",
+			"go.mod":                         tmplGoMod,
+			"frontend/package.json":          tmplFrontendPackageJSON,
+			"frontend/index.html":            tmplIndexHTML,
+			"frontend/vite.config.ts":        tmplViteConfig,
+			"frontend/tsconfig.json":         tmplTsconfig,
+			"frontend/env.d.ts":              tmplEnvDTS,
+			"frontend/src/main.ts":           tmplMainTS,
+			"frontend/src/App.vue":           tmplAppVue,
+			"frontend/src/style.css":         tmplStyleCSS,
+			"frontend/public/sw.js":          tmplSWJS,
+			"frontend/public/manifest.json":  tmplManifestJSON,
+			"frontend/dist/.gitkeep":         "",
+			"package.json":                   tmplRootPackageJSON,
+			"goleo.json":                     tmplGoleoJSON,
+			".gitignore":                     tmplGitignore,
+		}
 
-	for relPath, content := range files {
-		fullPath := filepath.Join(dir, relPath)
-		rendered, err := renderTemplate(content, cfg)
-		if err != nil {
-			return fmt.Errorf("failed to render %s: %w", relPath, err)
+		for relPath, content := range files {
+			fullPath := filepath.Join(dir, relPath)
+			rendered, err := renderTemplate(content, cfg)
+			if err != nil {
+				return fmt.Errorf("failed to render %s: %w", relPath, err)
+			}
+			if err := os.WriteFile(fullPath, []byte(rendered), 0644); err != nil {
+				return fmt.Errorf("failed to write %s: %w", relPath, err)
+			}
+			fmt.Printf("  created %s\n", relPath)
 		}
-		if err := os.WriteFile(fullPath, []byte(rendered), 0644); err != nil {
-			return fmt.Errorf("failed to write %s: %w", relPath, err)
-		}
-		fmt.Printf("  created %s\n", relPath)
 	}
 
 	fmt.Println()

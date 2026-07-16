@@ -56,8 +56,9 @@ mobile (device dev + sideloading).
 # Install the CLI (npm, or `go install github.com/daforester/goleo/cli/goleo@latest`)
 npm install -g @goleo/cli
 
-# Scaffold a project (Vue + Vite + @goleo/bridge)
-goleo new my-app                       # or, no global install: npx @goleo/cli new my-app
+# Scaffold a project (Vue + Vite + @goleo/bridge). Prompts for a template;
+# add --demo for the full host-feature showcase. `npx @goleo/cli new` works too.
+goleo new my-app
 cd my-app
 cd frontend && npm install && cd ..
 

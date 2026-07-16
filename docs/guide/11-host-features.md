@@ -4,6 +4,9 @@ Goleo ships a set of **host features** — native capabilities your web UI can c
 notifications, clipboard, file dialogs, filesystem, geolocation, battery, camera,
 Bluetooth, NFC, and more. This page is a working tour of all of them.
 
+> Want a ready-made, runnable version of everything below? Scaffold the demo:
+> `goleo new my-app --demo` — a project with a live page per feature.
+
 ## How host features work
 
 1. **Register** the features you use on the Go side (unused ones aren't compiled

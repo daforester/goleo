@@ -1,0 +1,32 @@
+{
+  "version": "0.1.0",
+  "app_name": "__GOLEO_APP_NAME__",
+  "frontend": {
+    "directory": "frontend",
+    "build_command": "npm run build",
+    "dev_command": "npm run dev",
+    "dist_dir": "dist"
+  },
+  "bundle": {
+    "identifier": "com.example.__GOLEO_APP_NAME__",
+    "publisher": "",
+    "description": "",
+    "copyright": "",
+    "category": "",
+    "homepage": "",
+    "icon": "assets/icon.png",
+    "icon_ico": "",
+    "icon_icns": "",
+    "icon_png": ""
+  },
+  "mobile": {
+    "android": {
+      "min_sdk": 24,
+      "package_name": "com.goleo.app"
+    },
+    "ios": {
+      "deployment_target": "14.0",
+      "bundle_identifier": "com.goleo.app"
+    }
+  }
+}

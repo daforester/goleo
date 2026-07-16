@@ -8,6 +8,14 @@ cd my-app
 cd frontend && npm install && cd ..
 ```
 
+`goleo new` asks which starter to use:
+- **minimal** — a clean starter app (default)
+- **demo** — a full showcase of every host feature (camera, geolocation,
+  clipboard, dialogs, notifications, battery, sensors, BLE, NFC, …)
+
+Skip the prompt with a flag: `goleo new my-app --demo` (or
+`goleo new my-app --template minimal`).
+
 (No global install? `npx @goleo/cli new my-app` does the same.)
 
 `goleo new` also runs `go mod vendor`, so the project ships with a committed

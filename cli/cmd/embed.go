@@ -48,6 +48,46 @@ func loadMobileConfig(projectDir string) mobileConfig {
 	return cfg
 }
 
+// demoAppNameToken is the placeholder the demo template uses for the project
+// name (replaced verbatim throughout, no Go text/template — the Vue files are
+// full of `{{ }}` that must survive untouched).
+const demoAppNameToken = "__GOLEO_APP_NAME__"
+
+// extractDemoTemplate writes the full-featured "demo" project (the goleo new
+// demo template, embedded under templates/demo) into destDir, substituting the
+// project name and restoring on-disk names the embed can't hold as-is: `*.tmpl`
+// → real extension (so `go build ./cli/...` never compiles the template's Go
+// files), and `gitignore` → `.gitignore` (go:embed skips dotfiles).
+func extractDemoTemplate(destDir, appName string) error {
+	root := "templates/demo"
+	return fs.WalkDir(mobileTemplates, root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		rel = strings.TrimSuffix(rel, ".tmpl")
+		if filepath.Base(rel) == "gitignore" {
+			rel = filepath.Join(filepath.Dir(rel), ".gitignore")
+		}
+		data, err := mobileTemplates.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		content := strings.ReplaceAll(string(data), demoAppNameToken, appName)
+		target := filepath.Join(destDir, rel)
+		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+			return err
+		}
+		return os.WriteFile(target, []byte(content), 0644)
+	})
+}
+
 func extractMobileTemplate(templateDir, outputDir string, cfg *mobileConfig) error {
 	if cfg == nil {
 		defaultCfg := loadMobileConfig(".")
