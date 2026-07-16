@@ -1,22 +1,20 @@
 {
   "name": "@goleo/cli",
   "version": "0.1.0",
-  "description": "Goleo CLI — build cross-platform apps with Go + web tech",
+  "description": "Goleo CLI — build cross-platform desktop & mobile apps with Go + web tech",
   "type": "module",
   "bin": {
-    "goleo": "./bin/goleo.js"
+    "goleo": "bin/goleo.js"
   },
   "scripts": {
-    "postinstall": "node ./install.js",
-    "prepublishOnly": "node ./build-binaries.js && node ./copy-source.js",
-    "build": "node ./build-binaries.js && node ./copy-source.js"
+    "prepublishOnly": "node ./copy-source.js",
+    "build": "node ./copy-source.js && node ./build-platform-packages.js",
+    "build:platforms": "node ./build-platform-packages.js"
   },
   "files": [
-    "bin",
+    "bin/goleo.js",
     "goleo",
-    "install.js",
-    "copy-source.js",
-    "platform.json"
+    "README.md"
   ],
   "optionalDependencies": {
     "@goleo/cli-darwin-arm64": "0.1.0",
@@ -26,10 +24,27 @@
     "@goleo/cli-win32-arm64": "0.1.0",
     "@goleo/cli-win32-x64": "0.1.0"
   },
-  "keywords": ["goleo", "go", "desktop", "mobile", "cross-platform", "cli"],
+  "keywords": [
+    "goleo",
+    "go",
+    "desktop",
+    "mobile",
+    "cross-platform",
+    "cli"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/daforester/goleo.git"
+    "url": "git+https://github.com/daforester/goleo.git",
+    "directory": "cli/npm"
+  },
+  "homepage": "https://github.com/daforester/goleo#readme",
+  "bugs": "https://github.com/daforester/goleo/issues",
+  "author": "Aaron Parker",
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

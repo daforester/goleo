@@ -1,0 +1,68 @@
+name: release
+
+# Publishes all npm packages when a version tag (v1.2.3) is pushed.
+#
+# Setup (once):
+#   1. Create an npm automation token (npmjs.com → Access Tokens → Granular/Automation,
+#      with publish rights to the @goleo scope + create-goleo-app).
+#   2. Add it as the repo secret NPM_TOKEN (Settings → Secrets → Actions).
+#
+# Release: bump versions (all packages together), commit, then:
+#   git tag v1.2.3 && git push origin v1.2.3
+#
+# Cross-compiles every platform binary CGO_ENABLED=0 from this one Linux runner
+# (the glaze webview backend is cgo-free), so no per-OS runners are needed.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # required for npm provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      NPM_CONFIG_PROVENANCE: "true" # signed provenance (needs a public repo)
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install workspace dependencies
+        run: npm install
+
+      - name: Build TypeScript packages
+        run: |
+          npm run build:bridge
+          npm run build:create-app
+
+      - name: Bundle Go source + build platform binary packages
+        run: |
+          node cli/npm/copy-source.js
+          node cli/npm/build-platform-packages.js
+
+      # Platform packages first, so @goleo/cli's optionalDependencies resolve for
+      # anyone installing it immediately after.
+      - name: Publish @goleo/cli-* platform packages
+        run: node cli/npm/publish-platform-packages.js
+
+      - name: Publish @goleo/cli
+        run: npm publish -w cli/npm
+
+      - name: Publish @goleo/bridge
+        run: npm publish -w bridge
+
+      - name: Publish create-goleo-app
+        run: npm publish -w create-goleo-app

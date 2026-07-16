@@ -4,7 +4,7 @@
   "description": "Scaffold a new Goleo project — cross-platform desktop/mobile apps with Go + web tech",
   "type": "module",
   "bin": {
-    "create-goleo-app": "./dist/index.js"
+    "create-goleo-app": "dist/index.js"
   },
   "scripts": {
     "build": "tsc",
@@ -22,6 +22,15 @@
     "type": "git",
     "url": "git+https://github.com/daforester/goleo.git",
     "directory": "create-goleo-app"
+  },
+  "homepage": "https://github.com/daforester/goleo#readme",
+  "bugs": "https://github.com/daforester/goleo/issues",
+  "author": "Aaron Parker",
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "dependencies": {
     "execa": "^8.0.0",

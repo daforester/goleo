@@ -9,10 +9,12 @@
   "scripts": {
     "build:bridge": "npm run build -w bridge",
     "build:create-app": "npm run build -w create-goleo-app",
-    "build:all": "npm run build:bridge && npm run build:create-app",
+    "build:cli": "npm run build -w cli/npm",
+    "build:all": "npm run build:bridge && npm run build:create-app && npm run build:cli",
     "publish:bridge": "npm publish -w bridge",
     "publish:create-app": "npm publish -w create-goleo-app",
-    "publish:cli": "npm publish -w cli/npm",
+    "publish:cli-platforms": "node cli/npm/build-platform-packages.js && node cli/npm/publish-platform-packages.js",
+    "publish:cli": "npm run publish:cli-platforms && npm publish -w cli/npm",
     "publish:all": "npm run publish:bridge && npm run publish:create-app && npm run publish:cli"
   }
 }

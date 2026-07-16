@@ -28,6 +28,15 @@
     "url": "git+https://github.com/daforester/goleo.git",
     "directory": "bridge"
   },
+  "homepage": "https://github.com/daforester/goleo#readme",
+  "bugs": "https://github.com/daforester/goleo/issues",
+  "author": "Aaron Parker",
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "devDependencies": {
     "typescript": "^5.3.0"
   }
