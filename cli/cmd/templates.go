@@ -288,7 +288,7 @@ var tmplGoMod = `module {{.ModuleName}}
 
 go 1.26
 
-require github.com/daforester/goleo v0.1.0
+require github.com/daforester/goleo v0.2.1
 
 // goleo's default cgo-free macOS/Linux webview backend (github.com/crgimenes/glaze)
 // is pinned to a fork carrying the custom-scheme handler API (Config.SchemeAssets).
@@ -307,7 +307,7 @@ var tmplFrontendPackageJSON = `{
     "preview": "vite preview"
   },
   "dependencies": {
-    "@goleo/bridge": "^0.1.0",
+    "@goleo/bridge": "^0.2.1",
     "vue": "^3.4.0"
   },
   "devDependencies": {

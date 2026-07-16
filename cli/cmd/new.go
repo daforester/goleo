@@ -203,10 +203,11 @@ func runNew(cmd *cobra.Command, args []string) error {
 }
 
 func linkBridge(projectDir string) {
-	goleoRoot := findGoleoRoot()
-	if goleoRoot == "" {
-		goleoRoot = replaceTargetFromGoMod(projectDir, goleoModule)
-	}
+	// Dev-only: when working on goleo itself (GOLEO_ROOT set), link the local
+	// @goleo/bridge so the scaffolded frontend uses your working copy. End users
+	// get @goleo/bridge from npm via the frontend's package.json dependency —
+	// nothing to link.
+	goleoRoot := os.Getenv("GOLEO_ROOT")
 	if goleoRoot == "" {
 		return
 	}

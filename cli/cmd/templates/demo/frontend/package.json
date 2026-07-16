@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "vue": "^3.4.0",
-    "@goleo/bridge": "^0.1.0"
+    "@goleo/bridge": "^0.2.1"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.0.0",

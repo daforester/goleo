@@ -45,17 +45,7 @@ if (!binary) {
   process.exit(1)
 }
 
-// Point the CLI at the goleo module source bundled inside this @goleo/cli
-// package, so scaffolded projects resolve github.com/daforester/goleo via a
-// local `replace` without it needing to be published to the Go proxy. __dirname
-// is @goleo/cli/bin, so the bundle is ../goleo — regardless of where the
-// platform binary lives.
-const bundle = resolve(__dirname, '..', 'goleo')
-const env = existsSync(resolve(bundle, 'runtime', 'app.go'))
-  ? { ...process.env, GOLEO_BUNDLE: bundle }
-  : process.env
-
-const result = spawnSync(binary, process.argv.slice(2), { stdio: 'inherit', env })
+const result = spawnSync(binary, process.argv.slice(2), { stdio: 'inherit' })
 if (result.error) {
   console.error(`[goleo] failed to run binary: ${result.error.message}`)
   process.exit(1)

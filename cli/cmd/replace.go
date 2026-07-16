@@ -5,12 +5,28 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
 const goleoModule = "github.com/daforester/goleo"
 
+// ensureGoleoResolvable makes sure a scaffolded project can build against
+// github.com/daforester/goleo.
+//
+// For end users this is just a normal published Go dependency (like `tauri` on
+// crates.io): the project's go.mod requires a published version and `go mod tidy`
+// fetches it from the module proxy — no local `replace`, no bundled source, no
+// absolute paths, no env vars. We only run `go get` to make sure the require
+// points at a version that actually exists (older scaffolds pinned an
+// unpublished placeholder).
+//
+// The single exception is developing goleo itself: set GOLEO_ROOT to a local
+// checkout and it's wired in via a `replace`.
+//
+// (Named ensureLocalReplace for historical call-site compatibility.)
 func ensureLocalReplace(projectDir string) error {
+	// Already pinned to a local checkout (a goleo dev) — leave it.
 	hasReplace, err := goModHasReplace(projectDir, goleoModule)
 	if err != nil {
 		return fmt.Errorf("checking go.mod: %w", err)
@@ -19,86 +35,58 @@ func ensureLocalReplace(projectDir string) error {
 		return nil
 	}
 
-	goleoRoot := findGoleoRoot()
-	if goleoRoot == "" {
-		return fmt.Errorf("could not locate the goleo module source.\n" +
-			"If you installed the CLI from npm, reinstall it (the source ships inside\n" +
-			"the package): npm install -g @goleo/cli\n" +
-			"If you're developing goleo itself, set GOLEO_ROOT to your checkout:\n" +
-			"  $env:GOLEO_ROOT = \"C:\\path\\to\\goleo\"")
+	// Developing goleo itself: GOLEO_ROOT => local checkout via a replace.
+	if root := os.Getenv("GOLEO_ROOT"); root != "" {
+		if _, statErr := os.Stat(filepath.Join(root, "runtime", "app.go")); statErr == nil {
+			absRoot, _ := filepath.Abs(root)
+			target := filepath.ToSlash(absRoot)
+			fmt.Printf("  Using local goleo checkout (GOLEO_ROOT): %s => %s\n", goleoModule, target)
+			return runGo(projectDir, nil, "mod", "edit", "-replace", goleoModule+"="+target)
+		}
+		return fmt.Errorf("GOLEO_ROOT=%q does not contain runtime/app.go", root)
 	}
 
-	absRoot, _ := filepath.Abs(goleoRoot)
-	replaceDir := filepath.ToSlash(absRoot)
-	fmt.Printf("  Adding local replace directive: %s => %s\n", goleoModule, replaceDir)
-
-	replaceCmd := exec.Command("go", "mod", "edit", "-replace", fmt.Sprintf("%s=%s", goleoModule, replaceDir))
-	replaceCmd.Dir = projectDir
-	replaceCmd.Stdout = os.Stdout
-	replaceCmd.Stderr = os.Stderr
-	if err := replaceCmd.Run(); err != nil {
-		return fmt.Errorf("failed to add replace directive: %w", err)
-	}
-
-	return nil
+	// End users: resolve from the module proxy.
+	return ensureGoleoRequire(projectDir)
 }
 
-func findGoleoRoot() string {
-	// Explicit developer override.
-	if root := os.Getenv("GOLEO_ROOT"); root != "" {
-		if _, err := os.Stat(filepath.Join(root, "runtime", "app.go")); err == nil {
-			return root
-		}
+// ensureGoleoRequire points the project's go.mod at a published goleo version and
+// lets `go mod tidy` (run by the caller) fetch it from the proxy. It pins to the
+// CLI's own version for reproducibility, falling back to @latest if that exact
+// version isn't tagged as a Go module yet.
+func ensureGoleoRequire(projectDir string) error {
+	spec := "latest"
+	if v := resolveVersion(); semverRe.MatchString(v) {
+		spec = "v" + v
 	}
-
-	// Set by the npm launcher (bin/goleo.js) to the goleo module source bundled
-	// inside the @goleo/cli package. This is the robust path for npm installs —
-	// the launcher resolves it relative to itself, independent of where the
-	// platform binary or node_modules ended up (hoisting, pnpm, global, etc.).
-	if root := os.Getenv("GOLEO_BUNDLE"); root != "" {
-		if _, err := os.Stat(filepath.Join(root, "runtime", "app.go")); err == nil {
-			return root
+	// `go get` refuses to run under -mod=vendor (scaffolds commit a vendor/), so
+	// force -mod=mod to resolve from the module cache/proxy.
+	if err := runGo(projectDir, modModEnv(), "get", goleoModule+"@"+spec); err == nil {
+		return nil
+	} else if spec != "latest" {
+		fmt.Printf("  %s@%s not available on the proxy yet — using @latest\n", goleoModule, spec)
+		if err2 := runGo(projectDir, modModEnv(), "get", goleoModule+"@latest"); err2 == nil {
+			return nil
 		}
+		return err
+	} else {
+		return fmt.Errorf("could not resolve %s from the Go module proxy: %w\n"+
+			"Check your network connection (the first build needs to download it),\n"+
+			"or, if developing goleo itself, set GOLEO_ROOT to your local checkout.", goleoModule, err)
 	}
+}
 
-	if exe, err := os.Executable(); err == nil {
-		exeDir := filepath.Dir(exe)
-		// npm install (platform packages): the binary is in
-		// @goleo/cli-<os>-<arch>/, the bundled source in the sibling
-		// @goleo/cli/goleo/.
-		if _, err := os.Stat(filepath.Join(exeDir, "..", "cli", "goleo", "runtime", "app.go")); err == nil {
-			return filepath.Join(exeDir, "..", "cli", "goleo")
-		}
-		// legacy layout: binary in @goleo/cli/bin/, bundle at @goleo/cli/goleo/.
-		if _, err := os.Stat(filepath.Join(exeDir, "..", "goleo", "runtime", "app.go")); err == nil {
-			return filepath.Join(exeDir, "..", "goleo")
-		}
-		for i := 0; i < 5; i++ {
-			if _, err := os.Stat(filepath.Join(exeDir, "runtime", "app.go")); err == nil {
-				return exeDir
-			}
-			if _, err := os.Stat(filepath.Join(exeDir, "go.mod")); err == nil {
-				if data, err := os.ReadFile(filepath.Join(exeDir, "go.mod")); err == nil {
-					if strings.Contains(string(data), "module github.com/daforester/goleo") {
-						return exeDir
-					}
-				}
-			}
-			parent := filepath.Dir(exeDir)
-			if parent == exeDir {
-				break
-			}
-			exeDir = parent
-		}
+var semverRe = regexp.MustCompile(`^\d+\.\d+\.\d+`)
+
+func runGo(dir string, env []string, args ...string) error {
+	cmd := exec.Command("go", args...)
+	cmd.Dir = dir
+	if env != nil {
+		cmd.Env = env
 	}
-
-	if cwd, err := os.Getwd(); err == nil {
-		if _, err := os.Stat(filepath.Join(cwd, "runtime", "app.go")); err == nil {
-			return cwd
-		}
-	}
-
-	return ""
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
 
 func parseModuleName(projectDir string) (string, error) {
@@ -135,25 +123,4 @@ func containsReplace(modContent, module string) bool {
 		}
 	}
 	return false
-}
-
-func replaceTargetFromGoMod(projectDir, module string) string {
-	data, err := os.ReadFile(filepath.Join(projectDir, "go.mod"))
-	if err != nil {
-		return ""
-	}
-	lines := strings.Split(string(data), "\n")
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "replace ") && strings.Contains(trimmed, module+" =>") {
-			parts := strings.SplitN(trimmed, "=>", 2)
-			if len(parts) == 2 {
-				target := strings.TrimSpace(parts[1])
-				if _, err := os.Stat(filepath.Join(target, "bridge", "package.json")); err == nil {
-					return target
-				}
-			}
-		}
-	}
-	return ""
 }

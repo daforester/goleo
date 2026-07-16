@@ -37,6 +37,13 @@ foreach ($pkg in @("@goleo/cli", "@goleo/bridge")) {
         Write-Host "   removed leftover $pkgDir" -ForegroundColor Green
     }
 }
+# Nuke the whole @goleo scope dir — catches the @goleo/cli-<os>-<arch> platform
+# binary packages, which can get stuck at an old version and shadow a reinstall.
+$scopeDir = Join-Path $globalRoot "@goleo"
+if (Test-Path $scopeDir) {
+    Remove-Item -Recurse -Force $scopeDir -ErrorAction SilentlyContinue
+    Write-Host "   removed leftover $scopeDir (incl. platform packages)" -ForegroundColor Green
+}
 # The `goleo` command shims npm drops in the global prefix (goleo/.cmd/.ps1).
 foreach ($shim in @("goleo", "goleo.cmd", "goleo.ps1")) {
     $p = Join-Path $globalPrefix $shim

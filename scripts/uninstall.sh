@@ -47,6 +47,12 @@ for pkg in "@goleo/cli" "@goleo/bridge"; do
     ok "removed leftover $GLOBAL_ROOT/$pkg"
   fi
 done
+# Nuke the whole @goleo scope dir — catches the @goleo/cli-<os>-<arch> platform
+# binary packages, which can get stuck at an old version and shadow a reinstall.
+if [ -n "$GLOBAL_ROOT" ] && [ -e "$GLOBAL_ROOT/@goleo" ]; then
+  rm -rf "$GLOBAL_ROOT/@goleo"
+  ok "removed leftover $GLOBAL_ROOT/@goleo (incl. platform packages)"
+fi
 # The `goleo` command shims npm drops in the global prefix.
 if [ -n "$GLOBAL_PREFIX" ]; then
   for shim in goleo goleo.cmd goleo.ps1; do
