@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { capturePhoto } from '@goleo/bridge'
 import DemoFrame from './DemoFrame.vue'
 
@@ -32,22 +32,66 @@ const videoEl = ref<HTMLVideoElement | null>(null)
 const streaming = ref(false)
 let stream: MediaStream | null = null
 
+// Camera selection
+const cameras = ref<MediaDeviceInfo[]>([])
+const selectedId = ref('')
+
+async function refreshCameras() {
+  if (!navigator.mediaDevices?.enumerateDevices) return
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices()
+    cameras.value = devices.filter((d) => d.kind === 'videoinput')
+    // Keep a valid selection; default to the first camera.
+    if (!cameras.value.some((c) => c.deviceId === selectedId.value)) {
+      selectedId.value = cameras.value[0]?.deviceId ?? ''
+    }
+  } catch {
+    // enumerateDevices can fail before any permission grant — ignore.
+  }
+}
+
+function cameraLabel(d: MediaDeviceInfo, i: number): string {
+  // Labels are only populated after a getUserMedia grant.
+  return d.label || `Camera ${i + 1}`
+}
+
+function describeError(e: unknown): string {
+  const name = (e as { name?: string })?.name
+  if (name === 'AbortError' || name === 'NotReadableError') {
+    return `${e} — the camera couldn't start. It may be in use by another app, or the selected source is unavailable. Close other apps using the camera, or pick a different camera above and retry.`
+  }
+  if (name === 'NotFoundError' || name === 'OverconstrainedError') {
+    return `${e} — the selected camera isn't available. Pick a different one above.`
+  }
+  if (name === 'NotAllowedError') {
+    return `${e} — camera permission was denied.`
+  }
+  return String(e)
+}
+
 async function startPreview() {
   err.value = ''
   if (!navigator.mediaDevices?.getUserMedia) {
     err.value = 'Live preview needs getUserMedia, which is not available here.'
     return
   }
+  // Release any existing source first — reusing a busy device is a common cause
+  // of "AbortError: Timeout starting video source" on Windows/WebView2.
+  stopPreview()
   try {
-    // `video: true` (no size constraints) avoids OverconstrainedError.
-    stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+    const video: MediaTrackConstraints | boolean = selectedId.value
+      ? { deviceId: { exact: selectedId.value } }
+      : true
+    stream = await navigator.mediaDevices.getUserMedia({ video, audio: false })
     if (videoEl.value) {
       videoEl.value.srcObject = stream
       await videoEl.value.play()
     }
     streaming.value = true
+    // Now that a grant exists, device labels are readable — refresh the picker.
+    await refreshCameras()
   } catch (e) {
-    err.value = String(e)
+    err.value = describeError(e)
     stopPreview()
   }
 }
@@ -59,14 +103,36 @@ function stopPreview() {
   streaming.value = false
 }
 
-onBeforeUnmount(stopPreview)
+// Switch camera live: restart the stream on the newly selected device.
+async function onSelectCamera() {
+  if (streaming.value) await startPreview()
+}
+
+onMounted(() => {
+  refreshCameras()
+  navigator.mediaDevices?.addEventListener?.('devicechange', refreshCameras)
+})
+onBeforeUnmount(() => {
+  navigator.mediaDevices?.removeEventListener?.('devicechange', refreshCameras)
+  stopPreview()
+})
 </script>
 
 <template>
   <DemoFrame id="camera">
     <div class="panel">
       <h2>Live preview</h2>
-      <div class="row">
+
+      <div class="row" v-if="cameras.length">
+        <label for="cam" class="muted">Camera:</label>
+        <select id="cam" v-model="selectedId" @change="onSelectCamera">
+          <option v-for="(c, i) in cameras" :key="c.deviceId || i" :value="c.deviceId">
+            {{ cameraLabel(c, i) }}
+          </option>
+        </select>
+      </div>
+
+      <div class="row" style="margin-top: 0.5rem">
         <button class="btn btn-primary" @click="startPreview" :disabled="streaming">Start camera</button>
         <button class="btn" @click="stopPreview" :disabled="!streaming">Stop</button>
       </div>
@@ -81,8 +147,10 @@ onBeforeUnmount(stopPreview)
       ></video>
       <p class="muted" style="margin-top: 0.75rem">
         Streams straight from the OS camera into a <code>&lt;video&gt;</code>
-        element. Works on the Linux desktop webview (permission auto-granted),
-        Windows (WebView2), and browsers/PWA; macOS needs a camera usage string.
+        element. Pick a source above if you have more than one. Device names
+        appear once you've granted camera access. Works on the Linux desktop
+        webview (permission auto-granted), Windows (WebView2), and browsers/PWA;
+        macOS needs a camera usage string.
       </p>
     </div>
 
