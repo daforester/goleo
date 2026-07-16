@@ -1,14 +1,18 @@
 name: release
 
-# Publishes all npm packages when a version tag (v1.2.3) is pushed.
+# Publishes all npm packages when a version tag (v1.2.3) is pushed, using npm
+# TRUSTED PUBLISHING (OIDC) — no long-lived NPM_TOKEN secret, and provenance is
+# attached automatically.
 #
-# Setup (once):
-#   1. Create an npm automation token (npmjs.com → Access Tokens → Granular/Automation,
-#      with publish rights to the @goleo scope + create-goleo-app).
-#   2. Add it as the repo secret NPM_TOKEN (Settings → Secrets → Actions).
-#
-# Release: bump versions (all packages together), commit, then:
-#   git tag v1.2.3 && git push origin v1.2.3
+# One-time setup on npmjs.com — for EACH published package add a Trusted
+# Publisher (package → Settings → Trusted Publishing) pointing at:
+#     Provider:   GitHub Actions
+#     Owner:      daforester
+#     Repository: goleo
+#     Workflow:   release.yml
+# Packages: @goleo/bridge, @goleo/cli, create-goleo-app, and the six
+# @goleo/cli-<os>-<arch> platform packages. See RELEASING.md (incl. the
+# first-publish bootstrap for brand-new package names).
 #
 # Cross-compiles every platform binary CGO_ENABLED=0 from this one Linux runner
 # (the glaze webview backend is cgo-free), so no per-OS runners are needed.
@@ -20,14 +24,11 @@ on:
 
 permissions:
   contents: read
-  id-token: write # required for npm provenance
+  id-token: write # required for npm trusted publishing (OIDC) + provenance
 
 jobs:
   publish:
     runs-on: ubuntu-latest
-    env:
-      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-      NPM_CONFIG_PROVENANCE: "true" # signed provenance (needs a public repo)
     steps:
       - uses: actions/checkout@v4
 
@@ -37,8 +38,13 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           registry-url: "https://registry.npmjs.org"
+
+      # Trusted publishing (OIDC token exchange) needs npm >= 11.5.1; Node 22
+      # ships npm 10, so upgrade explicitly.
+      - name: Use latest npm (trusted publishing / OIDC)
+        run: npm install -g npm@latest
 
       - name: Install workspace dependencies
         run: npm install
@@ -54,7 +60,8 @@ jobs:
           node cli/npm/build-platform-packages.js
 
       # Platform packages first, so @goleo/cli's optionalDependencies resolve for
-      # anyone installing it immediately after.
+      # anyone installing it immediately after. No NODE_AUTH_TOKEN: `npm publish`
+      # performs the OIDC exchange automatically when a trusted publisher is set.
       - name: Publish @goleo/cli-* platform packages
         run: node cli/npm/publish-platform-packages.js
 
