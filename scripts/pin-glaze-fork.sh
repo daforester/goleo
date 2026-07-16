@@ -9,13 +9,12 @@
 #   scripts/pin-glaze-fork.sh github.com/<you>/glaze            # defaults to v0.0.31
 #   scripts/pin-glaze-fork.sh github.com/<you>/glaze v0.0.31
 #
-# Repoints both the root module and the vendored cli/npm/goleo copy. Review the
-# go.mod/go.sum changes and commit. Undo: `go mod edit -dropreplace github.com/crgimenes/glaze`.
+# Repoints the root module. Review the go.mod/go.sum changes and commit. Undo:
+# `go mod edit -dropreplace github.com/crgimenes/glaze`. (The cli/npm/goleo bundle
+# is generated from the root by cli/npm/copy-source.js, so it inherits the pin.)
 set -euo pipefail
 FORK="${1:?usage: pin-glaze-fork.sh <fork-module-path> [version]}"
 VER="${2:-v0.0.31}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-for mod in "$ROOT" "$ROOT/cli/npm/goleo"; do
-  ( cd "$mod" && go mod edit -replace "github.com/crgimenes/glaze=${FORK}@${VER}" && go mod tidy && go mod vendor )
-done
-echo "Pinned glaze -> ${FORK}@${VER} in root + cli/npm/goleo. Review go.mod/go.sum and commit."
+( cd "$ROOT" && go mod edit -replace "github.com/crgimenes/glaze=${FORK}@${VER}" && go mod tidy && go mod vendor )
+echo "Pinned glaze -> ${FORK}@${VER} in the root module. Review go.mod/go.sum and commit."

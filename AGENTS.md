@@ -339,14 +339,19 @@ goleo build      # Build for current platform
 
 ### Vendoring (third-party code is committed)
 
-All third-party Go dependencies are **vendored** (`vendor/` in the root module and
-in `cli/npm/goleo/`) and committed, so builds never break if an upstream repo
-disappears — important because some deps are pre-1.0 / single-maintainer (notably
-`crgimenes/glaze`). Go automatically builds with `-mod=vendor` when `vendor/` is
-present; CI fails if `vendor/` drifts from `go.mod`.
+All third-party Go dependencies are **vendored** (`vendor/` in the root module) and
+committed, so builds never break if an upstream repo disappears — important because
+some deps are pre-1.0 / single-maintainer (notably `crgimenes/glaze`). Go
+automatically builds with `-mod=vendor` when `vendor/` is present; CI fails if
+`vendor/` drifts from `go.mod`.
+
+`cli/npm/goleo/` is **not** a separately-maintained module: it's a generated copy of
+the root (runtime + go.mod + vendor + bridge) produced by `cli/npm/copy-source.js`
+at `npm publish`/`scripts/setup.*` time and gitignored. It inherits the root's vendor
+tree, so it needs no separate vendoring or pinning and CI doesn't check it.
 
 - **Update a dep:** `scripts/update-vendor.{sh,ps1} github.com/crgimenes/glaze@v0.0.32`
-  (bumps it in both modules, then re-runs `go mod tidy && go mod vendor`).
+  (bumps it in the root module, then re-runs `go mod tidy && go mod vendor`).
 - **Update everything:** `scripts/update-vendor.{sh,ps1} -u ./...`
 - **Just refresh after editing go.mod:** `scripts/update-vendor.{sh,ps1}` (no args).
 - **Pin glaze to your own fork** (extra insulation): `scripts/pin-glaze-fork.{sh,ps1} github.com/<you>/glaze`.
