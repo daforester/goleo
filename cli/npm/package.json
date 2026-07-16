@@ -1,6 +1,6 @@
 {
   "name": "@goleo/cli",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Goleo CLI — build cross-platform desktop & mobile apps with Go + web tech",
   "type": "module",
   "bin": {
@@ -17,12 +17,12 @@
     "README.md"
   ],
   "optionalDependencies": {
-    "@goleo/cli-darwin-arm64": "0.1.2",
-    "@goleo/cli-darwin-x64": "0.1.2",
-    "@goleo/cli-linux-arm64": "0.1.2",
-    "@goleo/cli-linux-x64": "0.1.2",
-    "@goleo/cli-win32-arm64": "0.1.2",
-    "@goleo/cli-win32-x64": "0.1.2"
+    "@goleo/cli-darwin-arm64": "0.2.1",
+    "@goleo/cli-darwin-x64": "0.2.1",
+    "@goleo/cli-linux-arm64": "0.2.1",
+    "@goleo/cli-linux-x64": "0.2.1",
+    "@goleo/cli-win32-arm64": "0.2.1",
+    "@goleo/cli-win32-x64": "0.2.1"
   },
   "keywords": [
     "goleo",
