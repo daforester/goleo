@@ -1,5 +1,5 @@
 #!/usr/bin/env pwsh
-# Pin the glaze webview backend to a fork you control — defense-in-depth for a
+# Pin the glaze webview backend to a fork you control - defense-in-depth for a
 # pre-1.0, single-maintainer dependency (insulates against upstream deletion and
 # lets you patch it). The version is already pinned + hashed in go.sum, so this
 # is optional; use it if you want to own the source.

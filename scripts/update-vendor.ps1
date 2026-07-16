@@ -3,7 +3,7 @@
 # vendored so builds never break if an upstream repo disappears (glaze in
 # particular is pre-1.0 / single-maintainer). The cli/npm/goleo bundle is a
 # generated copy of the root (cli/npm/copy-source.js), so it needs no separate
-# vendoring — it inherits this vendor/ at build/publish time.
+# vendoring - it inherits this vendor/ at build/publish time.
 #
 # Usage:
 #   scripts/update-vendor.ps1                                       # re-vendor current go.mod

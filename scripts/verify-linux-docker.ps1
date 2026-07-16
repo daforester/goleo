@@ -1,6 +1,6 @@
 #!/usr/bin/env pwsh
 # Run the cgo-free glaze webview smokes on real Linux/WebKitGTK locally, via
-# Docker (Docker Desktop WSL2 backend) — the same checks as the ubuntu job in
+# Docker (Docker Desktop WSL2 backend) - the same checks as the ubuntu job in
 # .github/workflows/glaze-verify.yml, without CI. Each smoke builds
 # CGO_ENABLED=0 and runs headless under xvfb, wrapped in a hard `timeout` so a
 # GUI hang can't wedge the run. Usage: scripts/verify-linux-docker.ps1
@@ -16,7 +16,7 @@ $script:rc = 0
 function Run-Smoke($name, $sub, $target) {
   Write-Host ">> $name"
   # Let docker's output stream to the console; check $LASTEXITCODE directly (do
-  # NOT return it — a function's return value merges with its stdout in
+  # NOT return it - a function's return value merges with its stdout in
   # PowerShell, which would swallow the RESULT lines and break the check).
   docker run --rm -v "$root\$($sub -replace '/','\'):/work" $image bash -c `
     "CGO_ENABLED=0 go build -o /tmp/bin $target && timeout 60 xvfb-run -a /tmp/bin"

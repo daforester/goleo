@@ -1,4 +1,4 @@
-# Goleo local dev setup — links all npm packages so you can test without publishing
+# Goleo local dev setup - links all npm packages so you can test without publishing
 
 Write-Host "=== Goleo Local Setup ===" -ForegroundColor Cyan
 Write-Host ""

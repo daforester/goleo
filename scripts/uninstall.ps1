@@ -1,10 +1,10 @@
-# Goleo local dev teardown — reverses scripts/setup.ps1
+# Goleo local dev teardown - reverses scripts/setup.ps1
 #
 #   .\scripts\uninstall.ps1          # unlink global packages + remove build artifacts
 #   .\scripts\uninstall.ps1 -Full    # also delete node_modules + dist (deep clean)
 #
 # It does NOT change your npm prefix (setup.ps1 set it, but other global installs
-# may rely on it) — a note is printed at the end if it looks Goleo-specific.
+# may rely on it) - a note is printed at the end if it looks Goleo-specific.
 
 param(
     [switch]$Full
@@ -17,9 +17,9 @@ $RepoRoot = Resolve-Path "$PSScriptRoot\.."
 
 # 1. Remove the global @goleo packages. `npm rm -g` alone can silently no-op on a
 #    corrupted/partial install (an empty @goleo/<pkg> dir, a leftover npm-link
-#    symlink, or missing bin shims — e.g. after mixing `npm link` with
+#    symlink, or missing bin shims - e.g. after mixing `npm link` with
 #    `npm install -g`), so we also force-remove the leftover dirs and the `goleo`
-#    command shims directly. (Note: `npm rm` is a native command — its failure
+#    command shims directly. (Note: `npm rm` is a native command - its failure
 #    sets $LASTEXITCODE but does NOT throw, so we check the code, not try/catch.)
 Write-Host ">> Removing global @goleo packages..." -ForegroundColor Yellow
 $globalRoot = (npm root -g)
@@ -29,7 +29,7 @@ foreach ($pkg in @("@goleo/cli", "@goleo/bridge")) {
     if ($LASTEXITCODE -eq 0) {
         Write-Host "   npm rm -g $pkg" -ForegroundColor Green
     } else {
-        Write-Host "   npm rm -g $pkg failed — cleaning manually" -ForegroundColor DarkGray
+        Write-Host "   npm rm -g $pkg failed - cleaning manually" -ForegroundColor DarkGray
     }
     $pkgDir = Join-Path $globalRoot ($pkg -replace '/', '\')
     if (Test-Path $pkgDir) {
@@ -37,7 +37,7 @@ foreach ($pkg in @("@goleo/cli", "@goleo/bridge")) {
         Write-Host "   removed leftover $pkgDir" -ForegroundColor Green
     }
 }
-# Nuke the whole @goleo scope dir — catches the @goleo/cli-<os>-<arch> platform
+# Nuke the whole @goleo scope dir - catches the @goleo/cli-<os>-<arch> platform
 # binary packages, which can get stuck at an old version and shadow a reinstall.
 $scopeDir = Join-Path $globalRoot "@goleo"
 if (Test-Path $scopeDir) {
