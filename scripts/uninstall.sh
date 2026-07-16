@@ -28,15 +28,34 @@ fi
 
 info "=== Goleo Local Teardown ==="
 
-# 1. Unlink the globally linked packages (best-effort — ignore if not present).
-step "Unlinking global packages..."
+# 1. Remove the global @goleo packages. `npm rm -g` alone can silently no-op on a
+#    corrupted/partial install (an empty @goleo/<pkg> dir, a leftover npm-link
+#    symlink, or missing bin shims — e.g. after mixing `npm link` with
+#    `npm install -g`), so we also force-remove the leftover dirs and the `goleo`
+#    command shim directly.
+step "Removing global @goleo packages..."
+GLOBAL_ROOT="$(npm root -g 2>/dev/null)"
+GLOBAL_PREFIX="$(npm prefix -g 2>/dev/null)"
 for pkg in "@goleo/cli" "@goleo/bridge"; do
   if npm rm -g "$pkg" >/dev/null 2>&1; then
-    ok "removed global link: $pkg"
+    ok "npm rm -g $pkg"
   else
-    skip "(not linked: $pkg)"
+    skip "npm rm -g $pkg failed — cleaning manually"
+  fi
+  if [ -n "$GLOBAL_ROOT" ] && [ -e "$GLOBAL_ROOT/$pkg" ]; then
+    rm -rf "$GLOBAL_ROOT/$pkg"
+    ok "removed leftover $GLOBAL_ROOT/$pkg"
   fi
 done
+# The `goleo` command shims npm drops in the global prefix.
+if [ -n "$GLOBAL_PREFIX" ]; then
+  for shim in goleo goleo.cmd goleo.ps1; do
+    if [ -e "$GLOBAL_PREFIX/$shim" ]; then
+      rm -f "$GLOBAL_PREFIX/$shim"
+      ok "removed shim $shim"
+    fi
+  done
+fi
 
 # 2. Remove any leftover global source copy setup.sh wrote into the linked
 #    @goleo/cli package (usually gone once the link above is removed).
@@ -72,9 +91,7 @@ if [ "$FULL" -eq 1 ]; then
   for t in \
     "node_modules" \
     "bridge/node_modules" "bridge/dist" \
-    "create-goleo-app/node_modules" "create-goleo-app/dist" \
-    "cli/npm/node_modules" \
-    "frontend/node_modules"; do
+    "cli/npm/node_modules"; do
     if [ -e "$ROOT/$t" ]; then
       rm -rf "${ROOT:?}/$t"
       ok "removed $t"

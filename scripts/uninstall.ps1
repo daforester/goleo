@@ -15,14 +15,34 @@ Write-Host ""
 
 $RepoRoot = Resolve-Path "$PSScriptRoot\.."
 
-# 1. Unlink the globally linked packages (best-effort — ignore if not present).
-Write-Host ">> Unlinking global packages..." -ForegroundColor Yellow
+# 1. Remove the global @goleo packages. `npm rm -g` alone can silently no-op on a
+#    corrupted/partial install (an empty @goleo/<pkg> dir, a leftover npm-link
+#    symlink, or missing bin shims — e.g. after mixing `npm link` with
+#    `npm install -g`), so we also force-remove the leftover dirs and the `goleo`
+#    command shims directly. (Note: `npm rm` is a native command — its failure
+#    sets $LASTEXITCODE but does NOT throw, so we check the code, not try/catch.)
+Write-Host ">> Removing global @goleo packages..." -ForegroundColor Yellow
+$globalRoot = (npm root -g)
+$globalPrefix = (npm prefix -g)
 foreach ($pkg in @("@goleo/cli", "@goleo/bridge")) {
-    try {
-        npm rm -g $pkg 2>$null | Out-Null
-        Write-Host "   removed global link: $pkg" -ForegroundColor Green
-    } catch {
-        Write-Host "   (not linked: $pkg)" -ForegroundColor DarkGray
+    npm rm -g $pkg 2>$null | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "   npm rm -g $pkg" -ForegroundColor Green
+    } else {
+        Write-Host "   npm rm -g $pkg failed — cleaning manually" -ForegroundColor DarkGray
+    }
+    $pkgDir = Join-Path $globalRoot ($pkg -replace '/', '\')
+    if (Test-Path $pkgDir) {
+        Remove-Item -Recurse -Force $pkgDir -ErrorAction SilentlyContinue
+        Write-Host "   removed leftover $pkgDir" -ForegroundColor Green
+    }
+}
+# The `goleo` command shims npm drops in the global prefix (goleo/.cmd/.ps1).
+foreach ($shim in @("goleo", "goleo.cmd", "goleo.ps1")) {
+    $p = Join-Path $globalPrefix $shim
+    if (Test-Path $p) {
+        Remove-Item -Force $p -ErrorAction SilentlyContinue
+        Write-Host "   removed shim $shim" -ForegroundColor Green
     }
 }
 
@@ -66,9 +86,7 @@ if ($Full) {
     $targets = @(
         "node_modules",
         "bridge\node_modules", "bridge\dist",
-        "create-goleo-app\node_modules", "create-goleo-app\dist",
-        "cli\npm\node_modules",
-        "frontend\node_modules"
+        "cli\npm\node_modules"
     )
     foreach ($t in $targets) {
         $p = Join-Path $RepoRoot $t
