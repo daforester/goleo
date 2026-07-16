@@ -1,0 +1,95 @@
+# Goleo local dev teardown — reverses scripts/setup.ps1
+#
+#   .\scripts\uninstall.ps1          # unlink global packages + remove build artifacts
+#   .\scripts\uninstall.ps1 -Full    # also delete node_modules + dist (deep clean)
+#
+# It does NOT change your npm prefix (setup.ps1 set it, but other global installs
+# may rely on it) — a note is printed at the end if it looks Goleo-specific.
+
+param(
+    [switch]$Full
+)
+
+Write-Host "=== Goleo Local Teardown ===" -ForegroundColor Cyan
+Write-Host ""
+
+$RepoRoot = Resolve-Path "$PSScriptRoot\.."
+
+# 1. Unlink the globally linked packages (best-effort — ignore if not present).
+Write-Host ">> Unlinking global packages..." -ForegroundColor Yellow
+foreach ($pkg in @("@goleo/cli", "@goleo/bridge", "create-goleo-app")) {
+    try {
+        npm rm -g $pkg 2>$null | Out-Null
+        Write-Host "   removed global link: $pkg" -ForegroundColor Green
+    } catch {
+        Write-Host "   (not linked: $pkg)" -ForegroundColor DarkGray
+    }
+}
+
+# 2. Remove any leftover global source copy that setup.ps1 wrote into the linked
+#    @goleo/cli package (usually gone once the link above is removed).
+try {
+    $globalCliDir = Join-Path (npm root -g) "@goleo\cli\goleo"
+    if (Test-Path $globalCliDir) {
+        Remove-Item -Recurse -Force $globalCliDir -ErrorAction SilentlyContinue
+        Write-Host "   removed global goleo source copy" -ForegroundColor Green
+    }
+} catch {}
+
+# 3. Remove built binaries.
+Write-Host ">> Removing built binaries..." -ForegroundColor Yellow
+foreach ($bin in @(
+    (Join-Path $RepoRoot "goleo.exe"),
+    (Join-Path $RepoRoot "goleo"),
+    (Join-Path $RepoRoot "cli\npm\bin\goleo.exe"),
+    (Join-Path $RepoRoot "cli\npm\bin\goleo")
+)) {
+    if (Test-Path $bin) {
+        Remove-Item -Force $bin -ErrorAction SilentlyContinue
+        Write-Host "   removed $bin" -ForegroundColor Green
+    }
+}
+
+# 4. Remove the bundled Go source (produced by cli/npm/copy-source.js).
+Write-Host ">> Removing bundled Go source..." -ForegroundColor Yellow
+$bundled = Join-Path $RepoRoot "cli\npm\goleo"
+if (Test-Path $bundled) {
+    Remove-Item -Recurse -Force $bundled -ErrorAction SilentlyContinue
+    Write-Host "   removed cli/npm/goleo (bundled source + vendor)" -ForegroundColor Green
+} else {
+    Write-Host "   (nothing bundled)" -ForegroundColor DarkGray
+}
+
+# 5. Deep clean (-Full): node_modules + TypeScript dist across the workspace.
+if ($Full) {
+    Write-Host ">> Deep clean (node_modules + dist)..." -ForegroundColor Yellow
+    $targets = @(
+        "node_modules",
+        "bridge\node_modules", "bridge\dist",
+        "create-goleo-app\node_modules", "create-goleo-app\dist",
+        "cli\npm\node_modules",
+        "frontend\node_modules"
+    )
+    foreach ($t in $targets) {
+        $p = Join-Path $RepoRoot $t
+        if (Test-Path $p) {
+            Remove-Item -Recurse -Force $p -ErrorAction SilentlyContinue
+            Write-Host "   removed $t" -ForegroundColor Green
+        }
+    }
+}
+
+Write-Host ""
+Write-Host "=== Teardown complete ===" -ForegroundColor Cyan
+Write-Host ""
+
+# Note about the npm prefix setup.ps1 set (left untouched on purpose).
+$NpmPrefix = if ($env:GOLEO_NPM_PREFIX) { $env:GOLEO_NPM_PREFIX } else { Join-Path $env:APPDATA "npm" }
+Write-Host "Your npm global prefix is still set to:" -ForegroundColor White
+Write-Host "  $((npm config get prefix))" -ForegroundColor Green
+Write-Host "setup.ps1 set this; it was left unchanged (other global installs may use it)." -ForegroundColor DarkGray
+Write-Host "To reset it to the default:  npm config delete prefix --location=user" -ForegroundColor DarkGray
+if (-not $Full) {
+    Write-Host ""
+    Write-Host "Run with -Full to also delete node_modules and dist." -ForegroundColor DarkGray
+}
