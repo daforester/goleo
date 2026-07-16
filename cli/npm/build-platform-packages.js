@@ -47,7 +47,7 @@ for (const t of targets) {
   mkdirSync(dir, { recursive: true })
 
   console.log(`Building ${pkgName} (${t.goos}/${t.goarch})...`)
-  execSync(`go build -ldflags "-s -w -X main.Version=${VERSION}" -o ${JSON.stringify(resolve(dir, binaryName))} ./cli/goleo/`, {
+  execSync(`go build -ldflags "-s -w -X github.com/daforester/goleo/cli/cmd.Version=${VERSION}" -o ${JSON.stringify(resolve(dir, binaryName))} ./cli/goleo/`, {
     cwd: PROJECT_ROOT,
     env: { ...process.env, GOOS: t.goos, GOARCH: t.goarch, CGO_ENABLED: '0' },
     stdio: 'inherit',
