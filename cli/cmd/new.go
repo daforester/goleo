@@ -21,13 +21,15 @@ var newCmd = &cobra.Command{
 }
 
 var (
-	newTemplate string
-	newDemo     bool
+	newTemplate    string
+	newDemo        bool
+	newSkipInstall bool
 )
 
 func init() {
 	newCmd.Flags().StringVar(&newTemplate, "template", "", "Project template: minimal or demo (prompts if omitted and interactive)")
 	newCmd.Flags().BoolVar(&newDemo, "demo", false, "Shorthand for --template demo (full host-feature showcase)")
+	newCmd.Flags().BoolVar(&newSkipInstall, "no-install", false, "Skip running npm install in the frontend")
 }
 
 // chooseTemplate resolves which starter to scaffold: the --template/--demo flags
@@ -146,13 +148,10 @@ func runNew(cmd *cobra.Command, args []string) error {
 	fmt.Println("  Resolving Go dependencies...")
 	replaceErr := ensureLocalReplace(dir)
 	if replaceErr != nil {
-		fmt.Printf("  Warning: %v\n", replaceErr)
-		fmt.Println()
-		fmt.Println("  Before running goleo dev, build, or emulate, set GOLEO_ROOT:")
-		fmt.Println("    $env:GOLEO_ROOT = \"C:\\path\\to\\goleo\"")
-		fmt.Println("  Then run from the project directory:")
-		fmt.Println("    go mod edit -replace github.com/daforester/goleo=$env:GOLEO_ROOT")
-		fmt.Println("    go mod tidy")
+		fmt.Printf("  Note: %v\n", replaceErr)
+		fmt.Println("  The project was still created. Go dependencies will resolve on your")
+		fmt.Println("  next `goleo dev` / `goleo build`. (A just-published release can take a")
+		fmt.Println("  few minutes to propagate to the Go module proxy / checksum DB.)")
 	} else {
 		tidy := exec.Command("go", "mod", "tidy")
 		tidy.Dir = dir
@@ -187,19 +186,46 @@ func runNew(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Install frontend dependencies (vue, vite, @goleo/bridge) so the project is
+	// runnable right away — like create-vite / Tauri. Skip with --no-install.
+	if !newSkipInstall {
+		installFrontendDeps(dir)
+	}
+	linkBridge(dir) // dev-only: override @goleo/bridge with a local checkout
+
 	fmt.Println()
 	fmt.Println("Project created successfully!")
 	fmt.Println()
 	fmt.Println("Next steps:")
 	fmt.Printf("  cd %s\n", name)
-	fmt.Println("  cd frontend && npm install && cd ..")
+	if newSkipInstall {
+		fmt.Println("  cd frontend && npm install && cd ..")
+	}
 	fmt.Println("  goleo dev          # Start development mode")
 	fmt.Println("  goleo build        # Build for current platform")
 	fmt.Println()
 
-	linkBridge(dir)
-
 	return nil
+}
+
+// installFrontendDeps runs `npm install` in the scaffolded frontend so the
+// project is ready to `goleo dev` immediately. Best-effort — a failure (offline,
+// npm missing) just prints how to run it by hand.
+func installFrontendDeps(projectDir string) {
+	frontend := filepath.Join(projectDir, "frontend")
+	if _, err := os.Stat(filepath.Join(frontend, "package.json")); err != nil {
+		return
+	}
+	fmt.Println()
+	fmt.Println("  Installing frontend dependencies (npm install)...")
+	cmd := exec.Command("npm", "install")
+	cmd.Dir = frontend
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Printf("  Warning: npm install failed (%v)\n", err)
+		fmt.Println("  Run it manually: cd frontend && npm install")
+	}
 }
 
 func linkBridge(projectDir string) {
