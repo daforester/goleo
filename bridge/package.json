@@ -1,6 +1,6 @@
 {
   "name": "@goleo/bridge",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Frontend bridge library for Goleo — communicate between web frontend and Go backend",
   "type": "module",
   "main": "./dist/index.js",
@@ -21,7 +21,15 @@
     "dev": "tsc --watch",
     "prepublishOnly": "npm run build"
   },
-  "keywords": ["goleo", "go", "bridge", "websocket", "desktop", "mobile", "cross-platform"],
+  "keywords": [
+    "goleo",
+    "go",
+    "bridge",
+    "websocket",
+    "desktop",
+    "mobile",
+    "cross-platform"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
