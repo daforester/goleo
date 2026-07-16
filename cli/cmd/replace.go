@@ -21,7 +21,11 @@ func ensureLocalReplace(projectDir string) error {
 
 	goleoRoot := findGoleoRoot()
 	if goleoRoot == "" {
-		return fmt.Errorf("github.com/daforester/goleo is not published yet.\nSet GOLEO_ROOT then re-run:\n  $env:GOLEO_ROOT = \"C:\\path\\to\\goleo\"\n  go mod edit -replace github.com/daforester/goleo=$env:GOLEO_ROOT\n  go mod tidy")
+		return fmt.Errorf("could not locate the goleo module source.\n" +
+			"If you installed the CLI from npm, reinstall it (the source ships inside\n" +
+			"the package): npm install -g @goleo/cli\n" +
+			"If you're developing goleo itself, set GOLEO_ROOT to your checkout:\n" +
+			"  $env:GOLEO_ROOT = \"C:\\path\\to\\goleo\"")
 	}
 
 	absRoot, _ := filepath.Abs(goleoRoot)
@@ -40,7 +44,18 @@ func ensureLocalReplace(projectDir string) error {
 }
 
 func findGoleoRoot() string {
+	// Explicit developer override.
 	if root := os.Getenv("GOLEO_ROOT"); root != "" {
+		if _, err := os.Stat(filepath.Join(root, "runtime", "app.go")); err == nil {
+			return root
+		}
+	}
+
+	// Set by the npm launcher (bin/goleo.js) to the goleo module source bundled
+	// inside the @goleo/cli package. This is the robust path for npm installs —
+	// the launcher resolves it relative to itself, independent of where the
+	// platform binary or node_modules ended up (hoisting, pnpm, global, etc.).
+	if root := os.Getenv("GOLEO_BUNDLE"); root != "" {
 		if _, err := os.Stat(filepath.Join(root, "runtime", "app.go")); err == nil {
 			return root
 		}
@@ -48,7 +63,13 @@ func findGoleoRoot() string {
 
 	if exe, err := os.Executable(); err == nil {
 		exeDir := filepath.Dir(exe)
-		// for npm installation: bin/goleo.exe, goleo/ at package root
+		// npm install (platform packages): the binary is in
+		// @goleo/cli-<os>-<arch>/, the bundled source in the sibling
+		// @goleo/cli/goleo/.
+		if _, err := os.Stat(filepath.Join(exeDir, "..", "cli", "goleo", "runtime", "app.go")); err == nil {
+			return filepath.Join(exeDir, "..", "cli", "goleo")
+		}
+		// legacy layout: binary in @goleo/cli/bin/, bundle at @goleo/cli/goleo/.
 		if _, err := os.Stat(filepath.Join(exeDir, "..", "goleo", "runtime", "app.go")); err == nil {
 			return filepath.Join(exeDir, "..", "goleo")
 		}
