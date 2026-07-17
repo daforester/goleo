@@ -222,6 +222,10 @@ func emulateAndroid() error {
 }
 
 func buildAndDeployDev(deps *androidDeps, deviceID, pkgName string) error {
+	// Restore go.mod/go.sum after each build so the mobile toolchain's x/mobile
+	// deps don't leave the project vendor-inconsistent for a later `goleo dev`.
+	defer snapshotModFiles(".")()
+
 	cwd, _ := os.Getwd()
 	buildDir := filepath.Join(cwd, ".goleo", "android-dev")
 

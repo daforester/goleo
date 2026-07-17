@@ -267,6 +267,7 @@ func buildForDesktop(target buildTarget, distDir string) error {
 }
 
 func buildAndroidDev(deps *androidDeps) (string, error) {
+	defer snapshotModFiles(".")() // keep go.mod/go.sum clean of x/mobile afterward
 	cwd, _ := os.Getwd()
 	buildDir := filepath.Join(cwd, ".goleo", "android-dev")
 	os.RemoveAll(buildDir)
@@ -380,6 +381,7 @@ func buildAndroidDev(deps *androidDeps) (string, error) {
 }
 
 func buildForAndroid(distDir string, deps *androidDeps) error {
+	defer snapshotModFiles(".")() // keep go.mod/go.sum clean of x/mobile afterward
 	fmt.Println("  Resolving Go dependencies...")
 	if err := ensureLocalReplace("."); err != nil {
 		return fmt.Errorf("go module resolution: %w", err)
@@ -517,6 +519,29 @@ func buildForAndroid(distDir string, deps *androidDeps) error {
 	return nil
 }
 
+// snapshotModFiles saves go.mod and go.sum in projectDir and returns a func that
+// restores them. The mobile toolchain (`go get -tool …/gobind`, `gomobile bind`)
+// adds build-only deps — golang.org/x/mobile and its tree — to go.mod under
+// -mod=mod and never re-vendors. Restoring afterward keeps the project's module
+// files clean and vendor-consistent, so a later desktop build (which runs
+// -mod=vendor because the scaffold commits vendor/) doesn't fail with
+// "inconsistent vendoring". Idiom: `defer snapshotModFiles(".")()` — the snapshot
+// is taken immediately, the restore is deferred.
+func snapshotModFiles(projectDir string) func() {
+	saved := map[string][]byte{}
+	for _, name := range []string{"go.mod", "go.sum"} {
+		p := filepath.Join(projectDir, name)
+		if data, err := os.ReadFile(p); err == nil {
+			saved[p] = data
+		}
+	}
+	return func() {
+		for p, data := range saved {
+			_ = os.WriteFile(p, data, 0o644)
+		}
+	}
+}
+
 func setMobileEnv(cmd *exec.Cmd, deps *androidDeps) {
 	// Put the Go bin directory on PATH so gomobile can find gobind, which it
 	// shells out to and which `go install` also drops into GOPATH/bin.
@@ -546,6 +571,7 @@ func buildForIOS(distDir string) error {
 	if err := checkCommand("gomobile", "golang.org/x/mobile/cmd/gomobile"); err != nil {
 		return err
 	}
+	defer snapshotModFiles(".")() // keep go.mod/go.sum clean of x/mobile afterward
 
 	fmt.Println("  Resolving Go dependencies...")
 	if err := ensureLocalReplace("."); err != nil {
