@@ -7,7 +7,11 @@ export interface PhotoData {
   format: string
 }
 
-export async function capturePhoto(options?: { width?: number; height?: number }): Promise<PhotoData> {
+export async function capturePhoto(options?: {
+  width?: number
+  height?: number
+  deviceId?: string
+}): Promise<PhotoData> {
   try {
     return await bridge().invoke<PhotoData>('goleo:cameraCapturePhoto', options as Record<string, unknown>)
   } catch {
@@ -26,6 +30,10 @@ export async function capturePhoto(options?: { width?: number; height?: number }
             height: options?.height ? { ideal: options.height } : undefined,
           }
         : {}
+    // Honor an explicit camera selection when given.
+    if (options?.deviceId) {
+      video.deviceId = { exact: options.deviceId }
+    }
     const stream = await navigator.mediaDevices.getUserMedia({ video })
     const el = document.createElement('video')
     el.srcObject = stream

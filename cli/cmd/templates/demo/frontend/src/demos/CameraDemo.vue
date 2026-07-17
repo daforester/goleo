@@ -13,15 +13,32 @@ function toSrc(data: string, format: string): string {
   return data.startsWith('data:') ? data : 'data:image/' + format + ';base64,' + data
 }
 
+function grabFrame(video: HTMLVideoElement): string {
+  const canvas = document.createElement('canvas')
+  canvas.width = video.videoWidth
+  canvas.height = video.videoHeight
+  canvas.getContext('2d')!.drawImage(video, 0, 0, canvas.width, canvas.height)
+  return canvas.toDataURL('image/jpeg')
+}
+
 async function capture() {
   err.value = ''
   busy.value = true
   photo.value = ''
   try {
-    const p = await capturePhoto({ width: 640, height: 480 })
-    photo.value = toSrc(p.data, p.format)
+    if (streaming.value && videoEl.value?.videoWidth) {
+      // A preview is live on the selected camera — grab that frame directly.
+      // This respects the source picker and avoids opening the (possibly busy)
+      // device a second time.
+      photo.value = grabFrame(videoEl.value)
+    } else {
+      // No preview: capture via the bridge (native V4L2 on Linux; getUserMedia
+      // elsewhere), passing the selected camera so it applies here too.
+      const p = await capturePhoto({ width: 640, height: 480, deviceId: selectedId.value || undefined })
+      photo.value = toSrc(p.data, p.format)
+    }
   } catch (e) {
-    err.value = String(e)
+    err.value = describeError(e)
   } finally {
     busy.value = false
   }
@@ -163,8 +180,9 @@ onBeforeUnmount(() => {
         <img :src="photo" alt="captured" style="max-width: 100%; border-radius: 8px" />
       </div>
       <p class="muted" style="margin-top: 0.75rem">
-        On Linux this grabs a frame natively via V4L2 in Go; macOS/Windows use
-        the webview's getUserMedia.
+        Uses the camera selected above. If the live preview is running, the still
+        is grabbed straight from it; otherwise it's captured via the bridge —
+        natively via V4L2 in Go on Linux, or getUserMedia on macOS/Windows.
       </p>
     </div>
 
