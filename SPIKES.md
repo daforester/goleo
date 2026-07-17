@@ -478,6 +478,47 @@ Windows→glaze migration is fully verified end-to-end** — webview, native IPC
 in-process multi-window, tray, native menu bar, permission auto-grant, and clean Quit all confirmed
 on real WebView2. Nothing outstanding.
 
+## Upstream glaze PR — scheme handler API, maintainer review round (2026-07-18)
+
+The maintainer accepted the custom-scheme PR's shape (issue #27) and asked for a
+round of changes before merge; all addressed and pushed to
+`daforester/glaze` `upstream-scheme` (the clean PR branch, based on
+`crgimenes:master`, no goleo-only permission grant):
+
+- **Windows:** `AddRef` the `ICoreWebView2Environment` when stored + `Release`
+  in `Destroy` (it is used later, at request time, by
+  `CreateWebResourceResponse`) — it was held without a reference. And
+  reconstruct the canonical `<scheme>://<authority>/path` URL for the handler
+  (the https vhost drops the authority, so it is remembered at `Navigate` time)
+  + preserve the URL fragment on `Navigate` — so `SchemeRequest.URL` has ONE
+  format on all three backends. Kept the hardware-proven `https://<scheme>.localhost`
+  vhost/filter rather than a subdomain encoding (which would need a fresh
+  Windows hardware pass).
+- **Linux:** `g_memdup2` (GLib ≥ 2.68) resolved via `Dlsym` with a fallback to
+  `g_memdup` on older GLib (Debian 11 / Ubuntu 20.04) — `RegisterLibFunc`
+  panics on a missing symbol. `registerSchemes` now returns an error (nil
+  context / security manager / missing lib) instead of silently leaving a
+  scheme unregistered; `NewWithOptions` propagates it.
+- **macOS:** non-nil `NSError` (`NSURLErrorFileDoesNotExist`) on the not-found
+  path (a nil can raise); autorelease the per-request `NSHTTPURLResponse` and
+  unregister the `WKURLSchemeHandler` delegates in `Destroy` (two leaks).
+- **Docs/tests:** README "Custom URL schemes" section + runnable
+  `examples/scheme`; extended the Windows scheme unit test (fragment,
+  reconstruction, fallback, round-trip).
+
+Verified from the Windows host the way CI checks it: `CGO_ENABLED=0` build for
+darwin/linux/windows × amd64/arm64 (lib + examples), `go vet` + `golangci-lint`
+v2.12.2 per GOOS, `gofmt`, and the scheme unit tests (real GUI behavior is the
+CI runners' job — can't drive it headless). Draft reply in
+`spikes/glaze-scheme-secure/REVIEW_REPLY.md`.
+
+**goleo consumption:** the same source fixes were ported onto the
+`goleo-scheme` line (which additionally carries the Windows permission
+auto-grant), tagged **`v0.0.32-goleo.4`**, and goleo re-pinned/re-vendored to
+it (`scripts/pin-glaze-fork.ps1 github.com/daforester/glaze v0.0.32-goleo.4`).
+The example/README are omitted there (examples module is not vendored; its
+import path differs on the fork).
+
 ## Cross-cutting testing learnings (not "spikes" but hard-won)
 
 - **CI mobile guard must target GOOS=android/ios, never the host.** `linux + mobilebuild` is an
