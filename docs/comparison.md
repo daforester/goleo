@@ -44,10 +44,11 @@ meaningful differences are **language**, **build / cross-compile posture**, the
    needs cgo on mac + Linux; Tauri needs the Rust toolchain + system C deps.
    Goleo's spikes proved `purego`+`dlopen` (Linux) and `purego`+objc WKWebView
    (macOS, on real Apple Silicon) work under `CGO_ENABLED=0`, plus darwin
-   cross-built from Windows. **Honest caveat:** today the shipping runtime is only
-   cgo-free on Windows (`go-webview2`); mac/Linux still link
-   `webview/webview_go` via cgo. The thesis is *de-risked, not delivered* — and
-   that gap is precisely the moat still to close.
+   cross-built from Windows. **Delivered:** all three desktops now ship on the
+   cgo-free `glaze` binding (WKWebView / WebKitGTK / WebView2 via `purego`), so the
+   whole runtime builds `CGO_ENABLED=0` and cross-compiles from one machine. The
+   legacy cgo `webview_go` backend remains only as an opt-in fallback (macOS/Linux,
+   one release then removed).
 
 2. **PWA as a build target.** Neither competitor ships your app as an installable
    PWA (js/wasm). For Goleo this falls out of the WebSocket/HTTP bridge plus the

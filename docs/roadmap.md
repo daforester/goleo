@@ -44,8 +44,11 @@ macOS/GTK3, best-effort on Windows/GTK4; interactive/pixel UX only headless on C
 ## 0. Current status (what is built vs designed)
 
 **Built & verified (uncommitted WIP unless noted):**
-- **cgo-free Windows webview** — `runtime/webview_windows.go` uses `github.com/jchv/go-webview2`
-  (WebView2 via COM/syscall). `CGO_ENABLED=0 GOOS=windows go build ./runtime/...` ✅.
+- **cgo-free webview on all three desktops** — the `glaze` binding (`runtime/webview_glaze.go`;
+  WKWebView / WebKitGTK / WebView2 via `purego`). `CGO_ENABLED=0` builds and cross-compiles for
+  every desktop target. (Windows originally used `jchv/go-webview2`; unified onto glaze 2026-07-14,
+  and the dep + `runtime/webview_windows.go` were removed — later `go-webview2` references in this
+  doc are historical.)
 - **Multi-window (interim, multi-process)** — `runtime/windowmanager.go` + `window_child.go`:
   each extra window is a child process hosting one webview against the shared loopback server.
   `App.OpenWindow/CloseWindow/ListWindows`, bridge `goleo:window*`, `bridge/src/window.ts`.
