@@ -26,8 +26,8 @@ meaningful differences are **language**, **build / cross-compile posture**, the
 | Status | Early / pre-release | **Stable** (2.0 Oct 2024, v2.11.x), ~109k★, security-audited | **Alpha** (v3.0.0-alpha2.117), ~35k★; v2 is the stable line |
 | Webview | WebView2 / WKWebView / WebKitGTK | same (via WRY) | same |
 | Bundled runtime | No (system webview) | No | No |
-| **cgo posture** | **Windows cgo-free (shipping); mac/Linux still cgo today** — cgo-free purego path *proven in spikes, not yet integrated* | Not cgo, but **Rust toolchain + per-OS C deps** required | **Windows cgo-free; mac & Linux require cgo** (Xcode / libwebkit2gtk) |
-| Cross-compilation | Windows builds+cross-compiles `CGO_ENABLED=0`; darwin cross-built from Windows *in the spike*. Full 3-OS cross-compile is the thesis, **not fully shipped** | Discouraged — msi=Windows-only, deb/appimage=Linux-only → **use per-OS CI** | mac/Linux cross-compile only **via Docker** (~800 MB image w/ Zig + macOS SDK) |
+| **cgo posture** | **All three desktops cgo-free** — WKWebView / WebKitGTK / WebView2 via `purego` (glaze); no C toolchain | Not cgo, but **Rust toolchain + per-OS C deps** required | **Windows cgo-free; mac & Linux require cgo** (Xcode / libwebkit2gtk) |
+| Cross-compilation | **All three desktops build + cross-compile `CGO_ENABLED=0` from one machine** (darwin/linux/windows), no per-OS C toolchain | Discouraged — msi=Windows-only, deb/appimage=Linux-only → **use per-OS CI** | mac/Linux cross-compile only **via Docker** (~800 MB image w/ Zig + macOS SDK) |
 | Frontend↔backend | **Native in-process IPC (opt-in `Config.NativeIPC`) → WebSocket → HTTP** — portless for the primary window when enabled, server-backed otherwise | In-process IPC (custom-protocol JSON-RPC) — no port | In-process in-memory bindings — no port |
 | Typed bindings | `goleo generate types` → `goleo.d.ts` overloads | `invoke()` + plugin typings | `wails3 generate bindings` (static analyzer, TS) |
 | Multi-window | **Multi-process children by default**; opt-in in-process on Windows | In-process (TAO/WRY) | In-process, first-class in v3 |
@@ -88,9 +88,9 @@ meaningful differences are **language**, **build / cross-compile posture**, the
 - **Wails v3** — Go ergonomics with first-class in-process multi-window and mobile
   *today*, if you accept cgo on mac/Linux and alpha risk.
 - **Goleo** — the intersection neither fills: **Go + genuinely cgo-free +
-  cross-compile-from-one-machine + PWA output.** Landing the purego mac/Linux
-  runtime is what turns that from "interesting spike" into "the reason you'd pick
-  it."
+  cross-compile-from-one-machine + PWA output.** With the purego mac/Linux runtime
+  now shipped (glaze, all three desktops), that's no longer an "interesting spike"
+  — it's the reason you'd pick it.
 
 ## Sources
 

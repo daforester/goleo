@@ -593,7 +593,7 @@ Added on top of the core bridge/feature system. Full rationale + status in
   `Bridge.HandleRequest` (so `Policy` still applies); invokes run on their own goroutine to keep
   off the UI thread. Backend→frontend frames are pushed via `Eval(window.__goleoRecv(...))` on the
   UI thread (`session.startEventPump` replaces the WS hub per window). `Bind`/`Init`/`evaler()`
-  added to all `WebviewWindow` backends (`webview_windows.go`, `webview.go`, `webview_stub.go`).
+  added to all `WebviewWindow` backends (`webview_glaze.go`, `webview.go`, `webview_stub.go`).
   - **Coverage:** the primary window (`runWebview`, incl. the `init.js` `createWindow` window) **and
     in-process additional windows** (`Config.InProcessWindows`, `windowmanager.go`) — each gets its
     own independent session. Child-*process* windows, browser/PWA and mobile keep using WebSocket
