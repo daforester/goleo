@@ -419,6 +419,33 @@ So **every desktop target is pure-Go and cross-compilable from one machine**, on
 single binding. Shutdown unblocks the run loop via `endRunLoop()`
 (glaze's `Terminate()`) — not a GOOS check.
 
+### Why goleo pins a glaze fork (`daforester/glaze`, currently `v0.0.32-goleo.5`)
+
+goleo `replace`s `crgimenes/glaze` with the fork for **one reason now: the Windows
+WebView2 permission auto-grant.** The custom-scheme API the fork was originally
+created for is **merged into upstream glaze** — but (a) upstream hasn't tagged a
+release containing it yet (latest is `v0.0.31`), and (b) the Windows
+`PermissionRequested`→Allow handler was deliberately **kept out of the upstream
+PR**: auto-granting camera/mic/geolocation is a security *policy* that suits goleo
+(it loads only its own trusted content) but is wrong as a default for a general
+library.
+
+**Why that grant has to live in the fork** (unlike Linux, which goleo handles in
+its own runtime): glaze owns the WebView2 setup and exposes only the **HWND** via
+`Window()`, not the `ICoreWebView2` COM interface — and WebView2 has no
+HWND→interface recovery. `PermissionRequested` is a COM event *on* `ICoreWebView2`,
+so there is no external handle to attach it to; it must be wired inside glaze. By
+contrast, on **Linux** the equivalent is a GObject signal on the `WebKitWebView`
+(which `Window()` *does* reach), so goleo attaches it **externally**
+(`runtime/webview_glaze_permissions_linux.go`) with no fork. On **macOS** WKWebView
+grants media itself — no-op (`runtime/webview_glaze_permissions_other.go`).
+
+**Path off the fork:** land an upstream permission-request *hook* (glaze surfaces
+the request, the host returns allow/deny; goleo supplies an auto-allow callback) —
+drafted in `spikes/glaze-scheme-secure/PERMISSION_HOOK_ISSUE.md` — and pin an
+upstream release that carries the scheme API. Then the `replace` goes away. Full
+history in `SPIKES.md`.
+
 ### Window modes (`Config.WindowMode`)
 
 - `WindowModeWebview` — native OS webview window. This is the **default for
@@ -432,9 +459,11 @@ single binding. Shutdown unblocks the run loop via `endRunLoop()`
 - `WindowModeMobile` — mobile hosting.
 
 The webview auto-grants OS permission prompts (camera/mic/geolocation) so the
-frontend's browser-API fallbacks resolve instead of hanging. The real
-implementation is WebKitGTK-specific on Linux (`webview_permissions_linux.go`);
-it is a no-op elsewhere (`webview_permissions_other.go`).
+frontend's browser-API fallbacks resolve instead of hanging: Linux via a purego
+`permission-request` shim (`webview_glaze_permissions_linux.go`), Windows via the
+fork's WebView2 `PermissionRequested` handler, and a no-op on macOS
+(`webview_glaze_permissions_other.go`). See "Why goleo pins a glaze fork" above for
+why the Windows grant lives in the fork.
 
 On mobile, the native Android/iOS shell hosts the platform WebView (Android
 WebView / WKWebView) and loads the Go server, so mobile entry points use
