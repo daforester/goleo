@@ -529,6 +529,22 @@ default 404. Fixed to call `webkit_uri_scheme_request_finish_error()` with a
 re-pinned/re-vendored and shipped as goleo **0.2.8**. With that, the maintainer
 said the PR is good to merge.
 
+**PR merged upstream (2026-07-20); what's left before we can drop the fork.** The
+scheme API now lives in `crgimenes/glaze` master. The fork is still required for
+two reasons: (1) upstream has not cut a *tagged release* containing it (latest is
+`v0.0.31`), and (2) the **Windows WebView2 permission auto-grant** (fork commit
+`953debd`) was deliberately kept out of the PR — it's goleo policy, not a safe
+library default. That grant can't move to goleo's runtime the way the Linux
+permission shim did: glaze's `Window()` returns the HWND, not the `ICoreWebView2`
+(a private field with no accessor), and WebView2 has no HWND→interface recovery —
+so there's no external hook to attach `add_PermissionRequested` to. The clean
+path off the fork is an upstream **permission-request hook** (host decides
+allow/deny; goleo supplies an auto-allow callback) — issue drafted in
+`spikes/glaze-scheme-secure/PERMISSION_HOOK_ISSUE.md`. Meanwhile the bridge's
+`getUserMedia` camera fallback is now time-bounded (`bridge/src/camera.ts`) so an
+unanswerable prompt fails cleanly instead of hanging — defense-in-depth, not a
+grant substitute.
+
 ## Cross-cutting testing learnings (not "spikes" but hard-won)
 
 - **CI mobile guard must target GOOS=android/ios, never the host.** `linux + mobilebuild` is an
