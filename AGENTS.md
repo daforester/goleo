@@ -599,8 +599,8 @@ Added on top of the core bridge/feature system. Full rationale + status in
     own independent session. Child-*process* windows, browser/PWA and mobile keep using WebSocket
     (`@goleo/bridge` auto-detects the native channel, else falls back). The HTTP/WS server stays up:
     it still serves embedded assets and is the fallback transport. Dropping it too via custom-scheme
-    (`goleo://`) asset serving is **implemented on macOS/Linux via `Config.SchemeAssets`** (Windows
-    falls back to loopback for now — see below). See "Scheme assets" under Desktop subsystems.
+    (`goleo://`) asset serving is **implemented on all three desktops via `Config.SchemeAssets`**
+    (see below). See "Scheme assets" under Desktop subsystems.
   - **Verified** on real WebView2 (Windows, cgo-free): a two-window app where each window completes
     an independent bidirectional round-trip over its own native channel, incl. `goleo:windowOpen`
     over native IPC, then a clean `Quit`. Also `runtime/nativeipc_test.go` (round-trip, policy,
@@ -620,7 +620,10 @@ Added on top of the core bridge/feature system. Full rationale + status in
   (`https://goleo.localhost`) via `spikes/goleo-scheme-verify`. **Requires the glaze fork** (`NewWithOptions`): goleo pins
   `crgimenes/glaze => daforester/glaze` via `replace`, and because Go `replace` directives don't
   transit, **any downstream module importing goleo's runtime needs the same replace** — `goleo new`
-  scaffolds it into the generated `go.mod`. See `SPIKES.md` (2026-07-13).
+  scaffolds it into the generated `go.mod`. See `SPIKES.md` (2026-07-13). Update: the scheme API is
+  now **merged into upstream `crgimenes/glaze`**; the fork (currently `v0.0.32-goleo.5`) is retained
+  only until upstream cuts a release carrying it *and* the Windows permission auto-grant moves off
+  the fork — see the fork-retirement note in `SPIKES.md` + `spikes/glaze-scheme-secure/PERMISSION_HOOK_ISSUE.md`.
 
 ### GUI lifecycle threading (fixed alongside native IPC)
 Two pre-existing defects surfaced by driving `Quit()` end-to-end:

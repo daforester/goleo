@@ -24,6 +24,13 @@ Consequence: builds stay `CGO_ENABLED=0` and **cross-compilation works** (darwin
 cross-built from Windows). Per-OS runners are still needed for signing/notarization/packaging
 and interactive GUI testing — not for compilation.
 
+**Current binding (update):** Windows later **migrated off `go-webview2` onto glaze**
+(2026-07-14 — see the "Windows → glaze migration" section below), so all three desktops now
+share **one** cgo-free binding, `crgimenes/glaze` via purego. The `go-webview2` row above is the
+*original* Windows proof; several mid-document 2026-07-13 findings that treat `go-webview2` as the
+Windows backend (and "Windows SchemeAssets falls back to loopback") are dated history superseded by
+that migration.
+
 ---
 
 ## Spike 0 — the CGO_ENABLED=0 vs `webview_go` defect (2026-07-09)
