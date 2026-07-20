@@ -1,6 +1,6 @@
 module github.com/daforester/goleo
 
-go 1.26
+go 1.26.5
 
 require (
 	github.com/crgimenes/glaze v0.0.31
@@ -28,4 +28,4 @@ require (
 	golang.org/x/text v0.13.0 // indirect
 )
 
-replace github.com/crgimenes/glaze => github.com/daforester/glaze v0.0.32-goleo.4
+replace github.com/crgimenes/glaze => github.com/daforester/glaze v0.0.32-goleo.5

@@ -3,8 +3,8 @@
 github.com/akavel/rsrc/binutil
 github.com/akavel/rsrc/coff
 github.com/akavel/rsrc/ico
-# github.com/crgimenes/glaze v0.0.31 => github.com/daforester/glaze v0.0.32-goleo.4
-## explicit; go 1.26
+# github.com/crgimenes/glaze v0.0.31 => github.com/daforester/glaze v0.0.32-goleo.5
+## explicit; go 1.26.5
 github.com/crgimenes/glaze
 # github.com/dlclark/regexp2/v2 v2.2.1
 ## explicit; go 1.25
@@ -104,4 +104,4 @@ golang.org/x/text/language
 golang.org/x/text/transform
 golang.org/x/text/unicode/norm
 golang.org/x/text/unicode/rangetable
-# github.com/crgimenes/glaze => github.com/daforester/glaze v0.0.32-goleo.4
+# github.com/crgimenes/glaze => github.com/daforester/glaze v0.0.32-goleo.5

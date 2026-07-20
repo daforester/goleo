@@ -519,6 +519,16 @@ it (`scripts/pin-glaze-fork.ps1 github.com/daforester/glaze v0.0.32-goleo.4`).
 The example/README are omitted there (examples module is not vendored; its
 import path differs on the fork).
 
+**Follow-up review round (2026-07-20) — the merge blocker.** The maintainer
+found one more Linux divergence: a `nil` `SchemeHandler` response (documented as
+"not found") was finished with an empty stream + default MIME — a *successful
+empty document* — whereas macOS uses `didFailWithError:` and Windows returns a
+default 404. Fixed to call `webkit_uri_scheme_request_finish_error()` with a
+`G_IO_ERROR_NOT_FOUND` `GError` on the nil path (`webview_linux.go`). Pushed to
+`upstream-scheme`; ported to `goleo-scheme` → tag **`v0.0.32-goleo.5`**; goleo
+re-pinned/re-vendored and shipped as goleo **0.2.8**. With that, the maintainer
+said the PR is good to merge.
+
 ## Cross-cutting testing learnings (not "spikes" but hard-won)
 
 - **CI mobile guard must target GOOS=android/ios, never the host.** `linux + mobilebuild` is an
