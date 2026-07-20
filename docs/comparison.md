@@ -47,8 +47,8 @@ meaningful differences are **language**, **build / cross-compile posture**, the
    cross-built from Windows. **Delivered:** all three desktops now ship on the
    cgo-free `glaze` binding (WKWebView / WebKitGTK / WebView2 via `purego`), so the
    whole runtime builds `CGO_ENABLED=0` and cross-compiles from one machine. The
-   legacy cgo `webview_go` backend remains only as an opt-in fallback (macOS/Linux,
-   one release then removed).
+   legacy cgo `webview_go` backend has been removed — glaze is the sole desktop
+   webview, with no cgo webview path.
 
 2. **PWA as a build target.** Neither competitor ships your app as an installable
    PWA (js/wasm). For Goleo this falls out of the WebSocket/HTTP bridge plus the

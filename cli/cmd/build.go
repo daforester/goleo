@@ -191,19 +191,11 @@ func buildForDesktop(target buildTarget, distDir string) error {
 	env := os.Environ()
 	env = append(env, fmt.Sprintf("GOOS=%s", target.GOOS))
 	env = append(env, fmt.Sprintf("GOARCH=%s", target.GOARCH))
-	// All desktop targets are cgo-free by default via the purego glaze backend
+	// All desktop targets are cgo-free via the purego glaze backend
 	// (runtime/webview_glaze.go) — WKWebView (macOS), WebKitGTK (Linux) and
-	// WebView2 (Windows) behind one binding. So every desktop build is
-	// CGO_ENABLED=0 and cross-compiles from any host. One opt-in fallback remains
-	// (one release, then removed): GOLEO_CGO_WEBVIEW=1 puts macOS/Linux back on the
-	// cgo webview_go backend (needs CGO_ENABLED=1 + its own-OS toolchain).
-	cgoWebview := os.Getenv("GOLEO_CGO_WEBVIEW") == "1" &&
-		(target.GOOS == "darwin" || target.GOOS == "linux")
-	if cgoWebview {
-		env = append(env, "CGO_ENABLED=1")
-	} else {
-		env = append(env, "CGO_ENABLED=0")
-	}
+	// WebView2 (Windows) behind one binding — so every desktop build is
+	// CGO_ENABLED=0 and cross-compiles from any host.
+	env = append(env, "CGO_ENABLED=0")
 
 	// The main package embeds frontend/dist relative to its own directory;
 	// copy the built frontend there when the backend lives in backend/.
@@ -234,9 +226,6 @@ func buildForDesktop(target buildTarget, distDir string) error {
 	ldflags := fmt.Sprintf("-s -w -X main.Version=%s", cfg.Version)
 
 	args := []string{"build", "-ldflags", ldflags}
-	if cgoWebview {
-		args = append(args, "-tags", "goleo_cgo_webview")
-	}
 	args = append(args, "-o", outputName, pkgDir)
 
 	build := exec.Command("go", args...)

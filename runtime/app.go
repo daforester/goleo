@@ -352,10 +352,9 @@ func (a *App) runWebview(port int) error {
 		case <-sig:
 		case <-a.ctx.Done():
 		}
-		// Unblock Run so shutdown can proceed. endRunLoop is backend-specific: the
-		// glaze backend (all three desktops) Terminate()s the run loop from any
-		// goroutine — which glaze makes safe — so Run returns. (The cgo webview_go
-		// fallback also Terminate()s.)
+		// Unblock Run so shutdown can proceed. The glaze backend (all three
+		// desktops) Terminate()s the run loop from any goroutine — which glaze
+		// makes safe — so Run returns.
 		win.endRunLoop()
 	}()
 

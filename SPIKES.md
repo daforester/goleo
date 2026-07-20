@@ -29,7 +29,11 @@ and interactive GUI testing — not for compilation.
 share **one** cgo-free binding, `crgimenes/glaze` via purego. The `go-webview2` row above is the
 *original* Windows proof; several mid-document 2026-07-13 findings that treat `go-webview2` as the
 Windows backend (and "Windows SchemeAssets falls back to loopback") are dated history superseded by
-that migration.
+that migration. **And (2026-07-20) the legacy cgo `webview_go` fallback was removed entirely** (dep,
+`runtime/webview.go`, the `goleo_cgo_webview` tag, and the webkit pkg-config shim all gone), so glaze
+is now the *sole* desktop webview and there is no cgo webview path — the only `cgo`-tagged code left
+is `runtime/camera`'s Linux V4L2 impl (with a pure-Go stub). Later mentions below of `webview_go`
+being "retained one release, then removable" are that closed-out plan.
 
 ---
 

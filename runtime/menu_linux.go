@@ -1,6 +1,6 @@
 //go:build linux && !mobilebuild && !js
 
-// Linux native menu bar, cgo-free via purego + GTK. glaze/webview_go put the
+// Linux native menu bar, cgo-free via purego + GTK. glaze puts the
 // WebKitWebView as the GtkWindow's only child, so the menu bar is added by
 // reparenting the webview under a vertical GtkBox. Built on the GTK main thread
 // (via the window's Dispatch). RTLD_NOLOAD binds the GTK already loaded by the

@@ -64,18 +64,13 @@ npm run goleo:build-ios        # -> .xcframework (macOS + Xcode)
 To run on a real device during development, or to sideload the APK, see
 [Mobile](10-mobile.md).
 
-## Choosing the webview backend (advanced)
+## The webview backend
 
-The default desktop backend is the cgo-free **glaze** binding on all three OSes.
-One opt-in fallback remains for macOS/Linux (one release, then removed) if you hit
-a backend bug — Windows is glaze-only (the legacy `go-webview2` backend has been
-removed):
-
-```bash
-GOLEO_CGO_WEBVIEW=1 goleo build linux    # macOS/Linux: legacy cgo webview_go (needs CGO + toolchain)
-```
-
-You should not normally need these.
+The desktop backend is the cgo-free **glaze** binding on all three OSes (WKWebView /
+WebKitGTK / WebView2 via `purego`) — there is nothing to configure or install. The
+former cgo `webview_go` and Windows `go-webview2` fallbacks have both been removed,
+so every desktop build is `CGO_ENABLED=0` and cross-compiles from any host with no C
+toolchain.
 
 ## What the version string is
 

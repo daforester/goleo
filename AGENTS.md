@@ -329,9 +329,8 @@ goleo build      # Build for current platform
 ### Go Dependencies
 - github.com/spf13/cobra - CLI framework
 - github.com/gorilla/websocket - WebSocket support
-- github.com/crgimenes/glaze - cgo-free WKWebView/WebKitGTK/WebView2 backend (the sole default webview binding for ALL desktops; pinned to the daforester/glaze fork)
-- github.com/webview/webview_go - cgo WKWebView/WebKitGTK (legacy fallback, `goleo_cgo_webview`)
-- github.com/ebitengine/purego - dlopen/FFI used by the cgo-free webview backends
+- github.com/crgimenes/glaze - cgo-free WKWebView/WebKitGTK/WebView2 backend (the sole webview binding for ALL desktops; pinned to the daforester/glaze fork)
+- github.com/ebitengine/purego - dlopen/FFI used by the cgo-free webview + tray backends
 - github.com/gogpu/systray - cgo-free system tray
 - github.com/dop251/goja - JS engine for `init.js`
 - golang.org/x/sys / golang.org/x/mobile - platform + gomobile support
@@ -409,16 +408,16 @@ unification, **all three desktops use ONE cgo-free binding by default**:
   otherwise hang on an unanswered prompt); no-op on macOS. Verified on real macOS +
   Linux (`.github/workflows/glaze-verify.yml`) and Windows (local: native IPC, scheme
   assets, in-process multi-window, tray, native menu bar, permission grant, clean Quit).
-- **Opt-in fallback (one release, then removed):**
-  - **macOS/Linux cgo webview_go (`-tags goleo_cgo_webview`):** `runtime/webview.go`
-    (`github.com/webview/webview_go`, cgo WebKitGTK/WKWebView); `goleo build` selects it
-    (with `CGO_ENABLED=1`) when `GOLEO_CGO_WEBVIEW=1`. Note: a `CGO_ENABLED=0` Linux
-    build also excludes `runtime/camera`'s cgo V4L2 impl — hence `camera_linux.go` is
-    `cgo`-tagged with a pure-Go stub fallback.
+- **No webview fallback:** glaze is the only desktop webview backend. The legacy cgo
+  `webview_go` backend and the Windows `go-webview2` backend have both been removed, so
+  there is no cgo webview path left. (The one remaining `cgo`-tagged code is
+  `runtime/camera`'s Linux V4L2 impl — `camera_linux.go`, with a pure-Go stub — so a
+  `CGO_ENABLED=0` build just uses the stub and camera routes to the WebView's
+  `getUserMedia`.)
 
 So **every desktop target is pure-Go and cross-compilable from one machine**, on a
-single binding. Shutdown unblocks the run loop via a per-backend `endRunLoop()`
-(glaze/cgo `Terminate()`) — not a GOOS check.
+single binding. Shutdown unblocks the run loop via `endRunLoop()`
+(glaze's `Terminate()`) — not a GOOS check.
 
 ### Window modes (`Config.WindowMode`)
 

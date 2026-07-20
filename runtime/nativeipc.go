@@ -37,9 +37,9 @@ const nativeIPCShim = `;(function(){
   window.__goleoDrain = function(){ var q = queue; queue = []; return q; };
 })();`
 
-// nativeEvaler is the subset of a per-platform webview backend the native bridge
-// needs to push frames to the frontend. The glaze backend (and the cgo webview_go
-// fallback) satisfy it; WebviewWindow.evaler() adapts to it (nil on the mobile stub).
+// nativeEvaler is the subset of the webview backend the native bridge needs to
+// push frames to the frontend. The glaze backend satisfies it;
+// WebviewWindow.evaler() adapts to it (nil on the mobile stub).
 type nativeEvaler interface {
 	Dispatch(func())
 	Eval(string)

@@ -11,7 +11,6 @@ require (
 	github.com/gorilla/websocket v1.5.1
 	github.com/josephspurrier/goversioninfo v1.7.0
 	github.com/spf13/cobra v1.8.0
-	github.com/webview/webview_go v0.0.0-20240831120633-6173450d4dd6
 	golang.org/x/sys v0.46.0
 )
 

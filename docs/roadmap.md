@@ -29,8 +29,9 @@ macOS/Linux backend, so **every desktop target is now cgo-free and cross-compile
 (`CGO_ENABLED=0`, `runtime/cgo` absent). Native IPC (`Config.NativeIPC`) and in-process multi-window
 (`mainLoopWindowManager`, `Config.InProcessWindows`) both ship. **Verified on real hardware, all
 three OSes:** Windows (WebView2), Linux/WebKitGTK (Docker+WSL & `glaze-verify.yml` ubuntu), and
-macOS/WKWebView (`macos-14`). The legacy cgo `webview_go` backend remains one release behind
-`-tags goleo_cgo_webview`. The system tray works on all three desktops (macOS via a purego/objc
+macOS/WKWebView (`macos-14`). The legacy cgo `webview_go` and Windows `go-webview2` backends have
+both since been removed — glaze is the sole desktop webview, no cgo webview path. The system tray
+works on all three desktops (macOS via a purego/objc
 `NSStatusItem` backend that shares glaze's fakecgo — `tray_darwin.go`). **Native menu bar**
 (`Config.Menu`/`App.SetMenu`, `runtime/menu.go`) ships on **all three desktops**, all cgo-free via
 purego: macOS (objc `NSMenu`), Windows (user32 + wndproc subclass), Linux **GTK3** (`GtkMenuBar` +
@@ -213,8 +214,8 @@ tray. Signal-based quit. Mobile stays on its own path, fully insulated.
     and cross-compile from one machine**. Verified on real macOS + Linux (`glaze-verify.yml`:
     JS↔Go round-trip + WebKitGTK permission auto-grant via the purego shim). Also unblocked
     `runtime/camera` via a `cgo`/`!cgo` split. The legacy cgo `webview_go` backend
-    (`runtime/webview.go`) is kept **one release** behind `-tags goleo_cgo_webview` /
-    `GOLEO_CGO_WEBVIEW=1` as a fallback, then removable.
+    (`runtime/webview.go`) was kept one release behind `-tags goleo_cgo_webview` as a
+    fallback, then **removed** (see the status section above) — no cgo webview path remains.
   - **In-process multi-window (macOS/Linux) — DONE and verified on real hardware.** glaze does the
     single-loop master (shared `NSApplication`/GtkApplication + `windowCount`), so extra windows are
     opened by `Dispatch`-ing `glaze.New()` onto the primary's main-thread run loop.
@@ -320,7 +321,8 @@ interface (design Windows-first on the proven `edge` layer, then macOS/Linux via
 - **Then:** in-process multi-window & custom titlebar → **tray** (`gogpu/systray`, cgo-free) →
   hidden-master lifecycle (`Background`, `ExitOnClose`, `Quit` funnel, daemon) → deep-linking +
   **single-instance** → global shortcuts, autostart, window-state persistence.
-- Retire `webview_go` (and the cgo permission file) → whole project builds `CGO_ENABLED=0`.
+- ✅ Retired `webview_go` + the cgo webview permission files → no cgo webview path. (The cgo V4L2
+  camera impl, with its pure-Go stub, is the only `cgo`-tagged code left; `CGO_ENABLED=0` uses the stub.)
 - Multi-process path demotes to documented fallback.
 
 ---
