@@ -243,14 +243,14 @@ verifies the signed manifest before applying an update.
 | | Desktop app | Mobile app | PWA | Native webview |
 |---|:---:|:---:|:---:|---|
 | **Windows** | ✅ | — | ✅ | WebView2 (**cgo-free**) |
-| **macOS** | ✅ | — | ✅ | WKWebView (cgo) |
-| **Linux** | ✅ | — | ✅ | WebKitGTK (cgo) |
+| **macOS** | ✅ | — | ✅ | WKWebView (**cgo-free**) |
+| **Linux** | ✅ | — | ✅ | WebKitGTK (**cgo-free**) |
 | **Android** | — | ✅ | ✅ | system WebView (gomobile) |
 | **iOS** | — | ✅ | ✅ | WKWebView (gomobile) |
 
-Windows desktop builds are fully **cgo-free** and cross-compile. macOS/Linux desktop builds use
-the system webview via cgo today (a cgo-free in-process backend is on the roadmap). Mobile builds
-use `gomobile`; iOS requires macOS + Xcode.
+All three desktop builds are fully **cgo-free** and cross-compile from one machine — the `glaze`
+binding (WKWebView / WebKitGTK / WebView2 via `purego`) drives the OS webview with no C toolchain in
+the loop. Mobile builds use `gomobile`; iOS requires macOS + Xcode.
 
 ---
 
@@ -277,9 +277,9 @@ Deeper docs: [`AGENTS.md`](AGENTS.md) (architecture), [`docs/roadmap.md`](docs/r
 
 ## Status
 
-Feature-complete and shipping-ready on all targets via the paths above. The one active
-refinement is a **cgo-free in-process webview for macOS/Linux** (Windows already has it); see the
-roadmap.
+Feature-complete and shipping-ready on all targets via the paths above. The desktop webview is now
+**cgo-free on all three OSes** (macOS / Linux / Windows via `glaze`); see the roadmap for what's
+next.
 
 ## License
 
