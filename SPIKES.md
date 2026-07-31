@@ -600,3 +600,30 @@ grant substitute.
   external tooling (`cli/cmd/icons.go`, unit-tested in `icons_test.go`). Mobile icons are only
   wired into the manifest/xcodegen when a source icon resolves, so a project without one keeps the
   platform default rather than referencing a missing resource.
+- **Never pass user data as a trailing argv element to `powershell -Command`** (fixed 2026-07-31;
+  bug present through v0.3.0). `runtime/clipboard`'s Windows write was
+  `exec.Command("powershell", "-NoProfile", "-Command", "Set-Clipboard", text)`. Go's
+  `syscall.EscapeArg` quotes an argument containing spaces, but **powershell.exe re-parses its own
+  command line for `-Command` and strips that quoting**, so `Set-Clipboard hello world` bound two
+  positional args and the write failed outright: *"A positional parameter cannot be found that
+  accepts argument 'world'."* So **copy-to-clipboard was broken for every string containing a
+  space** — i.e. almost all of them — and text starting with `-` silently bound to a parameter name
+  instead. Two related corruptions in the same file: `strings.TrimSpace` on read destroyed
+  leading/trailing whitespace on *all three* desktops, and on Linux an empty clipboard surfaced
+  xclip's `target STRING not available` as a hard error where Windows/macOS return `""`.
+  **Fix:** Windows now calls the Win32 clipboard API directly (`OpenClipboard`/`EmptyClipboard`/
+  `SetClipboardData` with `CF_UNICODETEXT`, `RtlMoveMemory` into a `GMEM_MOVEABLE` handle,
+  `LockOSThread` because the clipboard is owned by the opening *thread*) — no subprocess, no
+  quoting, no console-codepage question; the package was split into `clipboard_{windows,darwin,
+  linux,unix,mobile,stub}.go` to match `runtime/battery`'s shape. Two Win32 details worth keeping:
+  after a successful `SetClipboardData` the **system** owns the handle (freeing it corrupts the
+  clipboard — only free on the failure path), and reading must copy out of the locked block
+  *before* `CloseClipboard`. Passing the locked address to `RtlMoveMemory` rather than converting
+  it to an `unsafe.Pointer` in Go also keeps `go vet`'s `unsafeptr` check quiet.
+  **Verified:** `runtime/clipboard/clipboard_test.go` round-trips 15 payloads (spaces, quotes,
+  backticks, `$(…)`, `;`/`|`/`&&`, leading `-`, newlines, unicode, empty, whitespace-only) —
+  green on real Windows **and** on Linux/xclip under Docker+xvfb. macOS is compile-verified only
+  (pbcopy/pbpaste already took the payload on stdin, so they were never affected by the quoting
+  bug). Note CI runs **no** `go test` step at all today, so these tests only run locally.
+  Sibling shell-outs (`runtime/dialogs`, `runtime/notify`) pass one whole script string as the
+  single `-Command` argument, which is the safe shape — they were not affected.

@@ -537,7 +537,7 @@ Every feature package now exposes a `Provider` interface + `SetProvider`/`runtim
 | Feature | Go Pkg | Build Tag | Desktop | Mobile | TS Browser Fallback |
 |---------|--------|-----------|---------|--------|---------------------|
 | **Core (9)** | `runtime/` (builtins) | — | Native | Provider | navigator/Notification |
-| **Clipboard** | `runtime/clipboard/` | `goleo_clipboard` | Native (PowerShell/pbcopy/xclip) | Provider | `navigator.clipboard` |
+| **Clipboard** | `runtime/clipboard/` | `goleo_clipboard` | Native (Win32 clipboard API / pbcopy / xclip) | Provider | `navigator.clipboard` |
 | **Dialogs** | `runtime/dialogs/` | `goleo_dialog` | Native (PowerShell/osascript/zenity) | Provider | `<input type="file">` |
 | **FileSystem** | `runtime/fs/` | `goleo_fs` | Native | Provider | Requires Go |
 | **Geolocation** | `runtime/geolocation/` | `goleo_geolocation` | Native on Windows (WinRT Geolocator) and macOS (CoreLocationCLI, opt-in); unsupported on Linux | Provider | `navigator.geolocation` |
