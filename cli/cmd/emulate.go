@@ -381,6 +381,10 @@ func findDevice(deps *androidDeps) (string, error) {
 		emuArgs = append(emuArgs, "-no-audio", "-no-window")
 	}
 	emu := exec.Command(deps.EmulatorPath, emuArgs...)
+	// Surface the emulator's own output (crash reasons, missing/corrupt image,
+	// GPU init failures, ...) instead of discarding it, matching viteCmd above.
+	emu.Stdout = os.Stdout
+	emu.Stderr = os.Stderr
 	// Isolate the emulator in its own process group so it is not caught by a
 	// group signal aimed at goleo's children and can outlive this session.
 	newProcessGroup(emu)
@@ -388,9 +392,18 @@ func findDevice(deps *androidDeps) (string, error) {
 		return "", fmt.Errorf("failed to start emulator: %w", err)
 	}
 
+	// Track the emulator process's own exit so a crash (e.g. boot failure
+	// within the first second, because the AVD's system image is missing) is
+	// detected immediately instead of being indistinguishable from a slow
+	// boot for the full 5-minute deadline below.
+	exited := make(chan error, 1)
+	go func() { exited <- emu.Wait() }()
+
 	// 3. Wait for the emulator to appear in adb and finish booting
 	fmt.Println("  Waiting for emulator to boot...")
 	deadline := time.Now().Add(5 * time.Minute)
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
 	for time.Now().Before(deadline) {
 		deviceID := findRunningDevice(deps.AdbPath)
 		if deviceID != "" && isBootCompleted(deps.AdbPath, deviceID) {
@@ -398,8 +411,16 @@ func findDevice(deps *androidDeps) (string, error) {
 			fmt.Println("  Emulator is ready.")
 			return deviceID, nil
 		}
-		time.Sleep(3 * time.Second)
-		fmt.Print(".")
+		select {
+		case err := <-exited:
+			fmt.Println()
+			if err == nil {
+				err = fmt.Errorf("exited with status 0")
+			}
+			return "", fmt.Errorf("emulator exited before boot completed: %w", err)
+		case <-ticker.C:
+			fmt.Print(".")
+		}
 	}
 	fmt.Println()
 	return "", fmt.Errorf("timed out waiting for emulator to boot")

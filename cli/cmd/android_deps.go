@@ -833,12 +833,99 @@ func (d *androidDeps) listAVDNames() []string {
 	return names
 }
 
+// avdHomeDir returns the directory AVDs are stored in, honoring
+// ANDROID_AVD_HOME the same way the real Android tooling does. Falls back to
+// the conventional ~/.android/avd when it's unset.
+func avdHomeDir() string {
+	if home := os.Getenv("ANDROID_AVD_HOME"); home != "" {
+		return home
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".android", "avd")
+}
+
+// avdSystemImageSysdir reads <name>.avd/config.ini under the AVD home
+// directory and returns its image.sysdir.1 value (e.g.
+// "system-images/android-34/google_apis/x86_64/", the path the emulator
+// resolves relative to whichever SDK root it's launched with). Returns ""
+// if the AVD directory or config.ini can't be found or doesn't contain that
+// key — callers treat that as "unknown, can't validate" rather than "empty".
+func avdSystemImageSysdir(name string) string {
+	data, err := os.ReadFile(filepath.Join(avdHomeDir(), name+".avd", "config.ini"))
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		if strings.TrimSpace(key) == "image.sysdir.1" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+// systemImagePackageFromSysdir converts an image.sysdir.1 value as recorded
+// in an AVD's config.ini (e.g. "system-images/android-34/google_apis/x86_64/")
+// into the sdkmanager package spec that installs it
+// ("system-images;android-34;google_apis;x86_64"). This is the standard
+// Android SDK convention: a package spec's ';'-separated segments (after the
+// first) are exactly its on-disk path components.
+func systemImagePackageFromSysdir(sysdir string) string {
+	// config.ini records this with forward slashes regardless of host OS, but
+	// normalize backslashes too rather than assume that always holds.
+	sysdir = strings.ReplaceAll(sysdir, "\\", "/")
+	sysdir = strings.Trim(sysdir, "/")
+	return strings.ReplaceAll(sysdir, "/", ";")
+}
+
 // ensureAVD returns the name of an AVD to boot, offering to create one (which
 // downloads the matching system image) when none exist. Returns "" if none is
 // available and the user declined or provisioning is not possible.
+//
+// goleo's SDK is private per-project (<project>/.goleo/android/sdk), but AVDs
+// created via avdmanager land in the global, machine-wide ~/.android/avd (no
+// --path/ANDROID_AVD_HOME override is used when creating them). Every goleo
+// project on a machine therefore shares one AVD namespace while each has its
+// own private SDK tree, so a reused AVD may point at a system image that was
+// installed by, and only exists under, a different project's SDK root. Before
+// trusting a reused AVD, verify its system image is actually present under
+// this project's SDKRoot and self-heal (or fail loudly) if not.
 func (d *androidDeps) ensureAVD() (string, error) {
 	if existing := d.listAVDNames(); len(existing) > 0 {
-		return existing[0], nil
+		name := existing[0]
+		sysdir := avdSystemImageSysdir(name)
+		if sysdir == "" {
+			// config.ini couldn't be found or parsed — a foreign/corrupted AVD
+			// we can't introspect. Trust it as-is rather than blocking normal
+			// usage on the common case (a perfectly healthy AVD whose home
+			// directory we simply guessed wrong, or an old AVD format without
+			// this key): the worst case is the pre-existing "reuse blindly"
+			// behavior, not a new failure mode.
+			return name, nil
+		}
+		if _, err := os.Stat(filepath.Join(d.SDKRoot, sysdir, "system.img")); err == nil {
+			return name, nil // fast path: image already present under this project's SDK
+		}
+
+		// The AVD's system image is missing from this project's SDK root —
+		// e.g. this AVD was created (and its image installed) by a different
+		// goleo project sharing the global ~/.android/avd namespace. Self-heal
+		// by installing the image THIS AVD needs, per its own config.ini (the
+		// source of truth for an old/foreign AVD, which may not match today's
+		// systemImagePackage()), into this project's SDKRoot.
+		sdkmanager := sdkmanagerPath(d.SDKRoot)
+		if sdkmanager == "" {
+			return "", fmt.Errorf("AVD %q needs system image %q, which is not installed under %s, and sdkmanager could not be found to install it", name, sysdir, d.SDKRoot)
+		}
+		image := systemImagePackageFromSysdir(sysdir)
+		fmt.Printf("  AVD %q needs system image %s, not found under this project's SDK; installing ...\n", name, image)
+		if err := runSdkmanager(d, sdkmanager, image); err != nil {
+			return "", fmt.Errorf("installing system image %s needed by AVD %q: %w", image, name, err)
+		}
+		return name, nil
 	}
 
 	sdkmanager := sdkmanagerPath(d.SDKRoot)

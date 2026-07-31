@@ -257,6 +257,226 @@ func TestWinQuote(t *testing.T) {
 	}
 }
 
+// writeFakeEmulator writes a fake `emulator` executable whose `-list-avds`
+// prints the given names, one per line, and which otherwise exits 0.
+func writeFakeEmulator(t *testing.T, dir string, avds ...string) string {
+	t.Helper()
+	name := "emulator"
+	if runtime.GOOS == "windows" {
+		name = "emulator.bat"
+	}
+	path := filepath.Join(dir, name)
+	var script string
+	if runtime.GOOS == "windows" {
+		lines := "@echo off\n"
+		for _, a := range avds {
+			lines += "echo " + a + "\n"
+		}
+		script = lines
+	} else {
+		lines := "#!/bin/sh\n"
+		for _, a := range avds {
+			lines += "echo " + a + "\n"
+		}
+		lines += "exit 0\n"
+		script = lines
+	}
+	if err := os.WriteFile(path, []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// writeAVDConfig writes a fake <name>.avd/config.ini under avdHome, containing
+// just the image.sysdir.1 key ensureAVD cares about.
+func writeAVDConfig(t *testing.T, avdHome, name, sysdir string) {
+	t.Helper()
+	dir := filepath.Join(avdHome, name+".avd")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	content := "avd.ini.encoding=UTF-8\nimage.sysdir.1=" + sysdir + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "config.ini"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestEnsureAVDReusesWhenImagePresent(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake shell-script tools are POSIX-only")
+	}
+
+	avdHome := t.TempDir()
+	t.Setenv("ANDROID_AVD_HOME", avdHome)
+
+	sysdir := "system-images/android-34/google_apis/x86_64"
+	writeAVDConfig(t, avdHome, "goleo_avd", sysdir+"/")
+
+	sdkRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(sdkRoot, sysdir), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sdkRoot, sysdir, "system.img"), []byte("img"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	toolDir := t.TempDir()
+	emuPath := writeFakeEmulator(t, toolDir, "goleo_avd")
+
+	// A sdkmanager that would fail the test if invoked: the fast path must not
+	// need it.
+	sdkmanager := filepath.Join(toolDir, "sdkmanager")
+	if err := os.WriteFile(sdkmanager, []byte("#!/bin/sh\ntouch "+filepath.Join(toolDir, "sdkmanager-ran")+"\nexit 0\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	binDir := filepath.Join(sdkRoot, "cmdline-tools", "latest", "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(binDir, "sdkmanager"), []byte("#!/bin/sh\ntouch "+filepath.Join(toolDir, "sdkmanager-ran")+"\nexit 0\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	d := &androidDeps{SDKRoot: sdkRoot, EmulatorPath: emuPath}
+	got, err := d.ensureAVD()
+	if err != nil {
+		t.Fatalf("ensureAVD: %v", err)
+	}
+	if got != "goleo_avd" {
+		t.Errorf("ensureAVD() = %q, want %q", got, "goleo_avd")
+	}
+	if _, err := os.Stat(filepath.Join(toolDir, "sdkmanager-ran")); err == nil {
+		t.Errorf("sdkmanager was invoked despite the system image already being present (unnecessary work)")
+	}
+}
+
+func TestEnsureAVDReconcilesMissingImage(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake shell-script tools are POSIX-only")
+	}
+
+	avdHome := t.TempDir()
+	t.Setenv("ANDROID_AVD_HOME", avdHome)
+
+	// This AVD was created (and its image installed) by a different project's
+	// SDK; the current project's SDKRoot is a fresh tree with no matching
+	// system-images directory at all.
+	sysdir := "system-images/android-34/google_apis/x86_64"
+	writeAVDConfig(t, avdHome, "goleo_avd", sysdir+"/")
+
+	sdkRoot := t.TempDir() // fresh, no system-images present
+
+	toolDir := t.TempDir()
+	emuPath := writeFakeEmulator(t, toolDir, "goleo_avd")
+
+	// Fake sdkmanager that records the package spec it was asked to install
+	// and, to make the reconciliation observable end-to-end, actually lays
+	// down a system.img at the path ensureAVD will re-check.
+	sdkmanagerCalls := filepath.Join(toolDir, "sdkmanager-calls")
+	binDir := filepath.Join(sdkRoot, "cmdline-tools", "latest", "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	imgDir := filepath.Join(sdkRoot, sysdir)
+	script := "#!/bin/sh\n" +
+		"echo \"$@\" >> " + sdkmanagerCalls + "\n" +
+		"mkdir -p " + imgDir + "\n" +
+		"touch " + filepath.Join(imgDir, "system.img") + "\n" +
+		"exit 0\n"
+	if err := os.WriteFile(filepath.Join(binDir, "sdkmanager"), []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	d := &androidDeps{SDKRoot: sdkRoot, EmulatorPath: emuPath}
+	got, err := d.ensureAVD()
+	if err != nil {
+		t.Fatalf("ensureAVD: %v", err)
+	}
+	if got != "goleo_avd" {
+		t.Errorf("ensureAVD() = %q, want %q", got, "goleo_avd")
+	}
+
+	callsRaw, err := os.ReadFile(sdkmanagerCalls)
+	if err != nil {
+		t.Fatalf("sdkmanager was not invoked to reconcile the missing image: %v", err)
+	}
+	calls := string(callsRaw)
+	wantSpec := "system-images;android-34;google_apis;x86_64"
+	if !strings.Contains(calls, wantSpec) {
+		t.Errorf("sdkmanager invoked with %q, want it to include package spec %q", calls, wantSpec)
+	}
+}
+
+func TestEnsureAVDReconciliationFailureIsAnError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake shell-script tools are POSIX-only")
+	}
+
+	avdHome := t.TempDir()
+	t.Setenv("ANDROID_AVD_HOME", avdHome)
+
+	sysdir := "system-images/android-34/google_apis/x86_64"
+	writeAVDConfig(t, avdHome, "goleo_avd", sysdir+"/")
+
+	sdkRoot := t.TempDir()
+	toolDir := t.TempDir()
+	emuPath := writeFakeEmulator(t, toolDir, "goleo_avd")
+
+	binDir := filepath.Join(sdkRoot, "cmdline-tools", "latest", "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	// sdkmanager that always fails, e.g. no network to fetch the image.
+	if err := os.WriteFile(filepath.Join(binDir, "sdkmanager"), []byte("#!/bin/sh\nexit 1\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	d := &androidDeps{SDKRoot: sdkRoot, EmulatorPath: emuPath}
+	got, err := d.ensureAVD()
+	if err == nil {
+		t.Fatalf("ensureAVD() = %q, nil error; want an error instead of silently proceeding with a broken AVD", got)
+	}
+}
+
+func TestEnsureAVDTrustsUnparsableConfig(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake shell-script tools are POSIX-only")
+	}
+
+	// AVD home has no config.ini at all for this AVD (foreign/corrupted AVD,
+	// or one this test didn't bother faking a home directory for).
+	avdHome := t.TempDir()
+	t.Setenv("ANDROID_AVD_HOME", avdHome)
+
+	toolDir := t.TempDir()
+	emuPath := writeFakeEmulator(t, toolDir, "mystery_avd")
+
+	d := &androidDeps{SDKRoot: t.TempDir(), EmulatorPath: emuPath}
+	got, err := d.ensureAVD()
+	if err != nil {
+		t.Fatalf("ensureAVD: %v", err)
+	}
+	if got != "mystery_avd" {
+		t.Errorf("ensureAVD() = %q, want %q (unparsable config.ini should be trusted, not blocked)", got, "mystery_avd")
+	}
+}
+
+func TestSystemImagePackageFromSysdir(t *testing.T) {
+	tests := []struct {
+		sysdir string
+		want   string
+	}{
+		{"system-images/android-34/google_apis/x86_64/", "system-images;android-34;google_apis;x86_64"},
+		{"system-images/android-34/google_apis/x86_64", "system-images;android-34;google_apis;x86_64"},
+		{"system-images\\android-34\\google_apis\\x86_64\\", "system-images;android-34;google_apis;x86_64"},
+	}
+	for _, tt := range tests {
+		if got := systemImagePackageFromSysdir(tt.sysdir); got != tt.want {
+			t.Errorf("systemImagePackageFromSysdir(%q) = %q, want %q", tt.sysdir, got, tt.want)
+		}
+	}
+}
+
 func TestRunSdkmanagerUsesAbsolutePathRegardlessOfDir(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("runSdkmanager uses sh; not applicable on Windows")
