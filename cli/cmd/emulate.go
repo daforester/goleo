@@ -37,8 +37,9 @@ Targets:
 }
 
 var (
-	emulateTarget   string
-	emulateHeadless bool
+	emulateTarget       string
+	emulateHeadless     bool
+	emulateReversePorts []int
 )
 
 func init() {
@@ -46,6 +47,10 @@ func init() {
 	emulateCmd.Flags().StringVarP(&buildAndroid, "android-ndk", "", "", "Path to Android NDK")
 	emulateCmd.Flags().IntVarP(&devPort, "port", "p", 9842, "Port for the Go backend server")
 	emulateCmd.Flags().BoolVar(&emulateHeadless, "headless", false, "Start the emulator without a window (for CI)")
+	emulateCmd.Flags().IntSliceVar(&emulateReversePorts, "reverse-port", nil,
+		"Extra host port(s) to adb-reverse into the emulator alongside the frontend's own port "+
+			"(repeatable, or comma-separated) — for a project's own additional dev servers/backends "+
+			"goleo has no way to know about on its own")
 }
 
 func runEmulate(cmd *cobra.Command, args []string) error {
@@ -139,6 +144,20 @@ func emulateAndroid() error {
 	reverse.Stderr = os.Stderr
 	if err := reverse.Run(); err != nil {
 		return fmt.Errorf("adb reverse (frontend port %d): %w", vitePort, err)
+	}
+
+	// --reverse-port: a project may run its own additional dev servers or
+	// backends (e.g. a multi-app monorepo with several child frontends) that
+	// this app's WebView also needs to reach over http://localhost — goleo has
+	// no way to discover those on its own, so the caller lists them explicitly.
+	for _, port := range emulateReversePorts {
+		extra := exec.Command(deps.AdbPath, "-s", deviceID, "reverse",
+			fmt.Sprintf("tcp:%d", port), fmt.Sprintf("tcp:%d", port))
+		extra.Stdout = os.Stdout
+		extra.Stderr = os.Stderr
+		if err := extra.Run(); err != nil {
+			return fmt.Errorf("adb reverse (extra port %d): %w", port, err)
+		}
 	}
 
 	// 3. Build and deploy (initial)

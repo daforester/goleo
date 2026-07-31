@@ -31,6 +31,12 @@ type androidDeps struct {
 	Gomobile     string
 	AdbPath      string
 	EmulatorPath string
+	// dryRun makes every resolve*() stop at "not found" instead of prompting
+	// to install — used by `goleo doctor android` to report status without
+	// side effects. Discovery (env vars, PATH, common paths, the project's
+	// own .goleo/android/*) always runs first and is unaffected; only the
+	// final interactive fallback is skipped.
+	dryRun bool
 }
 
 const (
@@ -64,6 +70,66 @@ func ensureAndroidDeps() (*androidDeps, error) {
 
 	fmt.Println("  All Android dependencies resolved.")
 	return deps, nil
+}
+
+// checkAndroidDeps runs every resolve*() in dry-run mode — discovery only,
+// nothing installed, nothing prompted — and returns a status per dependency,
+// in report order. Continues past a missing dependency instead of stopping at
+// the first one like ensureAndroidDeps() does, since a status report wants
+// the full picture, not just the first blocker. Backs `goleo doctor android`.
+type androidDepStatus struct {
+	name     string
+	path     string // empty when err is non-nil
+	err      error
+	optional bool // missing doesn't fail the overall check (adb, emulator)
+}
+
+func checkAndroidDeps() (*androidDeps, []androidDepStatus) {
+	d := &androidDeps{dryRun: true}
+	statuses := []androidDepStatus{
+		{name: "Java (JDK)"},
+		{name: "gomobile"},
+		{name: "Android SDK"},
+		{name: "Android NDK"},
+		{name: "adb", optional: true},
+		{name: "Android emulator", optional: true},
+	}
+	statuses[0].err = d.resolveJava()
+	statuses[0].path = d.JavaHome
+	statuses[1].err = d.resolveGomobile()
+	statuses[1].path = d.Gomobile
+	statuses[2].err = d.resolveSDK()
+	statuses[2].path = d.SDKRoot
+	statuses[3].err = d.resolveNDK()
+	statuses[3].path = d.NDKDir
+	statuses[4].err = d.resolveAdb()
+	statuses[4].path = d.AdbPath
+	statuses[5].err = d.resolveEmulator()
+	statuses[5].path = d.EmulatorPath
+	return d, statuses
+}
+
+// avdStatus reports whether `emulate android` would find/reuse a working AVD
+// without prompting, mirroring ensureAVD()'s reuse-fast-path check — read-only,
+// installs nothing. Empty SDKRoot/EmulatorPath (already reported separately by
+// checkAndroidDeps) means this can't be determined yet.
+func (d *androidDeps) avdStatus() string {
+	if d.EmulatorPath == "" {
+		return "unknown (Android emulator not found — see above)"
+	}
+	existing := d.listAVDNames()
+	if len(existing) == 0 {
+		return "none found — first `emulate android` run will prompt to create one (~1 GB download)"
+	}
+	name := existing[0]
+	sysdir := avdSystemImageSysdir(name)
+	if sysdir == "" || d.SDKRoot == "" {
+		return fmt.Sprintf("%q (unable to verify its system image; will be trusted as-is)", name)
+	}
+	if _, err := os.Stat(filepath.Join(d.SDKRoot, sysdir, "system.img")); err == nil {
+		return fmt.Sprintf("%q (system image present under this project's SDK)", name)
+	}
+	return fmt.Sprintf("%q (system image missing from this project's SDK — will self-heal via sdkmanager on next emulate)", name)
 }
 
 func (d *androidDeps) resolveJava() error {
@@ -187,6 +253,9 @@ func parseJavaMajor(verOutput string) (int, bool) {
 }
 
 func (d *androidDeps) installJava() error {
+	if d.dryRun {
+		return fmt.Errorf("not found — would prompt to auto-download JDK %d", minBuildJava)
+	}
 	fmt.Println()
 	fmt.Println("  Java (JDK) not found.")
 	fmt.Println("  Goleo can download and install it for you, or you can install it manually.")
@@ -293,6 +362,10 @@ func (d *androidDeps) resolveGomobile() error {
 		return nil
 	}
 
+	if d.dryRun {
+		return fmt.Errorf("not found — would prompt to run: go install golang.org/x/mobile/cmd/gomobile@latest")
+	}
+
 	fmt.Println()
 	fmt.Println("  gomobile not found.")
 	fmt.Println("  Goleo can install it automatically with: go install golang.org/x/mobile/cmd/gomobile@latest")
@@ -382,6 +455,9 @@ func absOr(p string) string {
 }
 
 func (d *androidDeps) installSDK() error {
+	if d.dryRun {
+		return fmt.Errorf("not found — would prompt to download the command-line tools")
+	}
 	fmt.Println()
 	fmt.Println("  Android SDK not found.")
 	fmt.Println("  Goleo can download the command-line tools and set up the SDK automatically.")
@@ -636,6 +712,10 @@ func (d *androidDeps) resolveNDK() error {
 		}
 	}
 
+	if d.dryRun {
+		return fmt.Errorf("not found — would prompt to install via sdkmanager")
+	}
+
 	// Offer to install via sdkmanager
 	fmt.Println()
 	fmt.Println("  Android NDK not found. It's needed for native code compilation.")
@@ -710,6 +790,10 @@ func (d *androidDeps) resolveAdb() error {
 		}
 	}
 
+	if d.dryRun {
+		return fmt.Errorf("not found (optional: builds still work without it, but can't auto-deploy)")
+	}
+
 	fmt.Println()
 	fmt.Println("  adb (Android Debug Bridge) not found in PATH.")
 	fmt.Println("  It's included in Android SDK platform-tools.")
@@ -772,6 +856,10 @@ func (d *androidDeps) resolveEmulator() error {
 			d.EmulatorPath = p
 			return nil
 		}
+	}
+
+	if d.dryRun {
+		return fmt.Errorf("not found (optional: only needed for `emulate android`)")
 	}
 
 	// Not installed. Offer to install the emulator package via sdkmanager.

@@ -5,6 +5,7 @@ import android.annotation.SuppressLint;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.graphics.Bitmap;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothGatt;
@@ -50,6 +51,8 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
+import androidx.webkit.WebViewCompat;
+import androidx.webkit.WebViewFeature;
 import androidx.work.Constraints;
 import androidx.work.Data;
 import androidx.work.ExistingWorkPolicy;
@@ -62,6 +65,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -89,6 +93,26 @@ public class MainActivity extends AppCompatActivity {
     private static final int GEO_PERMISSION_REQUEST = 9844;
     private static final int BLE_PERMISSION_REQUEST = 9845;
     private static final AtomicInteger notificationId = new AtomicInteger(1);
+
+    // Not a real secret — goleo's dev-mode bridge server has an empty token
+    // and accepts any value at all (see tokenOK() in runtime/server.go). Its
+    // only job is making window.__GOLEO_TOKEN__ a string, which is the signal
+    // frontend host-detection (isNativeHost()-style checks) looks for.
+    //
+    // This app's WebView never gets that signal from goleo's own server in
+    // dev mode: loadUrl below points at an external Vite dev server, not
+    // goleo's server, which is the only thing that normally injects it (see
+    // injectToken() in server.go, used only for the production/embedded-FS
+    // case). Setting __GOLEO_TOKEN__ (not __GOLEO_NATIVE__) from here instead
+    // is deliberate: __GOLEO_NATIVE__ would make @goleo/bridge's Bridge.connect()
+    // commit to the native in-process channel (bridge.ts's setupNative()),
+    // which has no Java-side binding on Android (window.__goleoSend is a
+    // desktop-webview-only concept) — that would trade this bug for a worse
+    // one, a dead channel every invoke() hangs on. __GOLEO_TOKEN__ only
+    // affects the WebSocket URL's query string, which the dev server already
+    // ignores.
+    private static final String DEV_TOKEN_SCRIPT =
+            "window.__GOLEO_TOKEN__ = 'goleo-android-dev';";
 
     private WebView webView;
     private PermissionRequest pendingWebPermission;
@@ -163,7 +187,25 @@ public class MainActivity extends AppCompatActivity {
         settings.setGeolocationEnabled(true);
         settings.setMediaPlaybackRequiresUserGesture(false);
 
+        // Runs before any page script, on every navigation matching the
+        // origin rule — the Android equivalent of the desktop webview shim's
+        // pre-navigation Init(). Requires WebView 126+ (androidx.webkit
+        // feature-detected); onPageStarted below covers older WebView
+        // versions where this isn't available.
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            WebViewCompat.addDocumentStartJavaScript(webView, DEV_TOKEN_SCRIPT,
+                    Collections.singleton("http://localhost:{{.DevPort}}"));
+        }
+
         webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageStarted(WebView view, String url, Bitmap favicon) {
+                super.onPageStarted(view, url, favicon);
+                if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+                    view.evaluateJavascript(DEV_TOKEN_SCRIPT, null);
+                }
+            }
+
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 return false;
