@@ -85,11 +85,9 @@ func emulateAndroid() error {
 		pkgName = extractPackageName(string(data))
 	}
 
-	// 1. Start Vite dev server on host
-	fmt.Println("  Starting Vite frontend...")
-	vitePort := 5173
-	viteCmd := exec.Command("npx", "vite", "--port", fmt.Sprintf("%d", vitePort), "--host")
-	viteCmd.Dir = frontendAbs
+	// 1. Start the frontend dev server on host
+	fmt.Println("  Starting frontend dev server...")
+	viteCmd, vitePort := resolveDevServer(".", frontendAbs, 5173, "--host")
 	viteCmd.Stdout = os.Stdout
 	viteCmd.Stderr = os.Stderr
 	newProcessGroup(viteCmd)
@@ -161,7 +159,7 @@ func emulateAndroid() error {
 	}
 
 	// 3. Build and deploy (initial)
-	if err := buildAndDeployDev(deps, deviceID, pkgName); err != nil {
+	if err := buildAndDeployDev(deps, deviceID, pkgName, vitePort); err != nil {
 		return err
 	}
 
@@ -216,7 +214,7 @@ func emulateAndroid() error {
 					defer buildMu.Unlock()
 
 					fmt.Println("\n  Go source changed, rebuilding & redeploying...")
-					if err := buildAndDeployDev(deps, deviceID, pkgName); err != nil {
+					if err := buildAndDeployDev(deps, deviceID, pkgName, vitePort); err != nil {
 						fmt.Printf("  Rebuild failed: %v\n", err)
 					}
 				})
@@ -240,7 +238,7 @@ func emulateAndroid() error {
 	return nil
 }
 
-func buildAndDeployDev(deps *androidDeps, deviceID, pkgName string) error {
+func buildAndDeployDev(deps *androidDeps, deviceID, pkgName string, vitePort int) error {
 	// Restore go.mod/go.sum after each build so the mobile toolchain's x/mobile
 	// deps don't leave the project vendor-inconsistent for a later `goleo dev`.
 	defer snapshotModFiles(".")()
@@ -305,6 +303,11 @@ func buildAndDeployDev(deps *androidDeps, deviceID, pkgName string) error {
 	// Generate Android project
 	os.RemoveAll(buildDir)
 	mobileCfg := loadMobileConfig(".")
+	// Reflect the actually-resolved frontend port (default 5173, or
+	// goleo.json's frontend.dev_port override) — not loadMobileConfig's own
+	// hardcoded 5173 default — since this feeds {{.DevPort}} in the Android
+	// template, controlling what URL the WebView loads.
+	mobileCfg.DevPort = vitePort
 	iconSrc, hasIcon := mobileIconSource()
 	mobileCfg.HasIcon = hasIcon
 	if err := extractMobileTemplate("android-dev", buildDir, &mobileCfg); err != nil {

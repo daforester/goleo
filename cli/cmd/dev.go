@@ -91,14 +91,13 @@ func runDev(cmd *cobra.Command, args []string) error {
 		fmt.Printf("  Warning: could not set up process cleanup safeguard: %v\n", err)
 	}
 
-	viteCmd := exec.Command("npx", "vite", "--port", "5173")
-	viteCmd.Dir = frontendAbs
+	viteCmd, frontendPort := resolveDevServer(".", frontendAbs, 5173)
 	viteCmd.Stdout = os.Stdout
 	viteCmd.Stderr = os.Stderr
 	newProcessGroup(viteCmd)
 
 	fmt.Println("  Starting Goleo development server...")
-	fmt.Printf("  Frontend: http://localhost:5173\n")
+	fmt.Printf("  Frontend: http://localhost:%d\n", frontendPort)
 	fmt.Printf("  Backend:  http://localhost:%d\n", devPort)
 	fmt.Println()
 
@@ -176,8 +175,7 @@ func runDevPWA(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	viteCmd := exec.Command("npx", "vite", "--port", "5173", "--host")
-	viteCmd.Dir = frontendAbs
+	viteCmd, frontendPort := resolveDevServer(".", frontendAbs, 5173, "--host")
 	viteCmd.Env = append(os.Environ(), "VITE_GOLEO_PLATFORM=pwa")
 	viteCmd.Stdout = os.Stdout
 	viteCmd.Stderr = os.Stderr
@@ -188,7 +186,7 @@ func runDevPWA(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println("  Starting Goleo PWA development server...")
-	fmt.Printf("  Frontend: http://localhost:5173\n")
+	fmt.Printf("  Frontend: http://localhost:%d\n", frontendPort)
 	fmt.Println()
 
 	sigCh := make(chan os.Signal, 1)
