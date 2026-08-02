@@ -501,3 +501,66 @@ func TestRunSdkmanagerUsesAbsolutePathRegardlessOfDir(t *testing.T) {
 		t.Errorf("sdkmanager did not run from SDKRoot cwd: %v", err)
 	}
 }
+
+func TestSharedAndroidCacheDirUsesUserCacheDir(t *testing.T) {
+	cacheHome := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cacheHome)
+
+	want := filepath.Join(cacheHome, "goleo", "android")
+	if got := sharedAndroidCacheDir(); got != want {
+		t.Errorf("sharedAndroidCacheDir() = %q, want %q", got, want)
+	}
+}
+
+func TestResolveSDKReusesSharedCacheOverCommonPaths(t *testing.T) {
+	t.Setenv("ANDROID_HOME", "")
+	t.Setenv("ANDROID_SDK_ROOT", "")
+
+	cacheHome := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cacheHome)
+
+	sharedSDK := filepath.Join(cacheHome, "goleo", "android", "sdk")
+	if err := os.MkdirAll(filepath.Join(sharedSDK, "cmdline-tools", "latest", "bin"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Chdir(t.TempDir())
+
+	d := &androidDeps{}
+	if err := d.resolveSDK(); err != nil {
+		t.Fatalf("resolveSDK: %v", err)
+	}
+	want, err := filepath.Abs(sharedSDK)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.SDKRoot != want {
+		t.Errorf("resolveSDK() SDKRoot = %q, want shared cache dir %q", d.SDKRoot, want)
+	}
+}
+
+func TestResolveSDKFallsBackToLegacyProjectLocalDir(t *testing.T) {
+	t.Setenv("ANDROID_HOME", "")
+	t.Setenv("ANDROID_SDK_ROOT", "")
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	projectDir := t.TempDir()
+	t.Chdir(projectDir)
+
+	legacySDK := filepath.Join(projectDir, goleoAndroidDir, "sdk")
+	if err := os.MkdirAll(filepath.Join(legacySDK, "cmdline-tools", "latest", "bin"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	d := &androidDeps{}
+	if err := d.resolveSDK(); err != nil {
+		t.Fatalf("resolveSDK: %v", err)
+	}
+	want, err := filepath.Abs(legacySDK)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.SDKRoot != want {
+		t.Errorf("resolveSDK() SDKRoot = %q, want legacy project-local dir %q", d.SDKRoot, want)
+	}
+}

@@ -43,6 +43,20 @@ const (
 	goleoAndroidDir = ".goleo/android"
 )
 
+// sharedAndroidCacheDir returns a user-wide directory goleo can install the
+// Android SDK/NDK/system-images and JDK into once, so every project on the
+// machine finds and reuses the same install instead of each project
+// downloading its own copy under its local .goleo/android. Falls back to
+// the legacy project-local dir if the OS cache dir can't be determined
+// (e.g. HOME unset) rather than failing outright.
+func sharedAndroidCacheDir() string {
+	base, err := os.UserCacheDir()
+	if err != nil || base == "" {
+		return goleoAndroidDir
+	}
+	return filepath.Join(base, "goleo", "android")
+}
+
 func ensureAndroidDeps() (*androidDeps, error) {
 	deps := &androidDeps{}
 
@@ -141,9 +155,15 @@ func (d *androidDeps) resolveJava() error {
 	if jh := os.Getenv("JAVA_HOME"); jh != "" {
 		candidates = append(candidates, jh)
 	}
-	// A JDK a previous run downloaded under the project's .goleo dir; preferred
-	// so we don't re-download when the only system JDK is incompatible.
-	if localRoot, err := filepath.Abs(filepath.Join(goleoAndroidDir, "jdk")); err == nil {
+	// A JDK a previous goleo run downloaded, preferred so we don't re-download
+	// when the only system JDK is incompatible. Check the shared, user-wide
+	// cache first (what new installs use), then the legacy project-local dir
+	// so projects set up before that change keep working without re-downloading.
+	for _, root := range []string{filepath.Join(sharedAndroidCacheDir(), "jdk"), goleoAndroidDir + "/jdk"} {
+		localRoot, err := filepath.Abs(root)
+		if err != nil {
+			continue
+		}
 		if entries, err := os.ReadDir(localRoot); err == nil {
 			for _, e := range entries {
 				if e.IsDir() {
@@ -281,7 +301,7 @@ func (d *androidDeps) installJava() error {
 	}
 
 	fmt.Println("  Downloading JDK 17...")
-	installDir := filepath.Join(goleoAndroidDir, "jdk")
+	installDir := filepath.Join(sharedAndroidCacheDir(), "jdk")
 	os.MkdirAll(installDir, 0755)
 
 	url := javaDownloadURL()
@@ -406,10 +426,17 @@ func (d *androidDeps) resolveSDK() error {
 		}
 	}
 
-	// Reuse an SDK a previous goleo run installed under the project's .goleo
-	// dir, identified by the command-line tools we lay down there. This avoids
-	// re-downloading on every invocation.
-	if local, err := filepath.Abs(filepath.Join(goleoAndroidDir, "sdk")); err == nil {
+	// Reuse an SDK a previous goleo run installed, identified by the
+	// command-line tools we lay down there. Check the shared, user-wide cache
+	// first (what new installs use, and what lets every project on the
+	// machine reuse a single download), then the legacy project-local .goleo
+	// dir so projects set up before that change keep working without
+	// re-downloading.
+	for _, root := range []string{filepath.Join(sharedAndroidCacheDir(), "sdk"), goleoAndroidDir + "/sdk"} {
+		local, err := filepath.Abs(root)
+		if err != nil {
+			continue
+		}
 		if _, err := os.Stat(filepath.Join(local, "cmdline-tools", "latest", "bin")); err == nil {
 			d.SDKRoot = local
 			return nil
@@ -472,8 +499,11 @@ func (d *androidDeps) installSDK() error {
 
 	// Use an absolute install dir: several sdkmanager invocations run with a
 	// changed working directory, so a relative path would be resolved against
-	// the wrong cwd (producing a doubled, non-existent path).
-	installDir, err := filepath.Abs(filepath.Join(goleoAndroidDir, "sdk"))
+	// the wrong cwd (producing a doubled, non-existent path). Installed to the
+	// shared, user-wide cache (not the project-local .goleo dir) so every
+	// project on the machine finds and reuses this same SDK/NDK/system-images
+	// install instead of re-downloading its own copy.
+	installDir, err := filepath.Abs(filepath.Join(sharedAndroidCacheDir(), "sdk"))
 	if err != nil {
 		return fmt.Errorf("resolving SDK install path: %w", err)
 	}
