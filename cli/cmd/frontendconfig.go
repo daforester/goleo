@@ -25,6 +25,16 @@ type frontendConfig struct {
 	// DevCommand — goleo has no other way to know what port to wait on,
 	// report, or adb-reverse.
 	DevPort int
+	// BuildCommand overrides goleo's built-in `npx vite build` invocation —
+	// for a frontend whose own build wraps Vite (or doesn't use it at all),
+	// e.g. Nuxt's `nuxt generate`. Run as-is from the project root.
+	// Independent of DevCommand/DevPort — a project can override one without
+	// the other.
+	BuildCommand string
+	// DistDir overrides the "dist" subdirectory name goleo looks for the
+	// built frontend in (relative to the frontend directory). Nuxt's
+	// `nuxt generate` writes to ".output/public", not "dist".
+	DistDir string
 }
 
 // loadFrontendConfig reads goleo.json's "frontend" section, following the
@@ -51,6 +61,12 @@ func loadFrontendConfig(projectDir string) frontendConfig {
 	}
 	if port, ok := frontend["dev_port"].(float64); ok && port > 0 {
 		cfg.DevPort = int(port)
+	}
+	if cmd, ok := frontend["build_command"].(string); ok {
+		cfg.BuildCommand = cmd
+	}
+	if dir, ok := frontend["dist_dir"].(string); ok {
+		cfg.DistDir = dir
 	}
 	return cfg
 }

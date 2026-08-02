@@ -101,6 +101,80 @@ func TestResolveDevServerUsesCustomCommandWhenConfigured(t *testing.T) {
 	}
 }
 
+func TestLoadFrontendConfigReadsBuildCommandAndDistDir(t *testing.T) {
+	dir := t.TempDir()
+	writeGoleoJSON(t, dir, `"frontend":{"build_command":"npm run build","dist_dir":".output/public"}`)
+	cfg := loadFrontendConfig(dir)
+	if cfg.BuildCommand != "npm run build" {
+		t.Errorf("BuildCommand = %q, want %q", cfg.BuildCommand, "npm run build")
+	}
+	if cfg.DistDir != ".output/public" {
+		t.Errorf("DistDir = %q, want %q", cfg.DistDir, ".output/public")
+	}
+}
+
+func TestLoadFrontendConfigBuildCommandAndDevCommandAreIndependent(t *testing.T) {
+	// Unlike dev_command/dev_port, build_command/dist_dir don't require each
+	// other, and neither pair requires the other — a project can set just
+	// one of the four fields.
+	dir := t.TempDir()
+	writeGoleoJSON(t, dir, `"frontend":{"build_command":"npm run build"}`)
+	cfg := loadFrontendConfig(dir)
+	if cfg.BuildCommand != "npm run build" {
+		t.Errorf("BuildCommand = %q, want %q", cfg.BuildCommand, "npm run build")
+	}
+	if cfg.DistDir != "" {
+		t.Errorf("DistDir = %q, want empty (not set)", cfg.DistDir)
+	}
+	if cfg.DevCommand != "" || cfg.DevPort != 0 {
+		t.Errorf("dev fields should be untouched, got DevCommand=%q DevPort=%d", cfg.DevCommand, cfg.DevPort)
+	}
+}
+
+func TestResolveBuildCommandFallsBackToViteWhenUnconfigured(t *testing.T) {
+	projectDir := t.TempDir()
+	frontendDir := t.TempDir()
+	cmd, isCustom := resolveBuildCommand(projectDir, frontendDir, []string{"FOO=bar"})
+	if isCustom {
+		t.Error("isCustom = true, want false (no build_command set)")
+	}
+	if cmd.Dir != frontendDir {
+		t.Errorf("cmd.Dir = %q, want frontendDir %q", cmd.Dir, frontendDir)
+	}
+	wantArgs := []string{"npx", "vite", "build"}
+	if len(cmd.Args) != len(wantArgs) {
+		t.Fatalf("args = %v, want %v", cmd.Args, wantArgs)
+	}
+	for i := range wantArgs {
+		if cmd.Args[i] != wantArgs[i] {
+			t.Errorf("args[%d] = %q, want %q", i, cmd.Args[i], wantArgs[i])
+		}
+	}
+}
+
+func TestResolveBuildCommandUsesCustomCommandWhenConfigured(t *testing.T) {
+	projectDir := t.TempDir()
+	frontendDir := t.TempDir()
+	writeGoleoJSON(t, projectDir, `"frontend":{"build_command":"npm run build"}`)
+
+	cmd, isCustom := resolveBuildCommand(projectDir, frontendDir, nil)
+	if !isCustom {
+		t.Error("isCustom = false, want true (build_command set)")
+	}
+	if cmd.Dir != frontendDir {
+		t.Errorf("cmd.Dir = %q, want frontendDir %q", cmd.Dir, frontendDir)
+	}
+	wantArgs := []string{"npm", "run", "build"}
+	if len(cmd.Args) != len(wantArgs) {
+		t.Fatalf("args = %v, want %v", cmd.Args, wantArgs)
+	}
+	for i := range wantArgs {
+		if cmd.Args[i] != wantArgs[i] {
+			t.Errorf("args[%d] = %q, want %q", i, cmd.Args[i], wantArgs[i])
+		}
+	}
+}
+
 func TestResolveDevServerIgnoresDevCommandWithoutDevPort(t *testing.T) {
 	// Both fields are required together — a dev_command with no dev_port
 	// leaves goleo with no way to know what port to wait on/report/reverse,

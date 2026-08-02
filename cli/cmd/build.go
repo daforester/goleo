@@ -99,7 +99,11 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  Building Goleo app for %s (%s/%s)...\n", target.Label, target.GOOS, target.GOARCH)
 	fmt.Println()
 
-	frontendDist := filepath.Join(buildFrontend, "dist")
+	distDirName := loadFrontendConfig(".").DistDir
+	if distDirName == "" {
+		distDirName = "dist"
+	}
+	frontendDist := filepath.Join(buildFrontend, distDirName)
 	var extraEnv []string
 	if targetName == "pwa" {
 		extraEnv = append(extraEnv, "VITE_GOLEO_PLATFORM=pwa")
@@ -158,17 +162,45 @@ func buildFrontendProject(frontendDir, distDir string, extraEnv []string) error 
 		}
 	}
 
-	fmt.Println("  Building frontend with Vite...")
-	viteBuild := exec.Command("npx", "vite", "build")
-	viteBuild.Dir = frontendDir
-	viteBuild.Env = append(os.Environ(), extraEnv...)
-	viteBuild.Stdout = os.Stdout
-	viteBuild.Stderr = os.Stderr
-	if err := viteBuild.Run(); err != nil {
-		return fmt.Errorf("vite build failed: %w", err)
+	build, usesCustomCommand := resolveBuildCommand(".", frontendDir, extraEnv)
+	if usesCustomCommand {
+		fmt.Printf("  Building frontend with %q...\n", strings.Join(build.Args, " "))
+	} else {
+		fmt.Println("  Building frontend with Vite...")
+	}
+	build.Stdout = os.Stdout
+	build.Stderr = os.Stderr
+	if err := build.Run(); err != nil {
+		return fmt.Errorf("frontend build failed: %w", err)
 	}
 
 	return nil
+}
+
+// resolveBuildCommand returns the command to build the frontend, and whether
+// it's a project-supplied override. goleo.json lives at projectDir, which
+// only equals frontendDir when the project is invoked with `-f .` — loaded
+// from projectDir like every other goleo.json reader in this file
+// (loadMobileConfig, loadBundleConfig), not frontendDir.
+//
+// When frontend.build_command is set, splits it on whitespace and execs it
+// directly from frontendDir — no intermediary shell, same reasoning as
+// resolveDevServer. Otherwise falls back to goleo's existing
+// `npx vite build` from frontendDir, exactly as before.
+func resolveBuildCommand(projectDir, frontendDir string, extraEnv []string) (*exec.Cmd, bool) {
+	if buildCommand := loadFrontendConfig(projectDir).BuildCommand; buildCommand != "" {
+		if parts := strings.Fields(buildCommand); len(parts) > 0 {
+			cmd := exec.Command(parts[0], parts[1:]...)
+			cmd.Dir = frontendDir
+			cmd.Env = append(os.Environ(), extraEnv...)
+			return cmd, true
+		}
+	}
+
+	cmd := exec.Command("npx", "vite", "build")
+	cmd.Dir = frontendDir
+	cmd.Env = append(os.Environ(), extraEnv...)
+	return cmd, false
 }
 
 // binaryOutputName is the built binary's file name: the -o value (default "app")
