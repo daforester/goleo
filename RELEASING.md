@@ -108,6 +108,30 @@ The `release` workflow then:
 
 You only set two versions; the platform packages inherit `@goleo/cli`'s.
 
+### 3a. After the publish lands: re-lock and commit
+
+```bash
+npm install                                  # records the just-published platform packages
+git commit -m "chore: relock after v0.2.0" package-lock.json
+```
+
+**Don't skip this — without it `npm ci` is broken on a fresh clone.** The bump in
+step 3 sets `optionalDependencies` to a version that does **not exist on npm yet**,
+so `npm` cannot write lockfile entries for the six `@goleo/cli-<os>-<arch>`
+packages and silently drops them. The committed lockfile is then out of sync with
+`cli/npm/package.json`, and `npm ci` — which requires exact agreement — fails:
+
+```
+npm error `npm ci` can only install packages when your package.json and
+npm error package-lock.json ... are in sync.
+npm error Missing: @goleo/cli-darwin-arm64@0.2.0 from lock file
+```
+
+`npm install` is tolerant and repairs the lockfile, which is why the release
+workflow itself (it runs `npm install`, not `npm ci`) keeps working and why this
+stayed invisible. Only a contributor reaching for the conventional `npm ci` hits
+it. Running the re-lock after each publish keeps a fresh clone installable.
+
 ---
 
 ## Windows code signing (optional, strongly recommended)
