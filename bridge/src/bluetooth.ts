@@ -25,11 +25,20 @@ export async function requestDevice(filters?: Record<string, unknown>): Promise<
 export async function connect(deviceId: string): Promise<void> {
   try {
     await bridge().invoke<void>('goleo:bleConnect', { deviceId })
-  } catch {
+  } catch (e) {
     if (typeof navigator !== 'undefined' && 'bluetooth' in navigator) {
+      // NOTE: deviceId is an opaque id, not a name. Matching it as a name is
+      // wrong, and re-prompting with a picker is not a reconnect — but Web
+      // Bluetooth offers no way to reconnect by id without a prior permission
+      // grant, so this remains the closest available behaviour. Callers should not
+      // assume the device they get back is the one they asked for.
       const device = await (navigator as any).bluetooth.requestDevice({ filters: [{ name: deviceId }] })
       gattServer = await device.gatt.connect()
+      return
     }
+    // Falling through here used to RESOLVE, reporting a connection that was never
+    // made: no backend, no Web Bluetooth, and the caller was told it succeeded.
+    throw e instanceof Error ? e : new Error(`bleConnect: ${String(e)}`)
   }
 }
 

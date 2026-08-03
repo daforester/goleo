@@ -24,22 +24,36 @@ export interface Capabilities {
   windowing: boolean
   /** A system tray icon is available (desktop only). */
   tray: boolean
+  /** A native menu bar can be installed (desktop only). */
+  menu: boolean
 }
 
 let capsCache: Promise<Capabilities> | undefined
 
+const NO_CAPABILITIES: Capabilities = { windowing: false, tray: false, menu: false }
+
 /**
- * Query which desktop capabilities the running platform supports. The result
- * is cached for the session. Falls back to "nothing supported" if the backend
- * is unavailable (e.g. pure PWA with no Go process).
+ * Query which desktop capabilities the running platform supports. A successful
+ * answer is cached for the session; a failure is NOT.
+ *
+ * Caching the failure was a real trap: if the first call happened before the
+ * backend connected — easy, since nothing orders these — the all-false fallback was
+ * memoised for the whole session, and openWindow then threw "not supported" forever
+ * even on a desktop that supports it. Only a real answer is worth remembering.
  */
 export function getCapabilities(): Promise<Capabilities> {
   if (!capsCache) {
-    capsCache = invoke<Capabilities>('goleo:capabilities').catch(
-      () => ({ windowing: false, tray: false }),
-    )
+    capsCache = invoke<Capabilities>('goleo:capabilities').catch(() => {
+      capsCache = undefined // let the next call try again
+      return NO_CAPABILITIES
+    })
   }
   return capsCache
+}
+
+/** Whether a native menu bar can be installed on this platform. */
+export async function isMenuSupported(): Promise<boolean> {
+  return (await getCapabilities()).menu
 }
 
 /** Whether additional native windows can be opened on this platform. */

@@ -112,6 +112,7 @@ export {
   getCapabilities,
   isWindowingSupported,
   isTraySupported,
+  isMenuSupported,
 } from './window'
 export type { WindowOptions, Capabilities } from './window'
 export { setMenu, onMenu, menuSupported } from './menu'
@@ -183,6 +184,20 @@ export function disconnect(): void {
 export function isConnected(): boolean {
   const bridge = getBridge()
   return bridge.isConnected()
+}
+
+/**
+ * Reconnect to the Go backend, resetting the retry counter.
+ *
+ * There was previously no way back from local-only mode: if the initial connect
+ * timed out (default 3s) or the retries were exhausted, the bridge stayed local for
+ * the rest of the session and every non-core method threw "backend not connected" —
+ * even once the backend was up. A slow-starting backend permanently disabled the
+ * app. Wire this to a retry button, or to the `bridge:reconnectFailed` event.
+ */
+export async function reconnect(): Promise<void> {
+  const bridge = getBridge()
+  await bridge.reconnect()
 }
 
 export function sendEvent(event: string, data?: Record<string, unknown>): void {

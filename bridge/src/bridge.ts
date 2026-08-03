@@ -102,6 +102,7 @@ class Bridge {
 
       this.ws.onclose = () => {
         this.connected = false
+        this.rejectPending('bridge: connection closed')
         this.emitEvent('bridge:disconnected', {})
         if (this.config.autoReconnect && this.ready) {
           this.attemptReconnect()
@@ -207,18 +208,65 @@ class Bridge {
 
   private attemptReconnect(): void {
     if (this.reconnectAttempts >= this.config.maxReconnectAttempts) {
-      console.error('[goleo] max reconnection attempts reached')
+      console.error('[goleo] max reconnection attempts reached — call reconnect() to try again')
       this.emitEvent('bridge:reconnectFailed', {})
       return
     }
 
     this.reconnectAttempts++
-    console.log(`[goleo] reconnecting (attempt ${this.reconnectAttempts}/${this.config.maxReconnectAttempts})...`)
+    const delay = this.reconnectDelay()
+    console.log(`[goleo] reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.config.maxReconnectAttempts})...`)
     this.emitEvent('bridge:reconnecting', { attempt: this.reconnectAttempts })
 
     setTimeout(() => {
       this.connect().catch(() => {})
-    }, this.config.reconnectInterval)
+    }, delay)
+  }
+
+  // reconnectDelay backs off exponentially with jitter, instead of retrying at a
+  // fixed interval. A fixed 3s retry from every client means a backend that
+  // restarts gets a synchronised thundering herd, and three evenly-spaced attempts
+  // give a slow starter no more time than a fast one.
+  private reconnectDelay(): number {
+    const base = this.config.reconnectInterval
+    const backed = base * Math.pow(2, this.reconnectAttempts - 1)
+    const capped = Math.min(backed, base * 8)
+    return Math.round(capped * (0.5 + Math.random() * 0.5)) // 50-100% jitter
+  }
+
+  /**
+   * Reconnect to the backend, resetting the attempt counter.
+   *
+   * Without this there was no way back: once the initial connect timed out (default
+   * 3s) or the retries were exhausted, the bridge stayed in local-only mode for the
+   * rest of the session and every non-core method threw "backend not connected" —
+   * even after the backend came up. A slow-starting backend permanently disabled the
+   * app. Call this from a "retry" affordance, or on `bridge:reconnectFailed`.
+   */
+  async reconnect(): Promise<void> {
+    this.reconnectAttempts = 0
+    try {
+      this.ws?.close()
+    } catch {
+      /* already closed */
+    }
+    // connect() short-circuits when this.connected, so a stale flag would make
+    // reconnect a no-op; enterLocalMode already cleared it, but be explicit.
+    this.connected = false
+    await this.connect()
+  }
+
+  // rejectPending fails every in-flight invoke with a real error. On close these
+  // were simply abandoned, so each one sat until its own 30s timeout and then
+  // reported "invoke timeout" — a misleading message for a dropped connection, and
+  // a 30s stall in the UI for something already known.
+  private rejectPending(reason: string): void {
+    if (this.pending.size === 0) return
+    const err = new Error(reason)
+    for (const [id, p] of this.pending) {
+      this.pending.delete(id)
+      p.reject(err)
+    }
   }
 
   private handleMessage(msg: { type: string; data?: unknown }): void {
