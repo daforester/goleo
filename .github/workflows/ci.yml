@@ -85,3 +85,20 @@ jobs:
       # zenity installed.
       - name: Unit tests
         run: go test ./...
+
+      # The TypeScript bridge had no test runner at all until now — only `tsc`,
+      # which cannot tell you that a catch block returns the wrong value. That is
+      # how several failure-path bugs survived there (a failed confirm dialog
+      # returning 'OK', an fs error being replaced with "requires the Go backend").
+      # Gating it here matters as much as adding it: a suite nothing runs is the
+      # same as no suite.
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Bridge tests (TypeScript)
+        working-directory: bridge
+        run: |
+          npm ci || npm install
+          npm test
