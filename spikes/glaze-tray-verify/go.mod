@@ -15,7 +15,6 @@ require (
 	github.com/gogpu/systray v0.1.1 // indirect
 	github.com/google/pprof v0.0.0-20230207041349-798e818bf904 // indirect
 	github.com/gorilla/websocket v1.5.1 // indirect
-	github.com/webview/webview_go v0.0.0-20240831120633-6173450d4dd6 // indirect
 	golang.org/x/net v0.17.0 // indirect
 	golang.org/x/sys v0.46.0 // indirect
 	golang.org/x/text v0.13.0 // indirect
@@ -23,4 +22,4 @@ require (
 
 replace github.com/daforester/goleo => ../..
 
-replace github.com/crgimenes/glaze => github.com/daforester/glaze v0.0.32-goleo.3
+replace github.com/crgimenes/glaze => github.com/daforester/glaze v0.0.46-goleo.1
