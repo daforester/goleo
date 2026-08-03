@@ -114,16 +114,44 @@ app.SetPolicy(&goleo.Policy{
 
 - `prefix*` wildcards are supported; core-safe commands are always allowed.
 - `SetPolicy` takes a **pointer** (`*Policy`).
-- **The method allow-list is enforced; the resource-scope lists are not yet.**
-  `FSRoots`, `HTTPHosts` and `ShellPrograms` — and their `AllowsFSPath`,
-  `AllowsHTTPHost`, `AllowsShellProgram` helpers — exist, but no plugin calls them,
-  so setting them restricts nothing today. In particular, a registered filesystem
-  plugin can read and write any path the user can, regardless of `FSRoots`. Gate
-  sensitive plugins by leaving them out of `Allow` (or not registering them) until
-  the scope checks are wired in.
 - The production server also binds loopback-only, checks the WS origin allow-list,
   and injects a per-launch token into `index.html`. Native IPC sidesteps the socket
   surface entirely while the policy still applies.
+- `HTTPHosts` and `ShellPrograms` are **reserved** — there is no http or shell
+  plugin yet, so they gate nothing today.
+
+## Filesystem scope
+
+The `fs` plugin is confined by default. It may reach:
+
+1. the app's own data directory (always),
+2. anything listed in `Policy.FSRoots`,
+3. any path the user picked in a native dialog this session — so the ordinary
+   "user chooses a file, app opens it" flow needs no configuration.
+
+```go
+app.SetPolicy(&goleo.Policy{
+    Allow:   []string{"goleo:fs*"},
+    FSRoots: []string{"/srv/shared-data"},   // widens the scope
+})
+```
+
+- **Writes and deletes** outside the scope are refused. An unrecoverable
+  `RemoveAll` gets no compatibility window.
+- **Reads** outside the scope currently succeed but log a one-time deprecation
+  warning naming the path. They will become errors.
+- **System locations** (`C:\Windows`, `%ProgramFiles%`, `/usr`, `/etc`, …) are
+  refused for writes in *every* mode.
+- Symlinks are resolved before the check, so a link inside a root cannot point out
+  of it.
+
+Need the whole disk (a file manager, a dev tool)? Opt out explicitly:
+
+```go
+runtime.New(runtime.Config{FSScope: runtime.FSScopeUnrestricted})
+```
+
+or set `GOLEO_FS_UNRESTRICTED=1`.
 
 ---
 

@@ -38,14 +38,37 @@ type Bridge struct {
 	mu          sync.RWMutex
 	pending     map[string]chan InvokeResponse
 	policy      *Policy
+	// scope confines the fs plugin. Lazily created so a Bridge built by
+	// NewBridge or as a zero value both behave.
+	scope     *fsScopeState
+	scopeOnce sync.Once
+}
+
+// fsScope returns this Bridge's filesystem confinement state, creating it on
+// first use.
+func (b *Bridge) fsScope() *fsScopeState {
+	b.scopeOnce.Do(func() {
+		if b.scope == nil {
+			b.scope = newFSScopeState()
+		}
+	})
+	return b.scope
 }
 
 // SetPolicy installs a capability ACL enforced on every invoke. Passing nil
 // disables enforcement (the default). See Policy.
+//
+// A policy's FSRoots are also registered as filesystem roots here — that is what
+// makes them actually confine the fs plugin. Before this, FSRoots was inert.
 func (b *Bridge) SetPolicy(p *Policy) {
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	b.policy = p
+	b.mu.Unlock()
+	if p != nil {
+		for _, root := range p.FSRoots {
+			b.AddFSRoot(root)
+		}
+	}
 }
 
 func NewBridge() *Bridge {
@@ -54,6 +77,7 @@ func NewBridge() *Bridge {
 		events:      make(map[string][]EventHandler),
 		subscribers: make([]chan EventMessage, 0),
 		pending:     make(map[string]chan InvokeResponse),
+		scope:       newFSScopeState(),
 	}
 }
 

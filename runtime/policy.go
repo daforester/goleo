@@ -13,24 +13,25 @@ import (
 // No policy set = no enforcement (legacy-permissive). Setting a policy opts into
 // deny-by-default, matching Tauri's capability model.
 //
-// SCOPE LISTS ARE NOT YET ENFORCED. Allow (method-level) is. FSRoots, HTTPHosts
-// and ShellPrograms are stored and have Allows* helpers, but no plugin calls
-// them, so populating them restricts nothing — do not treat FSRoots as
-// filesystem confinement. Until they are wired in, keep a sensitive plugin out
-// of Allow (or don't register it) rather than relying on a scope list.
+// FSRoots IS enforced (since the fs-scope change): SetPolicy registers each root
+// with the Bridge's filesystem scope, and every fs handler checks it. HTTPHosts
+// and ShellPrograms are reserved — goleo has no http or shell plugin yet, so
+// there is nothing for them to gate; they are accepted so a policy written today
+// keeps working when those plugins land.
 type Policy struct {
 	// Allow lists permitted invoke methods. "goleo:store*" allows the whole
 	// store plugin; "goleo:fsReadTextFile" allows exactly one command.
 	// Enforced by allowsMethod via Bridge.HandleRequest.
 	Allow []string
-	// FSRoots is intended to limit filesystem access to these path prefixes.
-	// NOT YET ENFORCED — see the type comment.
+	// FSRoots widens the filesystem plugin's scope to these directories, on top
+	// of the app's own data directory and any path the user picks in a native
+	// dialog. Enforced via Bridge.checkFSPath — see fs_scope.go.
 	FSRoots []string
-	// HTTPHosts is intended to limit the http plugin to these hosts.
-	// NOT YET ENFORCED — see the type comment.
+	// HTTPHosts is intended to limit an http plugin to these hosts.
+	// RESERVED — no http plugin exists yet, so this gates nothing today.
 	HTTPHosts []string
-	// ShellPrograms is intended to limit the shell plugin to these program names.
-	// NOT YET ENFORCED — see the type comment.
+	// ShellPrograms is intended to limit a shell plugin to these program names.
+	// RESERVED — no shell plugin exists yet, so this gates nothing today.
 	ShellPrograms []string
 }
 
@@ -60,6 +61,13 @@ func (p *Policy) allowsMethod(method string) bool {
 
 // AllowsFSPath reports whether path is within an allowed root. Empty FSRoots =
 // unconstrained. Uses cleaned paths so "../" traversal cannot escape a root.
+//
+// NOTE: this is a raw helper for hosts doing their own checks; it is NOT the
+// enforcement path. Enforcement is Bridge.checkFSPath (fs_scope.go), which treats
+// FSRoots as additive to the app data directory and dialog grants, resolves
+// symlinks, and applies a deny-list — none of which this helper does. In
+// particular its "empty means unconstrained" rule is the opposite of the default
+// the fs plugin needs, so do not use it to decide access.
 func (p *Policy) AllowsFSPath(path string) bool {
 	if len(p.FSRoots) == 0 {
 		return true

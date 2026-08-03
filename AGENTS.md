@@ -686,11 +686,20 @@ Two pre-existing defects surfaced by driving `Quit()` end-to-end:
 ### Security
 - **Capability ACL** (`runtime/policy.go`): `Policy` (Allow list with `prefix*` + always-safe
   core) enforced centrally in `Bridge.HandleRequest` — deny-by-default when set, permissive when
-  not. `App.SetPolicy` (takes a `*Policy`). **Only the method-level `Allow` list is enforced.**
-  The scope lists (`FSRoots`/`HTTPHosts`/`ShellPrograms`) and their
-  `AllowsFSPath`/`AllowsHTTPHost`/`AllowsShellProgram` helpers exist but have **no call sites**, so
-  they restrict nothing — `FSRoots` is *not* filesystem confinement. Wiring them into the plugins
-  is the next security change; `runtime/fs` currently allows any absolute path.
+  not. `App.SetPolicy` (takes a `*Policy`). `Allow` (method-level) **and** `FSRoots` are enforced;
+  `HTTPHosts`/`ShellPrograms` are **reserved** (goleo has no http or shell plugin to gate).
+- **Filesystem scope** (`runtime/fs_scope.go`, `Config.FSScope`): the `fs` plugin is confined to
+  the app data dir ∪ `Policy.FSRoots` ∪ **session grants** (paths the user picked in a native
+  dialog — `dialogs_reexport.go` calls `Bridge.GrantFSPath`/`AddFSRoot`, the Tauri model, so
+  "pick a file then read it" needs no config). Writes/deletes outside scope are refused; reads
+  warn once per path and will become errors. A deny-list (`C:\Windows`, `%ProgramFiles%`,
+  `/usr`, `/etc`, …) blocks writes in *every* mode, symlinks are resolved before the check, and
+  `FSScopeUnrestricted` / `GOLEO_FS_UNRESTRICTED=1` is the opt-out. Enforcement is
+  `Bridge.checkFSPath`, which every handler in `fs_reexport.go` calls — **not**
+  `Policy.AllowsFSPath`, whose "empty means unconstrained" rule is the opposite of the default
+  the plugin needs (it is retained as a raw helper only). Before this, `validatePath` rejected
+  only *relative* traversal, so `goleo:fsDelete` on an absolute path reached `os.RemoveAll` —
+  and `RegisterFS` is in the default desktop bundle both scaffolds enable.
 - **Server hardening** (`runtime/server.go`): production loopback-only bind, origin allow-list on
   the WS upgrade **and `/api/invoke`** + CORS, per-launch token injected into `index.html`
   (generation fails closed; comparison is constant-time). Dev mode is permissive only about

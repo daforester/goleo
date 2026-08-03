@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"sync"
@@ -68,6 +69,16 @@ type Config struct {
 	// AssetScheme overrides the custom scheme name used by SchemeAssets
 	// (default "goleo"). Must be a plain scheme token, no "://".
 	AssetScheme string
+	// FSScope selects how strictly the filesystem plugin (RegisterFS) confines
+	// paths. The zero value, FSScopeStandard, limits it to the app's data
+	// directory, any Policy.FSRoots, and paths the user picked in a native dialog
+	// this session. Set FSScopeUnrestricted for a tool that genuinely needs the
+	// whole disk (or export GOLEO_FS_UNRESTRICTED=1).
+	//
+	// Writes and deletes outside the scope are refused. Out-of-scope *reads*
+	// currently warn instead, for one release, so existing apps keep working —
+	// they will become errors.
+	FSScope FSScope
 	// SingleInstance, when true, allows only one running instance; a second
 	// launch forwards its args to the running one (emitting app:secondInstance)
 	// and exits. AppID identifies the app for the lock (defaults to Title).
@@ -123,10 +134,25 @@ func New(cfg Config) *App {
 		cfg.Height = 768
 	}
 
-	return &App{
+	app := &App{
 		config: cfg,
 		bridge: NewBridge(),
 	}
+
+	// Filesystem confinement for the fs plugin. The app's own data directory is
+	// always in scope — that is where an app is expected to keep its files — and
+	// Config.FSScope selects how strictly everything else is treated.
+	app.bridge.SetFSScope(cfg.FSScope)
+	appID := cfg.AppID
+	if appID == "" {
+		appID = cfg.Title
+	}
+	// Computed inline rather than via runtime/fs.AppDataDir: that package is
+	// build-tagged off on mobile without goleo_fs, and app.go has no build tag.
+	if base, err := os.UserConfigDir(); err == nil {
+		app.bridge.AddFSRoot(filepath.Join(base, appID))
+	}
+	return app
 }
 
 func (a *App) Bridge() *Bridge {

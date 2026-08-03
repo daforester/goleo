@@ -17,7 +17,17 @@ func RegisterDialogs(b *Bridge) {
 				return nil, err
 			}
 		}
-		return dialogs.OpenFile(opts)
+		paths, err := dialogs.OpenFile(opts)
+		if err != nil {
+			return nil, err
+		}
+		// The user explicitly chose these, so grant the fs plugin access to them
+		// even when they sit outside the configured roots. This is what keeps the
+		// ordinary "pick a file, then read it" flow working with no configuration.
+		for _, p := range paths {
+			b.GrantFSPath(p)
+		}
+		return paths, nil
 	})
 
 	b.Handle("goleo:dialogSaveFile", func(ctx context.Context, args json.RawMessage) (any, error) {
@@ -27,7 +37,12 @@ func RegisterDialogs(b *Bridge) {
 				return nil, err
 			}
 		}
-		return dialogs.SaveFile(opts)
+		path, err := dialogs.SaveFile(opts)
+		if err != nil {
+			return nil, err
+		}
+		b.GrantFSPath(path) // user-chosen destination
+		return path, nil
 	})
 
 	b.Handle("goleo:dialogSelectFolder", func(ctx context.Context, args json.RawMessage) (any, error) {
@@ -37,7 +52,15 @@ func RegisterDialogs(b *Bridge) {
 				return nil, err
 			}
 		}
-		return dialogs.SelectFolder(opts)
+		dir, err := dialogs.SelectFolder(opts)
+		if err != nil {
+			return nil, err
+		}
+		// Grant the whole directory, so the app can work with files inside it.
+		if dir != "" {
+			b.AddFSRoot(dir)
+		}
+		return dir, nil
 	})
 
 	b.Handle("goleo:dialogShowMessage", func(ctx context.Context, args json.RawMessage) (any, error) {

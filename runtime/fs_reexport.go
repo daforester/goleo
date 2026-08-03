@@ -17,7 +17,11 @@ func RegisterFS(b *Bridge) {
 		if err := json.Unmarshal(args, &req); err != nil {
 			return nil, err
 		}
-		return fs.ReadTextFile(req.Path)
+		path, err := b.checkFSPath(req.Path, fsRead)
+		if err != nil {
+			return nil, err
+		}
+		return fs.ReadTextFile(path)
 	})
 
 	b.Handle("goleo:fsWriteTextFile", func(ctx context.Context, args json.RawMessage) (any, error) {
@@ -28,7 +32,11 @@ func RegisterFS(b *Bridge) {
 		if err := json.Unmarshal(args, &req); err != nil {
 			return nil, err
 		}
-		return nil, fs.WriteTextFile(req.Path, req.Content)
+		path, err := b.checkFSPath(req.Path, fsWrite)
+		if err != nil {
+			return nil, err
+		}
+		return nil, fs.WriteTextFile(path, req.Content)
 	})
 
 	b.Handle("goleo:fsReadBinaryFile", func(ctx context.Context, args json.RawMessage) (any, error) {
@@ -38,7 +46,11 @@ func RegisterFS(b *Bridge) {
 		if err := json.Unmarshal(args, &req); err != nil {
 			return nil, err
 		}
-		data, err := fs.ReadBinaryFile(req.Path)
+		path, err := b.checkFSPath(req.Path, fsRead)
+		if err != nil {
+			return nil, err
+		}
+		data, err := fs.ReadBinaryFile(path)
 		if err != nil {
 			return nil, err
 		}
@@ -53,7 +65,11 @@ func RegisterFS(b *Bridge) {
 		if err := json.Unmarshal(args, &req); err != nil {
 			return nil, err
 		}
-		return nil, fs.WriteBinaryFile(req.Path, req.Data)
+		path, err := b.checkFSPath(req.Path, fsWrite)
+		if err != nil {
+			return nil, err
+		}
+		return nil, fs.WriteBinaryFile(path, req.Data)
 	})
 
 	b.Handle("goleo:fsListDir", func(ctx context.Context, args json.RawMessage) (any, error) {
@@ -63,7 +79,11 @@ func RegisterFS(b *Bridge) {
 		if err := json.Unmarshal(args, &req); err != nil {
 			return nil, err
 		}
-		return fs.ListDir(req.Path)
+		path, err := b.checkFSPath(req.Path, fsRead)
+		if err != nil {
+			return nil, err
+		}
+		return fs.ListDir(path)
 	})
 
 	b.Handle("goleo:fsDelete", func(ctx context.Context, args json.RawMessage) (any, error) {
@@ -73,7 +93,11 @@ func RegisterFS(b *Bridge) {
 		if err := json.Unmarshal(args, &req); err != nil {
 			return nil, err
 		}
-		return nil, fs.Delete(req.Path)
+		path, err := b.checkFSPath(req.Path, fsWrite)
+		if err != nil {
+			return nil, err
+		}
+		return nil, fs.Delete(path)
 	})
 
 	b.Handle("goleo:fsAppDataDir", func(ctx context.Context, args json.RawMessage) (any, error) {
