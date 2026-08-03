@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -315,6 +316,140 @@ func TestFSHandlersRefuseOutOfScopeAccess(t *testing.T) {
 	}
 	if resp := call("goleo:fsReadTextFile", `{"path":"`+inScope+`"}`); resp.Error != "" {
 		t.Errorf("in-scope read should succeed, got %q", resp.Error)
+	}
+}
+
+// The app data directory must resolve even when it becomes resolvable only AFTER
+// App.New. On mobile os.UserConfigDir needs $HOME, which the gomobile host process
+// does not have until the native shell calls SetHomeDir (MainActivity.java /
+// AppDelegate.swift). That currently runs before app.New, but resolving eagerly
+// would silently leave the plugin with no root if anyone reordered those calls —
+// a security control should not depend on init order.
+func TestAppDataRootResolvesLazily(t *testing.T) {
+	// Point os.UserConfigDir somewhere that does not exist yet, mimicking a host
+	// with no usable $HOME at construction time.
+	base := t.TempDir()
+	switch runtime.GOOS {
+	case "windows":
+		t.Setenv("LocalAppData", filepath.Join(base, "missing"))
+	case "darwin":
+		t.Setenv("HOME", filepath.Join(base, "missing"))
+	default:
+		t.Setenv("XDG_CONFIG_HOME", filepath.Join(base, "missing"))
+	}
+
+	app := New(Config{Title: "LazyApp", AppID: "lazy-app"})
+
+	// NOW make the config dir available — the "SetHomeDir arrives late" case.
+	switch runtime.GOOS {
+	case "windows":
+		t.Setenv("LocalAppData", base)
+	case "darwin":
+		t.Setenv("HOME", base)
+	default:
+		t.Setenv("XDG_CONFIG_HOME", base)
+	}
+
+	cfgBase, err := os.UserConfigDir()
+	if err != nil {
+		t.Skipf("cannot direct os.UserConfigDir on this platform: %v", err)
+	}
+	target := filepath.Join(cfgBase, "lazy-app", "state.json")
+	if _, err := app.Bridge().checkFSPath(target, fsWrite); err != nil {
+		t.Errorf("app data dir must be in scope once resolvable, got %v", err)
+	}
+	// Still confined to it.
+	if _, err := app.Bridge().checkFSPath(filepath.Join(base, "elsewhere.txt"), fsWrite); err == nil {
+		t.Error("a sibling of the app data dir must still be out of scope")
+	}
+}
+
+// goleo:fsAppDataDir vends a path as "where your data goes", so refusing writes to
+// it afterwards is incoherent. It broke the scaffolded demo, whose FileSystem page
+// does appDataDir("goleo-demo") while the scope root is named after the app's
+// AppID/Title — different directory, so every write was refused. The handler now
+// brings what it returns into scope.
+func TestAppDataDirHandlerGrantsWhatItReturns(t *testing.T) {
+	app := New(Config{Title: "DemoHost", AppID: "demo-host"})
+	b := app.Bridge()
+	RegisterFS(b)
+
+	resp := b.HandleRequest(InvokeRequest{
+		ID: "1", Method: "goleo:fsAppDataDir",
+		Args: []byte(`{"appName":"goleo-demo"}`),
+	})
+	if resp.Error != "" {
+		t.Fatalf("fsAppDataDir: %s", resp.Error)
+	}
+	dir, ok := resp.Result.(string)
+	if !ok || dir == "" {
+		t.Fatalf("expected a directory, got %#v", resp.Result)
+	}
+
+	// The demo then writes a file there — this must work.
+	target := filepath.Join(dir, "demo.txt")
+	if _, err := b.checkFSPath(target, fsWrite); err != nil {
+		t.Errorf("a path returned by fsAppDataDir must be writable, got %v", err)
+	}
+}
+
+// ...but appName becomes a path element, so it must not be usable to climb out
+// and turn this into an arbitrary-directory grant.
+func TestAppDataDirHandlerRejectsEscapingNames(t *testing.T) {
+	app := New(Config{Title: "EscapeHost", AppID: "escape-host"})
+	b := app.Bridge()
+	RegisterFS(b)
+
+	for _, name := range []string{
+		"../../etc", "..", ".", "a/b", `a\b`, "/abs", "../sneaky", "x/../../y",
+	} {
+		resp := b.HandleRequest(InvokeRequest{
+			ID: "1", Method: "goleo:fsAppDataDir",
+			Args: []byte(`{"appName":` + fmt.Sprintf("%q", name) + `}`),
+		})
+		if resp.Error == "" {
+			t.Errorf("appName %q should be rejected, got result %#v", name, resp.Result)
+		}
+	}
+
+	// A plain name is still fine.
+	if resp := b.HandleRequest(InvokeRequest{
+		ID: "1", Method: "goleo:fsAppDataDir", Args: []byte(`{"appName":"my-app"}`),
+	}); resp.Error != "" {
+		t.Errorf("a plain appName should be accepted, got %s", resp.Error)
+	}
+}
+
+// fsHomeDir must stay informational — granting it would hand back the whole user
+// profile and defeat the confinement entirely.
+func TestHomeDirHandlerGrantsNothing(t *testing.T) {
+	app := New(Config{Title: "HomeHost", AppID: "home-host"})
+	b := app.Bridge()
+	RegisterFS(b)
+
+	resp := b.HandleRequest(InvokeRequest{ID: "1", Method: "goleo:fsHomeDir"})
+	if resp.Error != "" {
+		t.Skipf("no home dir here: %s", resp.Error)
+	}
+	home, _ := resp.Result.(string)
+	if home == "" {
+		t.Skip("no home dir reported")
+	}
+	if _, err := b.checkFSPath(filepath.Join(home, ".ssh", "id_rsa"), fsWrite); err == nil {
+		t.Error("fsHomeDir must not bring the home directory into scope")
+	}
+}
+
+func TestValidAppDataName(t *testing.T) {
+	for _, ok := range []string{"goleo", "my-app", "My_App.v2", "goleo-demo"} {
+		if !validAppDataName(ok) {
+			t.Errorf("%q should be valid", ok)
+		}
+	}
+	for _, bad := range []string{"", ".", "..", "../x", "a/b", `a\b`, "/x", "x/..", "..x/../y"} {
+		if validAppDataName(bad) {
+			t.Errorf("%q should be invalid", bad)
+		}
 	}
 }
 

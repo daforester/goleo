@@ -5,6 +5,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/daforester/goleo/runtime/fs"
 )
@@ -112,9 +113,29 @@ func RegisterFS(b *Bridge) {
 		if req.AppName == "" {
 			req.AppName = "goleo"
 		}
-		return fs.AppDataDir(req.AppName)
+		// appName becomes a path element, so it must not be able to climb out:
+		// filepath.Join(base, "../../etc") cleans to /etc, which would turn this
+		// into an arbitrary-directory grant.
+		if !validAppDataName(req.AppName) {
+			return nil, fmt.Errorf("fs: invalid appName %q (no path separators or %q)", req.AppName, "..")
+		}
+		dir, err := fs.AppDataDir(req.AppName)
+		if err != nil {
+			return nil, err
+		}
+		// Bring it into scope. The plugin is vending this path as "where your data
+		// goes", so returning it and then refusing writes to it is incoherent — and
+		// it broke the demo, which asks for appDataDir("goleo-demo") while the scope
+		// root is named after the app's AppID/Title. The name is validated above, so
+		// this cannot be used to widen scope arbitrarily.
+		b.AddFSRoot(dir)
+		return dir, nil
 	})
 
+	// Note: fsHomeDir deliberately does NOT grant anything. It answers "where is
+	// home", which is informational; granting it would hand the whole user profile
+	// back and defeat the confinement. Writing under it still requires an explicit
+	// Policy.FSRoots entry or a path the user picked in a dialog.
 	b.Handle("goleo:fsHomeDir", func(ctx context.Context, args json.RawMessage) (any, error) {
 		return fs.HomeDir()
 	})

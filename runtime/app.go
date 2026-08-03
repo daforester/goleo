@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"runtime"
 	"strconv"
 	"sync"
@@ -147,11 +146,11 @@ func New(cfg Config) *App {
 	if appID == "" {
 		appID = cfg.Title
 	}
-	// Computed inline rather than via runtime/fs.AppDataDir: that package is
-	// build-tagged off on mobile without goleo_fs, and app.go has no build tag.
-	if base, err := os.UserConfigDir(); err == nil {
-		app.bridge.AddFSRoot(filepath.Join(base, appID))
-	}
+	// Named, not resolved: the directory is looked up on first filesystem check.
+	// On mobile os.UserConfigDir needs $HOME, which the gomobile host only has
+	// after the native shell calls SetHomeDir — resolving here would tie a
+	// security control to that init order.
+	app.bridge.SetFSAppID(appID)
 	return app
 }
 

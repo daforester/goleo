@@ -34,9 +34,21 @@ const (
 type fsScopeState struct {
 	mu     sync.RWMutex
 	mode   FSScope
-	roots  []string        // Policy.FSRoots + app data dir
+	roots  []string        // Policy.FSRoots (+ any explicitly added dir)
 	grants map[string]bool // paths the user chose in a dialog this session
 	warned map[string]bool // out-of-scope reads already warned about
+
+	// appID names the app's own data directory, resolved LAZILY on first check
+	// rather than eagerly in App.New. On mobile os.UserConfigDir needs $HOME,
+	// which the gomobile host process does not set — the native shell calls
+	// SetHomeDir first (MainActivity.java / AppDelegate.swift). That currently
+	// happens before app.New, but resolving eagerly would make this security
+	// control silently lose its root if anyone ever reordered those two calls,
+	// with no error to notice. Resolving on demand removes the ordering
+	// dependency entirely.
+	appID    string
+	dataDir  string
+	dataOnce sync.Once
 }
 
 func newFSScopeState() *fsScopeState {
@@ -53,6 +65,42 @@ func (b *Bridge) SetFSScope(mode FSScope) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.mode = mode
+}
+
+// SetFSAppID names the app whose data directory is always in scope. App.New calls
+// this with Config.AppID (falling back to Title). The directory itself is resolved
+// on first use, not here — see fsScopeState.appID.
+func (b *Bridge) SetFSAppID(appID string) {
+	s := b.fsScope()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.appID = appID
+}
+
+// appDataRoots returns the app's own data directory (both spellings), resolved
+// once. An empty result means it could not be determined — on mobile that means
+// SetHomeDir has not run yet, and a later call will resolve it.
+func (s *fsScopeState) appDataRoots() []string {
+	s.mu.RLock()
+	appID, cached := s.appID, s.dataDir
+	s.mu.RUnlock()
+	if cached != "" {
+		return fsRootForms(cached)
+	}
+	if appID == "" {
+		return nil
+	}
+	base, err := os.UserConfigDir()
+	if err != nil {
+		// Not resolvable yet (no $HOME on mobile before SetHomeDir). Do NOT latch
+		// the failure — try again next time.
+		return nil
+	}
+	dir := filepath.Join(base, appID)
+	s.mu.Lock()
+	s.dataDir = dir
+	s.mu.Unlock()
+	return fsRootForms(dir)
 }
 
 // AddFSRoot adds a directory the fs plugin may reach. App.New adds the app's data
@@ -208,7 +256,7 @@ func (b *Bridge) checkFSPath(path string, op fsOp) (string, error) {
 	// close: a link at <root>/link pointing outside still has <root>/ as a literal
 	// prefix, so an unresolved comparison would admit it. Cross-spelling matching
 	// belongs on the root side (fsRootForms), never on the request side.
-	if granted || fsWithinRoots(resolved, roots) {
+	if granted || fsWithinRoots(resolved, roots) || fsWithinRoots(resolved, s.appDataRoots()) {
 		return resolved, nil
 	}
 
@@ -241,6 +289,23 @@ func fsWithinRoots(abs string, roots []string) bool {
 		}
 	}
 	return false
+}
+
+// validAppDataName reports whether name is safe to use as a single directory
+// element under the user's config dir. It must not contain a separator or "..",
+// or filepath.Join would let it climb out of that directory.
+func validAppDataName(name string) bool {
+	if name == "" || name == "." || name == ".." {
+		return false
+	}
+	if strings.ContainsAny(name, `/\`) {
+		return false
+	}
+	if strings.Contains(name, "..") {
+		return false
+	}
+	// Reject anything Clean would alter (e.g. a drive letter or leading separator).
+	return filepath.Clean(name) == name && !filepath.IsAbs(name)
 }
 
 func fsUnrestrictedEnv() bool {
