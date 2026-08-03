@@ -9,7 +9,8 @@
   "scripts": {
     "prepublishOnly": "node ./copy-source.js",
     "build": "node ./copy-source.js && node ./build-platform-packages.js",
-    "build:platforms": "node ./build-platform-packages.js"
+    "build:platforms": "node ./build-platform-packages.js",
+    "version": "node ./sync-optional-deps.js"
   },
   "files": [
     "bin/goleo.js",
@@ -17,12 +18,12 @@
     "README.md"
   ],
   "optionalDependencies": {
-    "@goleo/cli-darwin-arm64": "0.3.0",
-    "@goleo/cli-darwin-x64": "0.3.0",
-    "@goleo/cli-linux-arm64": "0.3.0",
-    "@goleo/cli-linux-x64": "0.3.0",
-    "@goleo/cli-win32-arm64": "0.3.0",
-    "@goleo/cli-win32-x64": "0.3.0"
+    "@goleo/cli-darwin-arm64": "0.8.4",
+    "@goleo/cli-darwin-x64": "0.8.4",
+    "@goleo/cli-linux-arm64": "0.8.4",
+    "@goleo/cli-linux-x64": "0.8.4",
+    "@goleo/cli-win32-arm64": "0.8.4",
+    "@goleo/cli-win32-x64": "0.8.4"
   },
   "keywords": [
     "goleo",

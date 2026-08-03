@@ -89,10 +89,20 @@ git tag v0.2.0
 git push --follow-tags
 ```
 
+`npm version`'s `version` lifecycle script (`cli/npm/sync-optional-deps.js`) syncs
+`@goleo/cli`'s committed `optionalDependencies` to match in the same step — so the
+`git commit` above captures a consistent snapshot. This matters beyond cosmetics:
+`npm install` at the repo root resolves `cli/npm` as a workspace member and reads
+*its committed* `optionalDependencies` verbatim (not the published-to-npm version),
+so a stale value there silently installs an ancient platform binary into any local
+dev checkout of this repo — which is exactly what happened for real (they sat at
+`0.3.0` through fifteen releases, 0.4.0 through 0.8.4, before this hook existed).
+
 The `release` workflow then:
 1. cross-compiles the six platform binaries (`CGO_ENABLED=0`),
 2. builds the `@goleo/cli-*` packages (their versions + `@goleo/cli`'s
-   `optionalDependencies` are auto-synced by `build-platform-packages.js`),
+   `optionalDependencies` are re-synced by `build-platform-packages.js`, same as
+   the lifecycle hook above — this is what actually reaches the npm registry),
 3. publishes **platform packages → `@goleo/cli` → `@goleo/bridge`** via OIDC,
    each with provenance.
 
