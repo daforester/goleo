@@ -173,6 +173,50 @@ func goGetQuiet(projectDir, spec string) (string, error) {
 
 var semverRe = regexp.MustCompile(`^\d+\.\d+\.\d+`)
 
+// scaffoldPlaceholderVersion is what a scaffolded go.mod requires when the CLI
+// can't name its own published version (an unstamped `go build` of the CLI, where
+// resolveVersion() == "dev"). It is deliberately a version that does NOT exist on
+// the proxy, and it is the same idiom the spike modules use alongside a local
+// replace. That combination is what makes it the right placeholder:
+//   - developing goleo itself (GOLEO_ROOT / a local replace) needs *some* require
+//     for the replace to apply, and v0.0.0 is it;
+//   - if it is ever left unresolved instead, `go build` fails loudly on an
+//     unknown revision rather than silently compiling against a real-but-ancient
+//     API — which is exactly what the previously hardcoded v0.2.1 did.
+const scaffoldPlaceholderVersion = "v0.0.0"
+
+// scaffoldGoleoVersion returns the goleo version a freshly scaffolded project
+// should require, as a `v`-prefixed string.
+//
+// It pins the CLI's OWN version, so a new project starts consistent with the
+// binary that created it and reproducible without a network round-trip (the
+// module is usually already in the local cache). This is also self-maintaining:
+// `npm version` stamps the CLI at release time, so the scaffold tracks releases
+// automatically instead of needing a hardcoded string bumped by hand — the old
+// hardcoded `v0.2.1` had gone stale by dozens of releases.
+//
+// ensureGoleoRequire still runs afterwards and will move this forward (or fall
+// back to @latest) if the exact version isn't on the proxy yet; this only decides
+// where the project *starts*.
+func scaffoldGoleoVersion() string {
+	if v := resolveVersion(); releaseVersionRe.MatchString(v) {
+		return "v" + v
+	}
+	return scaffoldPlaceholderVersion
+}
+
+// releaseVersionRe matches only an exact published release (`1.2.3`), which is
+// deliberately stricter than semverRe's prefix match.
+//
+// resolveVersion() falls back to debug.ReadBuildInfo(), and for a locally-built
+// CLI that yields a PSEUDO-version of an unpushed commit with build metadata —
+// e.g. `0.8.8-0.20260803161633-d8da50055a4e+dirty`. semverRe's prefix match
+// accepts that (it starts `0.8.8`), which would bake a reference to a commit
+// nobody can fetch into every scaffolded go.mod. Only a clean tag is safe to pin:
+// an ldflags-stamped release build, or `go install ...@v1.2.3` (whose build info
+// reports that tag). Anything else falls back to scaffoldPlaceholderVersion.
+var releaseVersionRe = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
+
 func runGo(dir string, env []string, args ...string) error {
 	cmd := exec.Command("go", args...)
 	cmd.Dir = dir

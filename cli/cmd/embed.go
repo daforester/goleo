@@ -53,6 +53,12 @@ func loadMobileConfig(projectDir string) mobileConfig {
 // full of `{{ }}` that must survive untouched).
 const demoAppNameToken = "__GOLEO_APP_NAME__"
 
+// demoVersionToken is the placeholder for the goleo version the generated go.mod
+// requires. It is filled from the CLI's own version (scaffoldGoleoVersion) rather
+// than being passed in, because it is a property of this binary, not of the
+// caller's project.
+const demoVersionToken = "__GOLEO_VERSION__"
+
 // extractDemoTemplate writes the full-featured "demo" project (the goleo new
 // demo template, embedded under templates/demo) into destDir, substituting the
 // project name and restoring on-disk names the embed can't hold as-is: `*.tmpl`
@@ -80,6 +86,7 @@ func extractDemoTemplate(destDir, appName string) error {
 			return err
 		}
 		content := strings.ReplaceAll(string(data), demoAppNameToken, appName)
+		content = strings.ReplaceAll(content, demoVersionToken, scaffoldGoleoVersion())
 		target := filepath.Join(destDir, rel)
 		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
 			return err

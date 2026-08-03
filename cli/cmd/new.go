@@ -65,6 +65,9 @@ func chooseTemplate() (string, error) {
 type projectConfig struct {
 	Name       string
 	ModuleName string
+	// GoleoVersion is the `v`-prefixed goleo version the generated go.mod
+	// requires — the CLI's own version. See scaffoldGoleoVersion.
+	GoleoVersion string
 }
 
 func runNew(cmd *cobra.Command, args []string) error {
@@ -76,8 +79,9 @@ func runNew(cmd *cobra.Command, args []string) error {
 	}
 
 	cfg := projectConfig{
-		Name:       name,
-		ModuleName: fmt.Sprintf("goleo/%s", name),
+		Name:         name,
+		ModuleName:   fmt.Sprintf("goleo/%s", name),
+		GoleoVersion: scaffoldGoleoVersion(),
 	}
 
 	template, err := chooseTemplate()

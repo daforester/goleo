@@ -288,7 +288,7 @@ var tmplGoMod = `module {{.ModuleName}}
 
 go 1.26
 
-require github.com/daforester/goleo v0.2.1
+require github.com/daforester/goleo {{.GoleoVersion}}
 
 // goleo's cgo-free webview backend (github.com/crgimenes/glaze) is pinned to a
 // fork that adds the WebView2 permission auto-grant, so camera/mic/geolocation
