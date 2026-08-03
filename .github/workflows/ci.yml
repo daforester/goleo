@@ -74,3 +74,14 @@ jobs:
 
       - name: CLI build
         run: go build ./cli/...
+
+      # Actually run the unit tests. This was missing for a long time, and the cost
+      # was real: six cli/cmd android_deps tests had been failing permanently on
+      # Windows dev machines (Unix-only XDG_CACHE_HOME / a fixture hardcoding the
+      # POSIX `sdkmanager` name) with nothing to catch it. Safe on a bare runner —
+      # tests needing GUI/host tooling skip themselves rather than fail (e.g.
+      # clipboard's round-trip skips without xclip; the dialogs tests are
+      # //go:build windows), verified in a clean golang container with no xclip or
+      # zenity installed.
+      - name: Unit tests
+        run: go test ./...
