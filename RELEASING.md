@@ -100,6 +100,41 @@ You only set two versions; the platform packages inherit `@goleo/cli`'s.
 
 ---
 
+## Windows code signing (optional, strongly recommended)
+
+Unsigned Windows executables get flagged by reputation-based antivirus. This is
+not theoretical: Bitdefender quarantined `@goleo/cli-win32-x64`'s binary
+straight out of a user's `node_modules`, leaving `goleo` reporting *"no
+prebuilt binary found"*. The published package was intact and carried SLSA
+provenance — the heuristic simply distrusts a new, unsigned Go binary.
+
+The release workflow signs both Windows binaries when a certificate is
+configured, and skips with a notice when it isn't, so releases keep working
+either way. To enable it, add two repository secrets:
+
+| Secret | Value |
+|---|---|
+| `WINDOWS_CERT_BASE64` | the `.pfx`/`.p12` code-signing certificate, base64-encoded |
+| `WINDOWS_CERT_PASSWORD` | its password |
+
+```bash
+# produce the base64 payload
+base64 -w0 code-signing.pfx      # Linux/macOS
+certutil -encode code-signing.pfx cert.b64   # Windows, then strip the header/footer lines
+```
+
+Signing uses `osslsigncode`, not `signtool`: the release job cross-compiles
+every target from one Linux runner, and signtool is Windows-only.
+`runtime/signing.go`'s `signWindows` is the separate, signtool-based path that
+signs *apps built with goleo* on a Windows machine — the two don't overlap.
+
+Signatures are RFC 3161 timestamped (`timestamp.digicert.com`), so they stay
+valid after the certificate expires.
+
+A certificate has to come from a CA — a self-signed one adds no reputation and
+will not stop the flagging. EV certificates carry the most weight with
+SmartScreen; standard OV certificates still help substantially.
+
 ## Manual release (fallback)
 
 Needs the Go toolchain and npm auth (a token in `~/.npmrc`, as in day zero):

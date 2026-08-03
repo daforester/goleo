@@ -29,6 +29,11 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # The `secrets` context isn't available in a step-level `if`, so the gate
+    # has to be an env var. Only this boolean is job-wide; the certificate and
+    # its password stay scoped to the signing step that needs them.
+    env:
+      SIGNING_ENABLED: ${{ secrets.WINDOWS_CERT_BASE64 != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -56,6 +61,22 @@ jobs:
         run: |
           node cli/npm/copy-source.js
           node cli/npm/build-platform-packages.js
+
+      # Authenticode-sign the two Windows binaries before they're packaged.
+      # Unsigned Go executables get quarantined by reputation-based AV — this
+      # happened to @goleo/cli-win32-x64 in the wild. signtool is Windows-only
+      # and this job cross-compiles everything from Linux, so osslsigncode does
+      # it instead. Both steps are inert until the secrets exist, so the
+      # release keeps working unsigned in the meantime.
+      - name: Install Authenticode signing tool
+        if: env.SIGNING_ENABLED == 'true'
+        run: sudo apt-get update && sudo apt-get install -y osslsigncode
+
+      - name: Sign Windows binaries
+        env:
+          WINDOWS_CERT_BASE64: ${{ secrets.WINDOWS_CERT_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: node cli/npm/sign-platform-binaries.js
 
       # Platform packages first, so @goleo/cli's optionalDependencies resolve for
       # anyone installing it immediately after. No NODE_AUTH_TOKEN: `npm publish`
