@@ -1,12 +1,26 @@
 name: glaze-webview-verify
 
 # Validates the cgo-free (purego) glaze WKWebView / WebKitGTK backend with a live
-# JS<->Go round-trip on real macOS + Linux hardware — the hardware-gated step
-# before flipping the pure-Go webview from opt-in (-tags goleo_glaze) to default.
-# Runs on its spike branch and on manual dispatch (it opens a GUI window).
+# JS<->Go round-trip on real macOS + Linux hardware, and the runtime behaviour that
+# only a real window can exercise: native IPC, the permission auto-grant, the tray,
+# the native menu bar, and the filesystem confinement (fs-scope-verify).
+#
+# It opens GUI windows and burns macOS runner minutes, so it is NOT on every push.
+# It runs on master only when something it actually guards changes — the runtime
+# itself, the verify spikes, or this workflow — plus its spike branch and manual
+# dispatch. Without the master trigger the fs-confinement check guarded nothing:
+# a change that unconfined the plugin would have merged with a green tick, because
+# ci.yml does not open a window.
 on:
   push:
-    branches: [ "spike/glaze-webview" ]
+    branches: [ "master", "spike/glaze-webview" ]
+    paths:
+      - "runtime/**"
+      - "spikes/fs-scope-verify/**"
+      - "spikes/glaze-runtime-verify/**"
+      - "spikes/glaze-tray-verify/**"
+      - "spikes/glaze-menu-verify/**"
+      - ".github/workflows/glaze-verify.yml"
   workflow_dispatch:
 
 jobs:
