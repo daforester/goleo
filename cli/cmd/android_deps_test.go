@@ -9,8 +9,33 @@ import (
 	"testing"
 )
 
+// setUserCacheDir points os.UserCacheDir() at dir for the duration of the test
+// and returns what it will now report. Which environment variable actually works
+// is OS-specific — XDG_CACHE_HOME is honored only on Unix, while Windows reads
+// %LocalAppData% and darwin derives $HOME/Library/Caches — so tests must not
+// hardcode XDG_CACHE_HOME (that silently made these assertions compare against
+// the developer's real cache dir on Windows, failing every run).
+func setUserCacheDir(t *testing.T, dir string) string {
+	t.Helper()
+	switch runtime.GOOS {
+	case "windows":
+		t.Setenv("LocalAppData", dir)
+	case "darwin":
+		t.Setenv("HOME", dir)
+	default:
+		t.Setenv("XDG_CACHE_HOME", dir)
+	}
+	got, err := os.UserCacheDir()
+	if err != nil {
+		t.Fatalf("os.UserCacheDir after pointing it at %q: %v", dir, err)
+	}
+	return got
+}
+
 // makeCmdlineToolsZip writes a zip mimicking Google's command-line tools
 // archive: a top-level cmdline-tools/ directory with an executable bin/sdkmanager.
+// The launcher is named for the host OS (sdkmanager.bat on Windows), matching what
+// sdkmanagerName() — and therefore extractCmdlineTools — actually looks for.
 func makeCmdlineToolsZip(t *testing.T, path string) {
 	t.Helper()
 	f, err := os.Create(path)
@@ -25,7 +50,7 @@ func makeCmdlineToolsZip(t *testing.T, path string) {
 		mode os.FileMode
 		body string
 	}{
-		{"cmdline-tools/bin/sdkmanager", 0755, "#!/bin/sh\nexit 0\n"},
+		{"cmdline-tools/bin/" + sdkmanagerName(), 0755, "#!/bin/sh\nexit 0\n"},
 		{"cmdline-tools/lib/sdkmanager.jar", 0644, "jar"},
 	}
 	for _, e := range entries {
@@ -56,7 +81,7 @@ func TestExtractCmdlineTools(t *testing.T) {
 
 	// Must be laid out as cmdline-tools/latest/bin/sdkmanager, not the doubled
 	// cmdline-tools/cmdline-tools/bin/sdkmanager the old code left behind.
-	want := filepath.Join(installDir, "cmdline-tools", "latest", "bin", "sdkmanager")
+	want := filepath.Join(installDir, "cmdline-tools", "latest", "bin", sdkmanagerName())
 	if sdkmanager != want {
 		t.Errorf("sdkmanager path = %q, want %q", sdkmanager, want)
 	}
@@ -67,7 +92,7 @@ func TestExtractCmdlineTools(t *testing.T) {
 	}
 
 	// The doubled path must not exist.
-	doubled := filepath.Join(installDir, "cmdline-tools", "cmdline-tools", "bin", "sdkmanager")
+	doubled := filepath.Join(installDir, "cmdline-tools", "cmdline-tools", "bin", sdkmanagerName())
 	if _, err := os.Stat(doubled); err == nil {
 		t.Errorf("doubled cmdline-tools path unexpectedly exists: %s", doubled)
 	}
@@ -86,7 +111,7 @@ func TestExtractCmdlineToolsClearsStaleDoubledLayout(t *testing.T) {
 	if err := os.MkdirAll(staleBin, 0755); err != nil {
 		t.Fatal(err)
 	}
-	staleSdkmanager := filepath.Join(staleBin, "sdkmanager")
+	staleSdkmanager := filepath.Join(staleBin, sdkmanagerName())
 	if err := os.WriteFile(staleSdkmanager, []byte("#!/bin/sh\nexit 0\n"), 0644); err != nil { // no +x
 		t.Fatal(err)
 	}
@@ -124,12 +149,12 @@ func TestSdkmanagerPathPrefersLatestOverDoubled(t *testing.T) {
 		if err := os.MkdirAll(d, 0755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(d, "sdkmanager"), []byte("x"), 0755); err != nil {
+		if err := os.WriteFile(filepath.Join(d, sdkmanagerName()), []byte("x"), 0755); err != nil {
 			t.Fatal(err)
 		}
 	}
 	got := sdkmanagerPath(sdkRoot)
-	want := filepath.Join(latestBin, "sdkmanager")
+	want := filepath.Join(latestBin, sdkmanagerName())
 	if got != want {
 		t.Errorf("sdkmanagerPath = %q, want the latest/ copy %q", got, want)
 	}
@@ -503,10 +528,9 @@ func TestRunSdkmanagerUsesAbsolutePathRegardlessOfDir(t *testing.T) {
 }
 
 func TestSharedAndroidCacheDirUsesUserCacheDir(t *testing.T) {
-	cacheHome := t.TempDir()
-	t.Setenv("XDG_CACHE_HOME", cacheHome)
+	cacheDir := setUserCacheDir(t, t.TempDir())
 
-	want := filepath.Join(cacheHome, "goleo", "android")
+	want := filepath.Join(cacheDir, "goleo", "android")
 	if got := sharedAndroidCacheDir(); got != want {
 		t.Errorf("sharedAndroidCacheDir() = %q, want %q", got, want)
 	}
@@ -516,10 +540,9 @@ func TestResolveSDKReusesSharedCacheOverCommonPaths(t *testing.T) {
 	t.Setenv("ANDROID_HOME", "")
 	t.Setenv("ANDROID_SDK_ROOT", "")
 
-	cacheHome := t.TempDir()
-	t.Setenv("XDG_CACHE_HOME", cacheHome)
+	cacheDir := setUserCacheDir(t, t.TempDir())
 
-	sharedSDK := filepath.Join(cacheHome, "goleo", "android", "sdk")
+	sharedSDK := filepath.Join(cacheDir, "goleo", "android", "sdk")
 	if err := os.MkdirAll(filepath.Join(sharedSDK, "cmdline-tools", "latest", "bin"), 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -542,7 +565,7 @@ func TestResolveSDKReusesSharedCacheOverCommonPaths(t *testing.T) {
 func TestResolveSDKFallsBackToLegacyProjectLocalDir(t *testing.T) {
 	t.Setenv("ANDROID_HOME", "")
 	t.Setenv("ANDROID_SDK_ROOT", "")
-	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	setUserCacheDir(t, t.TempDir())
 
 	projectDir := t.TempDir()
 	t.Chdir(projectDir)
