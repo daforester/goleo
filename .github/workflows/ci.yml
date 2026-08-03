@@ -25,8 +25,9 @@ jobs:
           go mod vendor && git diff --exit-code -- vendor go.mod go.sum \
             || { echo "::error::root vendor/ is stale — run scripts/update-vendor"; exit 1; }
 
-      # Windows uses the cgo-free go-webview2 backend, so this cross-builds from
-      # Linux without a C toolchain or platform libraries.
+      # Windows uses the same cgo-free glaze backend as macOS/Linux (WebView2 via
+      # purego), so this cross-builds from Linux with no C toolchain or platform
+      # libraries.
       - name: Windows build (cgo-free)
         run: CGO_ENABLED=0 GOOS=windows go build ./runtime/...
 
