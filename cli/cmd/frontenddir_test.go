@@ -70,17 +70,40 @@ func TestAndroidBindTarget(t *testing.T) {
 		want string
 	}{
 		{"default builds every ABI", "", "android"},
-		{"single ABI", "arm64-v8a", "android/arm64-v8a"},
-		{"comma separated", "arm64-v8a,x86_64", "android/arm64-v8a,android/x86_64"},
-		{"tolerates spacing", " arm64-v8a , x86_64 ", "android/arm64-v8a,android/x86_64"},
+		// gomobile's -target speaks GOARCH, not Android ABI names: passing
+		// "x86_64" through unmapped fails with unsupported platform/arch.
+		{"ABI name maps to GOARCH", "x86_64", "android/amd64"},
+		{"arm64-v8a maps to arm64", "arm64-v8a", "android/arm64"},
+		{"armeabi-v7a maps to arm", "armeabi-v7a", "android/arm"},
+		{"x86 maps to 386", "x86", "android/386"},
+		{"GOARCH accepted directly", "arm64", "android/arm64"},
+		{"comma separated", "arm64-v8a,x86_64", "android/arm64,android/amd64"},
+		{"tolerates spacing", " arm64-v8a , x86_64 ", "android/arm64,android/amd64"},
+		{"deduplicates equivalent spellings", "x86_64,amd64", "android/amd64"},
 		{"empty entries ignored", ",,", "android"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			buildAndroidABI = tc.abi
-			if got := androidBindTarget(); got != tc.want {
+			got, err := androidBindTarget()
+			if err != nil {
+				t.Fatalf("androidBindTarget() error = %v", err)
+			}
+			if got != tc.want {
 				t.Errorf("androidBindTarget() = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestAndroidBindTargetRejectsUnknownABI(t *testing.T) {
+	original := buildAndroidABI
+	t.Cleanup(func() { buildAndroidABI = original })
+
+	for _, bad := range []string{"aarch64", "x64", "mips", "arm64-v8"} {
+		buildAndroidABI = bad
+		if _, err := androidBindTarget(); err == nil {
+			t.Errorf("androidBindTarget() with %q = nil error, want a rejection", bad)
+		}
 	}
 }
 

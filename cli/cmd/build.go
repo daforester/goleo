@@ -60,7 +60,7 @@ func init() {
 	buildCmd.Flags().BoolVar(&buildBundle, "bundle", false, "Package the built desktop app into a native installer (dist/bundle/)")
 	buildCmd.Flags().BoolVar(&buildPublish, "publish", false, "Write an ed25519-signed update manifest for the built binary (needs GOLEO_UPDATE_PRIVKEY)")
 	buildCmd.Flags().StringVar(&buildArch, "arch", "", "Target architecture for desktop targets, e.g. amd64 or arm64 (default: the target's own, or the host's for 'current')")
-	buildCmd.Flags().StringVar(&buildAndroidABI, "android-abi", "", "Comma-separated Android ABIs to build, e.g. arm64-v8a or x86_64 (default: all four, ~4x the APK size)")
+	buildCmd.Flags().StringVar(&buildAndroidABI, "android-abi", "", "Comma-separated Android ABIs to build: arm64-v8a, armeabi-v7a, x86_64, x86 (GOARCH names also accepted). Default: all four, ~4x the APK size")
 	buildCmd.Flags().BoolVar(&buildNoSign, "no-sign", false, "Skip code signing even when signing credentials are configured")
 }
 
@@ -348,11 +348,15 @@ func buildAndroidDev(deps *androidDeps) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("detecting feature usage: %w", err)
 	}
+	bindTarget, err := androidBindTarget()
+	if err != nil {
+		return "", err
+	}
 	gomobileArgs := []string{
 		"bind", "-v",
 		"-tags", bindTags,
 		"-o", aanPath,
-		"-target", androidBindTarget(),
+		"-target", bindTarget,
 		"-androidapi", fmt.Sprintf("%d", androidAPI),
 		gomobilePkgDir(),
 	}
@@ -459,11 +463,15 @@ func buildForAndroid(distDir string, deps *androidDeps) error {
 		return fmt.Errorf("detecting feature usage: %w", err)
 	}
 
+	bindTarget, err := androidBindTarget()
+	if err != nil {
+		return err
+	}
 	gomobileArgs := []string{
 		"bind", "-v",
 		"-tags", bindTags,
 		"-o", aanPath,
-		"-target", androidBindTarget(),
+		"-target", bindTarget,
 		"-androidapi", fmt.Sprintf("%d", androidAPI),
 		gomobilePkgDir(),
 	}
@@ -918,26 +926,62 @@ func validGoArch(a string) bool {
 	return false
 }
 
+// androidABIToGOARCH maps Android ABI names onto the GOARCH values gomobile's
+// -target actually accepts.
+//
+// The two vocabularies differ, and the one users have to hand is the ABI name:
+// that is what `adb shell getprop ro.product.cpu.abi` prints, what Play
+// Console shows, and what an APK's lib/ directories are named. gomobile wants
+// GOARCH. Passing an ABI name straight through fails with
+// `unsupported platform/arch: "android/x86_64"`, so accept both spellings and
+// translate.
+var androidABIToGOARCH = map[string]string{
+	// ABI name -> GOARCH
+	"arm64-v8a":   "arm64",
+	"armeabi-v7a": "arm",
+	"x86_64":      "amd64",
+	"x86":         "386",
+	// GOARCH passed through unchanged, for callers who already speak Go's names.
+	"arm64": "arm64",
+	"arm":   "arm",
+	"amd64": "amd64",
+	"386":   "386",
+}
+
+// androidABIChoices lists the accepted --android-abi values for error messages,
+// ABI names first since those are the ones users are likely to have.
+var androidABIChoices = []string{"arm64-v8a", "armeabi-v7a", "x86_64", "x86", "arm64", "arm", "amd64", "386"}
+
 // androidBindTarget renders gomobile's -target for the Android bind.
 //
 // Plain "android" builds every supported ABI — arm64-v8a, armeabi-v7a, x86 and
 // x86_64 — which is right for a Play upload but quadruples the APK for anyone
 // installing on one device: an emulator only needs x86_64, and a phone only
-// needs arm64-v8a. Oversized APKs also fail to install on a nearly-full device
-// with nothing but "exit status 1" from adb.
-func androidBindTarget() string {
+// needs arm64-v8a. Oversized APKs also fail to install on a nearly-full device,
+// which Android reports as INSTALL_FAILED_INSUFFICIENT_STORAGE.
+func androidBindTarget() (string, error) {
 	if buildAndroidABI == "" {
-		return "android"
+		return "android", nil
 	}
-	parts := strings.Split(buildAndroidABI, ",")
-	targets := make([]string, 0, len(parts))
-	for _, p := range parts {
-		if p = strings.TrimSpace(p); p != "" {
-			targets = append(targets, "android/"+p)
+	targets := make([]string, 0, 4)
+	seen := make(map[string]bool, 4)
+	for _, part := range strings.Split(buildAndroidABI, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
 		}
+		arch, ok := androidABIToGOARCH[part]
+		if !ok {
+			return "", fmt.Errorf("unsupported --android-abi %q (want one of: %s)", part, strings.Join(androidABIChoices, ", "))
+		}
+		if seen[arch] {
+			continue // e.g. "x86_64,amd64" — the same target spelled twice
+		}
+		seen[arch] = true
+		targets = append(targets, "android/"+arch)
 	}
 	if len(targets) == 0 {
-		return "android"
+		return "android", nil
 	}
-	return strings.Join(targets, ",")
+	return strings.Join(targets, ","), nil
 }
