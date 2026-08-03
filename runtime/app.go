@@ -390,13 +390,32 @@ func (a *App) schemeAssets() (scheme string, serve func(string) ([]byte, string,
 	return scheme, buildAssetServer(feFS, token), true
 }
 
+// defaultDevServer is the dev-server URL assumed when nothing else says
+// otherwise — goleo's own built-in `npx vite --port 5173`.
+const defaultDevServer = "http://localhost:5173"
+
+// resolveDevServerURL returns the dev-server URL the app should load, and
+// accept as a browser origin.
+//
+// Precedence: an explicit Config.DevServer, then GOLEO_DEV_SERVER (exported by
+// `goleo dev` from the port it actually resolved), then the built-in default.
+// The env var is what makes goleo.json's frontend.dev_port real for the window:
+// resolveDevServer in the CLI already honours it when starting the dev server,
+// but before this the window still opened the hardcoded default and rendered
+// nothing whenever those two differed.
+func resolveDevServerURL(cfg Config) string {
+	if cfg.DevServer != "" {
+		return cfg.DevServer
+	}
+	if env := os.Getenv("GOLEO_DEV_SERVER"); env != "" {
+		return env
+	}
+	return defaultDevServer
+}
+
 func (a *App) serverURL(port int) string {
 	if a.config.DevMode {
-		devServer := a.config.DevServer
-		if devServer == "" {
-			devServer = "http://localhost:5173"
-		}
-		return devServer
+		return resolveDevServerURL(a.config)
 	}
 	return "http://localhost:" + strconv.Itoa(port)
 }

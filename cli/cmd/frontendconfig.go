@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/spf13/cobra"
 )
 
 // frontendConfig is goleo.json's "frontend" section, the parts relevant to
@@ -35,6 +37,13 @@ type frontendConfig struct {
 	// built frontend in (relative to the frontend directory). Nuxt's
 	// `nuxt generate` writes to ".output/public", not "dist".
 	DistDir string
+	// Directory is the frontend's location relative to the project root — the
+	// default for --frontend-dir. The scaffold has written this key since day
+	// one ("frontend"), but only the flag was ever read: a project whose
+	// frontend sits elsewhere had to repeat -f on every invocation, and
+	// `emulate` / `dev pwa`, which expose no such flag, could not be pointed
+	// at it at all.
+	Directory string
 }
 
 // loadFrontendConfig reads goleo.json's "frontend" section, following the
@@ -68,7 +77,25 @@ func loadFrontendConfig(projectDir string) frontendConfig {
 	if dir, ok := frontend["dist_dir"].(string); ok {
 		cfg.DistDir = dir
 	}
+	if dir, ok := frontend["directory"].(string); ok {
+		cfg.Directory = dir
+	}
 	return cfg
+}
+
+// resolveFrontendDir returns the frontend directory a command should use:
+// --frontend-dir when the caller actually passed it, else goleo.json's
+// frontend.directory, else the flag's own default. cmd is consulted with
+// Changed() rather than comparing against the default, so an explicit
+// `-f frontend` still wins over a config that says something else.
+func resolveFrontendDir(cmd *cobra.Command, flagValue, projectDir string) string {
+	if cmd != nil && cmd.Flags().Changed("frontend-dir") {
+		return flagValue
+	}
+	if dir := loadFrontendConfig(projectDir).Directory; dir != "" {
+		return dir
+	}
+	return flagValue
 }
 
 // resolveDevServer returns the command to start the frontend dev server and

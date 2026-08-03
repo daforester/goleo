@@ -48,6 +48,12 @@ func (s signConfig) macNotarizeEnabled() bool {
 // signWindows Authenticode-signs a file (app binary or installer) with a
 // timestamped SHA-256 signature. No-op (with notice) when unconfigured.
 func signWindows(sc signConfig, file string) error {
+	// --no-sign wins over configured credentials: CI often has the cert in the
+	// environment but still wants an unsigned artifact for a test build.
+	if buildNoSign {
+		fmt.Printf("  Signing skipped for %s (--no-sign)\n", filepath.Base(file))
+		return nil
+	}
 	if !sc.windowsEnabled() {
 		fmt.Printf("  Signing skipped for %s (set GOLEO_WIN_CERT + GOLEO_WIN_CERT_PASSWORD to enable)\n", filepath.Base(file))
 		return nil

@@ -26,7 +26,20 @@ import (
 // It advertises the native channel (window.__GOLEO_NATIVE__) and installs an
 // inbox that buffers backend->frontend frames until @goleo/bridge registers its
 // handler (window.__goleoOnMessage), then drains them.
+//
+// Only the top-level document advertises the channel. Init scripts run in every
+// frame, but WebviewWindow.Bind's send binding is only reachable from the top
+// document — so a subframe that saw __GOLEO_NATIVE__ would take the native path
+// in @goleo/bridge, post into a binding nothing receives, and hang until the
+// bridge's 30s invoke timeout with no error. Frames must fall through to the
+// WebSocket/HTTP transport, which is what the absent flag selects.
+//
+// The identity comparison is safe cross-origin (window.top is a WindowProxy;
+// only dereferencing its properties throws), but it is guarded anyway so a
+// hardened embedder that throws on the access still yields "not top" rather
+// than an uncaught error in the init script.
 const nativeIPCShim = `;(function(){
+  try { if (window.top !== window) { return; } } catch (e) { return; }
   if (window.__GOLEO_NATIVE__) { return; }
   window.__GOLEO_NATIVE__ = true;
   var queue = [];

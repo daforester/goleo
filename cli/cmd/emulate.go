@@ -79,7 +79,9 @@ func emulateAndroid() error {
 	}
 
 	cwd, _ := os.Getwd()
-	frontendAbs := filepath.Join(cwd, "frontend")
+	// No --frontend-dir flag on this command, so goleo.json is the only way
+	// to point it at a frontend that is not ./frontend.
+	frontendAbs := filepath.Join(cwd, resolveFrontendDir(nil, "frontend", "."))
 	pkgName := "com.goleo.app"
 	if data, err := os.ReadFile("goleo.json"); err == nil {
 		pkgName = extractPackageName(string(data))

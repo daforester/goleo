@@ -46,16 +46,22 @@ var (
 	iosDeployTarget string
 	buildBundle     bool
 	buildPublish    bool
+	buildArch       string
+	buildAndroidABI string
+	buildNoSign     bool
 )
 
 func init() {
 	buildCmd.Flags().StringVarP(&buildOutput, "output", "o", "", "Output file name")
-	buildCmd.Flags().StringVarP(&buildFrontend, "frontend-dir", "f", "frontend", "Path to frontend directory")
+	buildCmd.Flags().StringVarP(&buildFrontend, "frontend-dir", "f", "frontend", "Path to frontend directory (default: goleo.json frontend.directory)")
 	buildCmd.Flags().StringVarP(&buildAndroid, "android-ndk", "", "", "Path to Android NDK")
 	buildCmd.Flags().IntVarP(&androidAPI, "android-api", "", 24, "Android API level")
 	buildCmd.Flags().StringVarP(&iosDeployTarget, "ios-target", "", "14.0", "iOS deployment target")
 	buildCmd.Flags().BoolVar(&buildBundle, "bundle", false, "Package the built desktop app into a native installer (dist/bundle/)")
 	buildCmd.Flags().BoolVar(&buildPublish, "publish", false, "Write an ed25519-signed update manifest for the built binary (needs GOLEO_UPDATE_PRIVKEY)")
+	buildCmd.Flags().StringVar(&buildArch, "arch", "", "Target architecture for desktop targets, e.g. amd64 or arm64 (default: the target's own, or the host's for 'current')")
+	buildCmd.Flags().StringVar(&buildAndroidABI, "android-abi", "", "Comma-separated Android ABIs to build, e.g. arm64-v8a or x86_64 (default: all four, ~4x the APK size)")
+	buildCmd.Flags().BoolVar(&buildNoSign, "no-sign", false, "Skip code signing even when signing credentials are configured")
 }
 
 type buildTarget struct {
@@ -82,9 +88,24 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	}
 
 	target, ok := targets[targetName]
+	if ok && buildArch != "" {
+		// The named targets pin an arch (windows/linux/darwin => amd64) and
+		// 'current' takes the host's, so cross-arch desktop builds previously
+		// required a machine of that arch. gomobile targets carry their own
+		// ABI handling — see --android-abi — so this stays desktop-only.
+		if targetName == "android" || targetName == "ios" || targetName == "pwa" {
+			return fmt.Errorf("--arch does not apply to the %s target (use --android-abi for Android ABIs)", targetName)
+		}
+		if !validGoArch(buildArch) {
+			return fmt.Errorf("unsupported --arch %q (want one of: %s)", buildArch, strings.Join(knownGoArches, ", "))
+		}
+		target.GOARCH = buildArch
+	}
 	if !ok {
 		return fmt.Errorf("unknown target: %s\nAvailable: current, windows, linux, darwin, android, ios, pwa", targetName)
 	}
+
+	buildFrontend = resolveFrontendDir(cmd, buildFrontend, ".")
 
 	if err := checkGoleoJSON(); err != nil {
 		return err
@@ -331,7 +352,7 @@ func buildAndroidDev(deps *androidDeps) (string, error) {
 		"bind", "-v",
 		"-tags", bindTags,
 		"-o", aanPath,
-		"-target", "android",
+		"-target", androidBindTarget(),
 		"-androidapi", fmt.Sprintf("%d", androidAPI),
 		gomobilePkgDir(),
 	}
@@ -442,7 +463,7 @@ func buildForAndroid(distDir string, deps *androidDeps) error {
 		"bind", "-v",
 		"-tags", bindTags,
 		"-o", aanPath,
-		"-target", "android",
+		"-target", androidBindTarget(),
 		"-androidapi", fmt.Sprintf("%d", androidAPI),
 		gomobilePkgDir(),
 	}
@@ -883,4 +904,40 @@ func checkCommand(name, installHint string) error {
 		return fmt.Errorf("%s not found. Install it with: go install %s@latest", name, installHint)
 	}
 	return nil
+}
+
+// knownGoArches are the architectures --arch accepts for desktop targets.
+var knownGoArches = []string{"amd64", "arm64", "386", "arm"}
+
+func validGoArch(a string) bool {
+	for _, k := range knownGoArches {
+		if a == k {
+			return true
+		}
+	}
+	return false
+}
+
+// androidBindTarget renders gomobile's -target for the Android bind.
+//
+// Plain "android" builds every supported ABI — arm64-v8a, armeabi-v7a, x86 and
+// x86_64 — which is right for a Play upload but quadruples the APK for anyone
+// installing on one device: an emulator only needs x86_64, and a phone only
+// needs arm64-v8a. Oversized APKs also fail to install on a nearly-full device
+// with nothing but "exit status 1" from adb.
+func androidBindTarget() string {
+	if buildAndroidABI == "" {
+		return "android"
+	}
+	parts := strings.Split(buildAndroidABI, ",")
+	targets := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			targets = append(targets, "android/"+p)
+		}
+	}
+	if len(targets) == 0 {
+		return "android"
+	}
+	return strings.Join(targets, ",")
 }

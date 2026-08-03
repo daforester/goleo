@@ -40,12 +40,14 @@ var (
 
 func init() {
 	devCmd.Flags().IntVarP(&devPort, "port", "p", 9842, "Port for the Go backend server")
-	devCmd.Flags().StringVarP(&frontendDir, "frontend-dir", "f", "frontend", "Path to frontend directory")
+	// Persistent so `dev pwa` inherits it — the subcommand exposed no flags of
+	// its own, which left it unable to target any layout but ./frontend.
+	devCmd.PersistentFlags().StringVarP(&frontendDir, "frontend-dir", "f", "frontend", "Path to frontend directory (default: goleo.json frontend.directory)")
 	devCmd.AddCommand(devPwaCmd)
 }
 
 func runDev(cmd *cobra.Command, args []string) error {
-	frontendAbs, err := filepath.Abs(frontendDir)
+	frontendAbs, err := filepath.Abs(resolveFrontendDir(cmd, frontendDir, "."))
 	if err != nil {
 		return fmt.Errorf("invalid frontend path: %w", err)
 	}
@@ -53,10 +55,20 @@ func runDev(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("frontend directory not found at %s", frontendAbs)
 	}
 
+	// Resolved before the backend starts so its URL can be handed over in the
+	// environment below. Building the command has no side effects — nothing is
+	// spawned until viteCmd.Start().
+	viteCmd, frontendPort := resolveDevServer(".", frontendAbs, 5173)
+
 	envVars := []string{
 		"GOLEO_DEV=true",
 		fmt.Sprintf("GOLEO_PORT=%d", devPort),
 		fmt.Sprintf("GOLEO_FRONTEND_DIR=%s", frontendAbs),
+		// The window has to open the port the dev server actually bound.
+		// goleo.json's frontend.dev_port can move it, and the runtime otherwise
+		// falls back to the built-in 5173 and renders an error page while this
+		// command's own output claims the right port.
+		fmt.Sprintf("GOLEO_DEV_SERVER=http://localhost:%d", frontendPort),
 	}
 
 	fmt.Println("  Resolving Go dependencies...")
@@ -91,7 +103,6 @@ func runDev(cmd *cobra.Command, args []string) error {
 		fmt.Printf("  Warning: could not set up process cleanup safeguard: %v\n", err)
 	}
 
-	viteCmd, frontendPort := resolveDevServer(".", frontendAbs, 5173)
 	viteCmd.Stdout = os.Stdout
 	viteCmd.Stderr = os.Stderr
 	newProcessGroup(viteCmd)
@@ -156,7 +167,7 @@ func checkPortAvailable(port int) error {
 }
 
 func runDevPWA(cmd *cobra.Command, args []string) error {
-	frontendAbs, err := filepath.Abs(frontendDir)
+	frontendAbs, err := filepath.Abs(resolveFrontendDir(cmd, frontendDir, "."))
 	if err != nil {
 		return fmt.Errorf("invalid frontend path: %w", err)
 	}

@@ -3,9 +3,12 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
+
+	"github.com/daforester/goleo/runtime/notify"
 )
 
 type InvokeHandler func(ctx context.Context, args json.RawMessage) (any, error)
@@ -241,7 +244,25 @@ func registerCore(b *Bridge) {
 		if req.Body == "" {
 			req.Body = req.Message
 		}
-		if err := Notify(req.Title, req.Body); err != nil {
+		err := Notify(req.Title, req.Body)
+		if errors.Is(err, notify.ErrPermissionNotGranted) {
+			// Ask once, then retry. Android 13+ requires POST_NOTIFICATIONS to
+			// be granted at runtime, and a first notify that does nothing
+			// because nobody ever prompted is the common failure. The request
+			// is asynchronous there — it puts the system dialog on the UI
+			// thread and returns "default" — so this call cannot also deliver.
+			// Report that state, so a caller can tell "ask the user and retry"
+			// apart from "denied, stop asking".
+			switch state := RequestNotificationPermission(); state {
+			case "granted":
+				err = Notify(req.Title, req.Body)
+			case "denied":
+				return nil, fmt.Errorf("%w: enable notifications for this app in system settings", notify.ErrPermissionNotGranted)
+			default:
+				return nil, fmt.Errorf("%w: requested (%s) — allow notifications, then retry", notify.ErrPermissionNotGranted, state)
+			}
+		}
+		if err != nil {
 			return nil, err
 		}
 		return nil, nil

@@ -265,11 +265,10 @@ func defaultAllowedOrigins(port int, cfg Config) []string {
 		fmt.Sprintf("http://localhost:%d", port),
 	}
 	if cfg.DevMode {
-		dev := cfg.DevServer
-		if dev == "" {
-			dev = "http://localhost:5173"
-		}
-		origins = append(origins, dev)
+		// Same resolution the window uses, so a project that moved its dev
+		// server off 5173 is allow-listed as an origin too rather than having
+		// its WS upgrade rejected.
+		origins = append(origins, resolveDevServerURL(cfg))
 	}
 	return origins
 }
