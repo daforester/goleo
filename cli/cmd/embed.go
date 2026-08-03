@@ -3,10 +3,10 @@ package cmd
 import (
 	"bytes"
 	"embed"
-	"encoding/json"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"text/template"
 )
@@ -19,33 +19,110 @@ type mobileConfig struct {
 	AppName     string
 	DevPort     int
 	HasIcon     bool // a bundle.icon source resolved → manifest/xcodegen wire it in
+
+	// VersionName is the user-visible version (Android versionName /
+	// CFBundleShortVersionString), from goleo.json's top-level "version".
+	VersionName string
+	// VersionCode is the integer build number (Android versionCode /
+	// CFBundleVersion). Play requires it to increase on every upload.
+	VersionCode int
+	MinSDK      int
+	TargetSDK   int
+	// ExtraPermissions are appended to the generated Android manifest verbatim.
+	ExtraPermissions []string
+
+	// IOSBundleID is the iOS bundle identifier. It falls back to PackageName,
+	// which used to be the *only* source — so setting mobile.ios.bundle_identifier
+	// in goleo.json did nothing and every iOS build reused the Android id.
+	IOSBundleID string
+	// IOSDeploymentTarget is the minimum iOS version.
+	IOSDeploymentTarget string
 }
+
+// Defaults for the mobile toolchain. These mirror what the templates hardcoded
+// before goleo.json's mobile section was actually read.
+const (
+	defaultAndroidMinSDK    = 24
+	defaultAndroidTargetSDK = 36
+	defaultIOSDeployTarget  = "15.0"
+)
 
 func loadMobileConfig(projectDir string) mobileConfig {
 	cfg := mobileConfig{
-		PackageName: "com.goleo.app",
-		AppName:     "Goleo App",
-		DevPort:     5173,
+		PackageName:         "com.goleo.app",
+		AppName:             "Goleo App",
+		DevPort:             5173,
+		VersionName:         "1.0",
+		VersionCode:         1,
+		MinSDK:              defaultAndroidMinSDK,
+		TargetSDK:           defaultAndroidTargetSDK,
+		IOSDeploymentTarget: defaultIOSDeployTarget,
 	}
-	data, err := os.ReadFile(filepath.Join(projectDir, "goleo.json"))
-	if err != nil {
-		return cfg
+	raw := loadGoleoJSON(projectDir)
+	if raw.AppName != "" {
+		cfg.AppName = raw.AppName
 	}
-	var raw map[string]any
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return cfg
+	if raw.Mobile.Android.PackageName != "" {
+		cfg.PackageName = raw.Mobile.Android.PackageName
 	}
-	if name, ok := raw["app_name"].(string); ok && name != "" {
-		cfg.AppName = name
+	if raw.Mobile.Android.MinSDK > 0 {
+		cfg.MinSDK = raw.Mobile.Android.MinSDK
 	}
-	if mobile, ok := raw["mobile"].(map[string]any); ok {
-		if android, ok := mobile["android"].(map[string]any); ok {
-			if pkg, ok := android["package_name"].(string); ok && pkg != "" {
-				cfg.PackageName = pkg
-			}
+	if raw.Mobile.Android.TargetSDK > 0 {
+		cfg.TargetSDK = raw.Mobile.Android.TargetSDK
+	}
+	cfg.ExtraPermissions = raw.Mobile.Android.ExtraPermissions
+
+	// Version: goleo.json's top-level "version" drives versionName, and
+	// versionCode is derived from it unless explicitly overridden.
+	if raw.Version != "" {
+		cfg.VersionName = raw.Version
+		if code, ok := versionCodeFromSemver(raw.Version); ok {
+			cfg.VersionCode = code
 		}
 	}
+	if raw.Mobile.Android.VersionCode > 0 {
+		cfg.VersionCode = raw.Mobile.Android.VersionCode
+	}
+
+	cfg.IOSBundleID = raw.Mobile.IOS.BundleIdentifier
+	if cfg.IOSBundleID == "" {
+		cfg.IOSBundleID = cfg.PackageName
+	}
+	if raw.Mobile.IOS.DeploymentTarget != "" {
+		cfg.IOSDeploymentTarget = raw.Mobile.IOS.DeploymentTarget
+	}
 	return cfg
+}
+
+// versionCodeFromSemver derives a monotonically increasing Android versionCode
+// from a semver string: 1.2.3 → 10203. Pre-release/build suffixes are ignored, so
+// 1.2.3-rc1 and 1.2.3 collide — override with mobile.android.version_code (or the
+// CI env var) when that matters.
+func versionCodeFromSemver(v string) (int, bool) {
+	var major, minor, patch int
+	// Tolerate a leading "v" and any -prerelease/+build suffix.
+	v = strings.TrimPrefix(v, "v")
+	if i := strings.IndexAny(v, "-+"); i >= 0 {
+		v = v[:i]
+	}
+	parts := strings.Split(v, ".")
+	if len(parts) == 0 || len(parts) > 3 {
+		return 0, false
+	}
+	nums := []*int{&major, &minor, &patch}
+	for i, p := range parts {
+		n, err := strconv.Atoi(p)
+		if err != nil || n < 0 {
+			return 0, false
+		}
+		*nums[i] = n
+	}
+	if minor > 99 || patch > 99 {
+		// Would overflow the *100 packing and could go backwards.
+		return 0, false
+	}
+	return major*10000 + minor*100 + patch, true
 }
 
 // demoAppNameToken is the placeholder the demo template uses for the project

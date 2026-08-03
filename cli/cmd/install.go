@@ -76,10 +76,7 @@ func installAndroid() error {
 	}
 
 	if installLaunch {
-		pkgName := "com.goleo.app"
-		if data, err := os.ReadFile("goleo.json"); err == nil {
-			pkgName = extractPackageName(string(data))
-		}
+		pkgName := loadMobileConfig(".").PackageName
 		launch := exec.Command(deps.AdbPath, "-s", deviceID, "shell", "am", "start", "-n", pkgName+"/.MainActivity") // #nosec G204
 		launch.Stdout = os.Stdout
 		launch.Stderr = os.Stderr

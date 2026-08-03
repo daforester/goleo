@@ -1,11 +1,8 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -52,33 +49,15 @@ type frontendConfig struct {
 // "not configured", not an error — most projects don't set these and must
 // fall back to goleo's built-in Vite invocation completely unchanged.
 func loadFrontendConfig(projectDir string) frontendConfig {
-	var cfg frontendConfig
-	data, err := os.ReadFile(filepath.Join(projectDir, "goleo.json"))
-	if err != nil {
-		return cfg
+	f := loadGoleoJSON(projectDir).Frontend
+	cfg := frontendConfig{
+		DevCommand:   f.DevCommand,
+		BuildCommand: f.BuildCommand,
+		DistDir:      f.DistDir,
+		Directory:    f.Directory,
 	}
-	var raw map[string]any
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return cfg
-	}
-	frontend, ok := raw["frontend"].(map[string]any)
-	if !ok {
-		return cfg
-	}
-	if cmd, ok := frontend["dev_command"].(string); ok {
-		cfg.DevCommand = cmd
-	}
-	if port, ok := frontend["dev_port"].(float64); ok && port > 0 {
-		cfg.DevPort = int(port)
-	}
-	if cmd, ok := frontend["build_command"].(string); ok {
-		cfg.BuildCommand = cmd
-	}
-	if dir, ok := frontend["dist_dir"].(string); ok {
-		cfg.DistDir = dir
-	}
-	if dir, ok := frontend["directory"].(string); ok {
-		cfg.Directory = dir
+	if f.DevPort > 0 {
+		cfg.DevPort = f.DevPort
 	}
 	return cfg
 }

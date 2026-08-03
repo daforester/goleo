@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,14 +11,14 @@ import (
 // bundleConfig drives installer packaging. Loaded from goleo.json's top-level
 // app_name/version plus an optional "bundle" object.
 type bundleConfig struct {
-	AppName    string
-	Version    string
-	Identifier string // reverse-DNS, e.g. com.example.app
-	Publisher  string
+	AppName     string
+	Version     string
+	Identifier  string // reverse-DNS, e.g. com.example.app
+	Publisher   string
 	Description string // one-line app description (installers + exe version info)
-	Copyright  string // e.g. "© 2026 Example Ltd" (exe version info, .deb)
-	Category   string // freedesktop/macOS category (e.g. "Utility")
-	Homepage   string // project/homepage URL
+	Copyright   string // e.g. "© 2026 Example Ltd" (exe version info, .deb)
+	Category    string // freedesktop/macOS category (e.g. "Utility")
+	Homepage    string // project/homepage URL
 
 	Icon     string // single source icon (PNG); platform variants derived from it
 	IconICO  string // Windows icon path (overrides Icon)
@@ -39,38 +38,28 @@ func loadBundleConfig(projectDir string) bundleConfig {
 		Version:    "0.1.0",
 		Identifier: "com.goleo.app",
 	}
-	data, err := os.ReadFile(filepath.Join(projectDir, "goleo.json"))
-	if err != nil {
-		return cfg
+	raw := loadGoleoJSON(projectDir)
+	if raw.AppName != "" {
+		cfg.AppName = raw.AppName
 	}
-	var raw map[string]any
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return cfg
+	if raw.Version != "" {
+		cfg.Version = raw.Version
 	}
-	if v, ok := raw["app_name"].(string); ok && v != "" {
-		cfg.AppName = v
+	if raw.Bundle.Identifier != "" {
+		cfg.Identifier = raw.Bundle.Identifier
 	}
-	if v, ok := raw["version"].(string); ok && v != "" {
-		cfg.Version = v
-	}
-	if b, ok := raw["bundle"].(map[string]any); ok {
-		str := func(k string) string { s, _ := b[k].(string); return s }
-		if v := str("identifier"); v != "" {
-			cfg.Identifier = v
-		}
-		cfg.Publisher = str("publisher")
-		cfg.Description = str("description")
-		cfg.Copyright = str("copyright")
-		cfg.Category = str("category")
-		cfg.Homepage = str("homepage")
-		cfg.Icon = str("icon")
-		cfg.IconICO = str("icon_ico")
-		cfg.IconICNS = str("icon_icns")
-		cfg.IconPNG = str("icon_png")
-		cfg.UpdateURLBase = str("update_url_base")
-		cfg.ReleaseNotes = str("release_notes")
-		cfg.URLScheme = str("url_scheme")
-	}
+	cfg.Publisher = raw.Bundle.Publisher
+	cfg.Description = raw.Bundle.Description
+	cfg.Copyright = raw.Bundle.Copyright
+	cfg.Category = raw.Bundle.Category
+	cfg.Homepage = raw.Bundle.Homepage
+	cfg.Icon = raw.Bundle.Icon
+	cfg.IconICO = raw.Bundle.IconICO
+	cfg.IconICNS = raw.Bundle.IconICNS
+	cfg.IconPNG = raw.Bundle.IconPNG
+	cfg.UpdateURLBase = raw.Bundle.UpdateURLBase
+	cfg.ReleaseNotes = raw.Bundle.ReleaseNotes
+	cfg.URLScheme = raw.Bundle.URLScheme
 	return cfg
 }
 

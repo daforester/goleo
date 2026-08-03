@@ -901,9 +901,36 @@ java -Dorg.gradle.appname=gradlew -classpath "$DIRNAME/gradle/wrapper/gradle-wra
 	return nil
 }
 
+// checkGoleoJSON is the single validation gate for goleo.json. It used to only
+// Stat the file, while every loader swallowed parse errors and fell back to
+// defaults — so a trailing comma produced a successfully-built app carrying the
+// wrong applicationId, bundle identifier and version, silently. Parse it here and
+// fail loudly instead; the loaders stay tolerant because this already ran.
 func checkGoleoJSON() error {
-	if _, err := os.Stat("goleo.json"); os.IsNotExist(err) {
+	cfg, found, err := parseGoleoJSON(".")
+	if err != nil {
+		return err
+	}
+	if !found {
 		return fmt.Errorf("goleo.json not found: are you in a Goleo project directory?")
+	}
+	return validateGoleoJSON(cfg)
+}
+
+// validateGoleoJSON catches values that parse as JSON but cannot produce a
+// correct build, so they surface now rather than as a store rejection later.
+func validateGoleoJSON(cfg goleoJSON) error {
+	if pkg := cfg.Mobile.Android.PackageName; pkg != "" && !strings.Contains(pkg, ".") {
+		return fmt.Errorf("goleo.json: mobile.android.package_name %q must be reverse-DNS (e.g. com.example.app)", pkg)
+	}
+	if id := cfg.Mobile.IOS.BundleIdentifier; id != "" && !strings.Contains(id, ".") {
+		return fmt.Errorf("goleo.json: mobile.ios.bundle_identifier %q must be reverse-DNS (e.g. com.example.app)", id)
+	}
+	if v := cfg.Mobile.Android.VersionCode; v < 0 {
+		return fmt.Errorf("goleo.json: mobile.android.version_code must be positive, got %d", v)
+	}
+	if s := cfg.Mobile.Android.MinSDK; s != 0 && (s < 21 || s > 99) {
+		return fmt.Errorf("goleo.json: mobile.android.min_sdk %d is out of range", s)
 	}
 	return nil
 }

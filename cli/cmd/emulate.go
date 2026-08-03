@@ -82,10 +82,7 @@ func emulateAndroid() error {
 	// No --frontend-dir flag on this command, so goleo.json is the only way
 	// to point it at a frontend that is not ./frontend.
 	frontendAbs := filepath.Join(cwd, resolveFrontendDir(nil, "frontend", "."))
-	pkgName := "com.goleo.app"
-	if data, err := os.ReadFile("goleo.json"); err == nil {
-		pkgName = extractPackageName(string(data))
-	}
+	pkgName := loadMobileConfig(".").PackageName
 
 	// 1. Start the frontend dev server on host
 	fmt.Println("  Starting frontend dev server...")
@@ -473,17 +470,10 @@ func isBootCompleted(adbPath, deviceID string) bool {
 	return strings.TrimSpace(string(out)) == "1"
 }
 
-func extractPackageName(jsonStr string) string {
-	// Simple JSON key extraction without full parser
-	marker := `"package_name": "`
-	idx := strings.Index(jsonStr, marker)
-	if idx < 0 {
-		return "com.goleo.app"
-	}
-	start := idx + len(marker)
-	end := strings.Index(jsonStr[start:], `"`)
-	if end < 0 {
-		return "com.goleo.app"
-	}
-	return jsonStr[start : start+end]
-}
+// extractPackageName is gone: it matched the literal string `"package_name": "`
+// (exactly one space, double quotes, no nesting awareness), so any reformatting —
+// `"package_name":"com.x"`, a line break, tabs, jq/prettier output — silently fell
+// through to "com.goleo.app". `adb install` then succeeded while `am start`
+// launched a package that wasn't there. It also matched the FIRST occurrence
+// anywhere in the file, including inside a comment or an unrelated block.
+// Both call sites now use loadMobileConfig, which does a real json.Unmarshal.
