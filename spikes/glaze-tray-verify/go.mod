@@ -5,10 +5,10 @@ go 1.26.5
 require github.com/daforester/goleo v0.0.0
 
 require (
-	github.com/crgimenes/glaze v0.0.31 // indirect
+	github.com/crgimenes/glaze v0.0.46 // indirect
 	github.com/dlclark/regexp2/v2 v2.2.1 // indirect
 	github.com/dop251/goja v0.0.0-20260701091749-b07b74453ea9 // indirect
-	github.com/ebitengine/purego v0.10.1 // indirect
+	github.com/ebitengine/purego v0.10.2 // indirect
 	github.com/go-sourcemap/sourcemap v2.1.3+incompatible // indirect
 	github.com/go-webgpu/goffi v0.5.5 // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
