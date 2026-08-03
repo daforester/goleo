@@ -211,6 +211,9 @@ func (a *App) Run() error {
 	// Deep-link: register the custom URL scheme and capture a launch URL (the
 	// frontend reads it via goleo:initialURL; later launches arrive as app:openURL).
 	if a.config.URLScheme != "" {
+		// OpenURL is scheme-allow-listed (http/https/mailto/tel); permit the
+		// app's own scheme so it can open its own deep links.
+		AllowURLScheme(a.config.URLScheme)
 		a.initialURL = deeplink.SchemeURL(a.config.URLScheme, os.Args[1:])
 		name := a.config.AppID
 		if name == "" {

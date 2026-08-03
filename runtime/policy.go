@@ -8,21 +8,29 @@ import (
 // Policy is a runtime capability ACL. When set on a Bridge (SetPolicy), every
 // invoke is checked centrally before its handler runs: the method must be in
 // Allow (exact match, or a "prefix*" wildcard) or an always-safe core command,
-// otherwise it is denied. Scope lists further constrain specific plugins; an
-// empty scope list leaves that plugin unconstrained (its method-level Allow
-// still governs whether it can be called at all).
+// otherwise it is denied.
 //
 // No policy set = no enforcement (legacy-permissive). Setting a policy opts into
 // deny-by-default, matching Tauri's capability model.
+//
+// SCOPE LISTS ARE NOT YET ENFORCED. Allow (method-level) is. FSRoots, HTTPHosts
+// and ShellPrograms are stored and have Allows* helpers, but no plugin calls
+// them, so populating them restricts nothing — do not treat FSRoots as
+// filesystem confinement. Until they are wired in, keep a sensitive plugin out
+// of Allow (or don't register it) rather than relying on a scope list.
 type Policy struct {
 	// Allow lists permitted invoke methods. "goleo:store*" allows the whole
 	// store plugin; "goleo:fsReadTextFile" allows exactly one command.
+	// Enforced by allowsMethod via Bridge.HandleRequest.
 	Allow []string
-	// FSRoots limits filesystem access to these path prefixes.
+	// FSRoots is intended to limit filesystem access to these path prefixes.
+	// NOT YET ENFORCED — see the type comment.
 	FSRoots []string
-	// HTTPHosts limits the http plugin to these hosts.
+	// HTTPHosts is intended to limit the http plugin to these hosts.
+	// NOT YET ENFORCED — see the type comment.
 	HTTPHosts []string
-	// ShellPrograms limits the shell plugin to these program names.
+	// ShellPrograms is intended to limit the shell plugin to these program names.
+	// NOT YET ENFORCED — see the type comment.
 	ShellPrograms []string
 }
 

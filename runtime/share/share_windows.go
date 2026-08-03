@@ -16,5 +16,12 @@ func platformShare(data *ShareData) error {
 	if data.URL == "" {
 		return fmt.Errorf("share: text-only sharing %w on windows", errors.ErrUnsupported)
 	}
-	return exec.Command("cmd", "/c", "start", "", data.URL).Start()
+	// Hand the URL to rundll32 as a plain argv element rather than through
+	// `cmd /c start`. cmd re-parses its own command line and treats `&` as a
+	// command separator, and Go's syscall.EscapeArg only quotes arguments
+	// containing space/tab/newline/quote — not `&` — so a frontend-supplied URL
+	// like `http://x&calc` executed `calc`. rundll32 involves no shell.
+	// (runtime.OpenURL uses the same mechanism; this package can't import
+	// runtime without a cycle.)
+	return exec.Command("rundll32", "url.dll,FileProtocolHandler", data.URL).Start()
 }

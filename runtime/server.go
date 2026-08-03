@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -11,6 +12,8 @@ import (
 	"log"
 	"net"
 	"net/http"
+	neturl "net/url"
+	"os"
 	"strings"
 )
 
@@ -80,7 +83,14 @@ func (s *Server) Start(ctx context.Context) (int, error) {
 
 	s.allowedOrigins = defaultAllowedOrigins(port, s.config)
 	if !s.config.DevMode {
-		s.token = generateToken()
+		// Fail CLOSED: if we cannot generate a token we must not start a server
+		// whose only auth control silently accepts everything.
+		token, terr := generateToken()
+		if terr != nil {
+			listener.Close()
+			return 0, terr
+		}
+		s.token = token
 	}
 
 	s.server = &http.Server{
@@ -145,6 +155,15 @@ func (s *Server) handleInvoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check Origin here too, not just on the WS upgrade. A cross-site fetch with
+	// Content-Type: text/plain is a CORS-*simple* request, so it is sent with no
+	// preflight and the side effect lands even though the attacker cannot read
+	// the response — blind CSRF against every registered method.
+	if !s.originOK(r.Header.Get("Origin")) {
+		http.Error(w, "forbidden origin", http.StatusForbidden)
+		return
+	}
+
 	if !s.tokenOK(r.Header.Get("X-Goleo-Token")) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -178,7 +197,8 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	conn, err := upgrader.Upgrade(w, r, nil)
+	up := s.wsUpgrader()
+	conn, err := up.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("websocket upgrade error: %v", err)
 		return
@@ -195,9 +215,17 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 }
 
 // tokenOK reports whether the presented token is acceptable. When no token is
-// configured (dev mode), every request passes.
+// configured (dev mode) the token is not the control — originOK is — so any
+// presented value passes. When a token IS configured it must match exactly, and
+// the comparison is constant-time so a caller can't recover it byte-by-byte from
+// response timing.
 func (s *Server) tokenOK(presented string) bool {
-	return s.token == "" || presented == s.token
+	if s.token == "" {
+		return true
+	}
+	// Note the asymmetry with the old behaviour: an empty *presented* token no
+	// longer passes just because it is empty — it must equal the configured one.
+	return subtle.ConstantTimeCompare([]byte(presented), []byte(s.token)) == 1
 }
 
 // originOK reports whether a WS upgrade from origin is allowed. Enforced in
@@ -207,16 +235,81 @@ func (s *Server) tokenOK(presented string) bool {
 // backend), so enforcing the allow-list there would reject the legitimate
 // upgrade and drop the app into local-only mode. Dev CORS is likewise permissive.
 func (s *Server) originOK(origin string) bool {
-	return s.config.DevMode || originAllowed(origin, s.allowedOrigins)
+	if originAllowed(origin, s.allowedOrigins) {
+		return true
+	}
+	if s.config.DevMode && devOriginAllowed(origin) {
+		return true
+	}
+	if s.config.DevMode {
+		// Be loud. A silent 403 in dev reads as "goleo dev is broken", so name the
+		// origin and the escape hatch.
+		log.Printf("goleo: refused bridge connection from origin %q. In dev, loopback and "+
+			"private-network origins are allowed; add others with GOLEO_DEV_ALLOWED_ORIGINS "+
+			"(comma-separated).", origin)
+	}
+	return false
+}
+
+// devOriginAllowed relaxes the origin check in dev WITHOUT accepting the whole
+// internet. Previously dev returned true unconditionally, which meant any page
+// the user visited could open ws://127.0.0.1:<port>/ws and drive every registered
+// bridge method — including the filesystem plugin — and read the replies.
+//
+// Dev legitimately needs cross-origin access from a moving target: the Vite dev
+// server on any port, `goleo emulate android` reaching the host as 10.0.2.2, and
+// real-device testing against a LAN address. All of those are loopback or private
+// ranges, so allow those host classes (any port) plus an explicit env list, and
+// reject public origins like https://evil.com.
+func devOriginAllowed(origin string) bool {
+	if origin == "" {
+		return true // native/non-browser client
+	}
+	for _, extra := range devExtraOrigins() {
+		if origin == extra {
+			return true
+		}
+	}
+	u, err := neturl.Parse(origin)
+	if err != nil {
+		return false
+	}
+	host := u.Hostname()
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false // a public hostname
+	}
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast()
+}
+
+// devExtraOrigins reads GOLEO_DEV_ALLOWED_ORIGINS, the escape hatch for a dev
+// setup served from an origin that is neither loopback nor private.
+func devExtraOrigins() []string {
+	raw := os.Getenv("GOLEO_DEV_ALLOWED_ORIGINS")
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
-		// Dev mode reflects any origin (local development convenience). In
-		// production only the app's own allowed origins are permitted — no
-		// wildcard reflection.
-		if origin != "" && (s.config.DevMode || originAllowed(origin, s.allowedOrigins)) {
+		// Reflect only origins that pass the same check the bridge uses: the app's
+		// own allow-list, plus loopback/private-network origins in dev. Dev used to
+		// reflect ANY origin, which handed credentialed cross-origin reads to any
+		// site the user happened to be visiting.
+		if origin != "" && s.originOK(origin) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Goleo-Token")
@@ -250,13 +343,16 @@ func (s *Server) staticHandler(feFS fs.FS) http.Handler {
 
 // --- hardening helpers (unit-tested in server_test.go) ---
 
-func generateToken() string {
+// generateToken returns a per-launch bridge token. It returns an error rather
+// than an empty string on CSPRNG failure: an empty token means tokenOK accepts
+// anything, so failing open here would silently remove the production auth
+// control instead of refusing to start.
+func generateToken() (string, error) {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
-		// Fail open on the token (origin checks still apply) rather than crash.
-		return ""
+		return "", fmt.Errorf("goleo: could not generate a bridge token: %w", err)
 	}
-	return hex.EncodeToString(b)
+	return hex.EncodeToString(b), nil
 }
 
 func defaultAllowedOrigins(port int, cfg Config) []string {

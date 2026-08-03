@@ -2,9 +2,12 @@ package runtime
 
 import (
 	"fmt"
+	neturl "net/url"
 	"os/exec"
 	"runtime"
+	"sort"
 	"strings"
+	"sync"
 )
 
 type OSInfo struct {
@@ -15,10 +18,10 @@ type OSInfo struct {
 }
 
 type PlatformInfo struct {
-	Platform    string `json:"platform"`
-	IsMobile    bool   `json:"isMobile"`
-	IsDesktop   bool   `json:"isDesktop"`
-	IsBrowser   bool   `json:"isBrowser"`
+	Platform  string `json:"platform"`
+	IsMobile  bool   `json:"isMobile"`
+	IsDesktop bool   `json:"isDesktop"`
+	IsBrowser bool   `json:"isBrowser"`
 }
 
 func GetOSInfo() OSInfo {
@@ -64,12 +67,12 @@ func GetArchInfo() string {
 func GetEnvInfo(key string) string {
 	// Only allow whitelisted env vars for security
 	whitelist := map[string]bool{
-		"HOME":       true,
-		"USER":       true,
-		"USERNAME":   true,
+		"HOME":         true,
+		"USER":         true,
+		"USERNAME":     true,
 		"COMPUTERNAME": true,
-		"PATH":       true,
-		"SHELL":      true,
+		"PATH":         true,
+		"SHELL":        true,
 	}
 
 	if !whitelist[key] {
@@ -79,7 +82,86 @@ func GetEnvInfo(key string) string {
 	return strings.TrimSpace(Getenv(key))
 }
 
-func OpenURL(url string) error {
+// openURLExtraSchemes holds schemes the host app has explicitly opted into —
+// currently the app's own Config.URLScheme, registered by App.Run. Guarded
+// because Run and a bridge invoke can touch it from different goroutines.
+var (
+	openURLMu           sync.RWMutex
+	openURLExtraSchemes = map[string]bool{}
+)
+
+// AllowURLScheme permits scheme (without "://") in OpenURL, on top of the
+// safe-by-default set. App.Run calls this for Config.URLScheme so an app can
+// always open its own deep links.
+func AllowURLScheme(scheme string) {
+	if scheme == "" {
+		return
+	}
+	openURLMu.Lock()
+	defer openURLMu.Unlock()
+	openURLExtraSchemes[strings.ToLower(strings.TrimSuffix(scheme, "://"))] = true
+}
+
+// openURLAllowedSchemes is the default-safe set. goleo:openURL is a default
+// builtin reachable by any script in the webview, and the OS handlers below
+// will happily act on far more than web links: file:// and UNC paths expose the
+// filesystem, and a path to an .exe/.app or a hostile registered scheme becomes
+// arbitrary execution. Tauri and Electron restrict this the same way.
+var openURLAllowedSchemes = map[string]bool{
+	"http":   true,
+	"https":  true,
+	"mailto": true,
+	"tel":    true,
+}
+
+// sortedAllowedSchemes lists every permitted scheme, for error messages.
+func sortedAllowedSchemes() []string {
+	openURLMu.RLock()
+	defer openURLMu.RUnlock()
+	out := make([]string, 0, len(openURLAllowedSchemes)+len(openURLExtraSchemes))
+	for s := range openURLAllowedSchemes {
+		out = append(out, s)
+	}
+	for s := range openURLExtraSchemes {
+		out = append(out, s)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func allowedURLScheme(scheme string) bool {
+	scheme = strings.ToLower(scheme)
+	if openURLAllowedSchemes[scheme] {
+		return true
+	}
+	openURLMu.RLock()
+	defer openURLMu.RUnlock()
+	return openURLExtraSchemes[scheme]
+}
+
+func OpenURL(rawURL string) error {
+	url := strings.TrimSpace(rawURL)
+	// Reject UNC paths (\\server\share) up front: they carry no scheme, so the
+	// parse below would treat them as opaque and they are a live SMB-credential
+	// leak on Windows.
+	if strings.HasPrefix(url, `\\`) || strings.HasPrefix(url, "//") {
+		return fmt.Errorf("openURL: refusing to open UNC path %q", rawURL)
+	}
+	parsed, err := neturl.Parse(url)
+	if err != nil {
+		return fmt.Errorf("openURL: %w", err)
+	}
+	// A bare path ("C:\x\y.exe", "/tmp/x") parses with an empty scheme. Never
+	// hand those to the OS handler.
+	if parsed.Scheme == "" {
+		return fmt.Errorf("openURL: refusing to open %q (no URL scheme; only %s are allowed)",
+			rawURL, strings.Join(sortedAllowedSchemes(), ", "))
+	}
+	if !allowedURLScheme(parsed.Scheme) {
+		return fmt.Errorf("openURL: scheme %q is not allowed (permitted: %s; add your own with Config.URLScheme)",
+			parsed.Scheme, strings.Join(sortedAllowedSchemes(), ", "))
+	}
+
 	var cmd string
 	var args []string
 

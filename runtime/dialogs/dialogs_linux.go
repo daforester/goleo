@@ -9,9 +9,9 @@ import (
 )
 
 func platformOpenFile(opts FileDialogOptions) ([]string, error) {
-	args := []string{"--file-selection", "--title", opts.Title}
+	args := []string{"--file-selection", "--title=" + opts.Title}
 	if opts.DefaultPath != "" {
-		args = append(args, "--filename", opts.DefaultPath)
+		args = append(args, "--filename="+opts.DefaultPath)
 	}
 	if opts.Multiple {
 		args = append(args, "--multiple")
@@ -30,18 +30,18 @@ func platformOpenFile(opts FileDialogOptions) ([]string, error) {
 }
 
 func platformSaveFile(opts FileDialogOptions) (string, error) {
-	args := []string{"--file-selection", "--save", "--title", opts.Title}
+	args := []string{"--file-selection", "--save", "--title=" + opts.Title}
 	if opts.DefaultPath != "" {
-		args = append(args, "--filename", opts.DefaultPath)
+		args = append(args, "--filename="+opts.DefaultPath)
 	}
 	args = append(args, zenityFileFilters(opts.Filters)...)
 	return runZenity(args...)
 }
 
 func platformSelectFolder(opts FileDialogOptions) (string, error) {
-	args := []string{"--file-selection", "--directory", "--title", opts.Title}
+	args := []string{"--file-selection", "--directory", "--title=" + opts.Title}
 	if opts.DefaultPath != "" {
-		args = append(args, "--filename", opts.DefaultPath)
+		args = append(args, "--filename="+opts.DefaultPath)
 	}
 	return runZenity(args...)
 }
@@ -50,17 +50,17 @@ func platformShowMessage(opts MessageBoxOptions) (string, error) {
 	var args []string
 	switch opts.Icon {
 	case "error":
-		args = []string{"--error", "--title", opts.Title, "--text", opts.Message}
+		args = []string{"--error", "--title=" + opts.Title, "--text=" + opts.Message}
 	case "warning":
-		args = []string{"--warning", "--title", opts.Title, "--text", opts.Message}
+		args = []string{"--warning", "--title=" + opts.Title, "--text=" + opts.Message}
 	case "question":
-		args = []string{"--question", "--title", opts.Title, "--text", opts.Message}
+		args = []string{"--question", "--title=" + opts.Title, "--text=" + opts.Message}
 	default:
-		args = []string{"--info", "--title", opts.Title, "--text", opts.Message}
+		args = []string{"--info", "--title=" + opts.Title, "--text=" + opts.Message}
 	}
 	if len(opts.Buttons) >= 2 {
 		if opts.Buttons[0] == "Yes" || opts.Buttons[0] == "yes" {
-			args = append(args, "--ok-label", opts.Buttons[0], "--cancel-label", opts.Buttons[1])
+			args = append(args, "--ok-label="+opts.Buttons[0], "--cancel-label="+opts.Buttons[1])
 		}
 	}
 	_, err := runZenity(args...)
@@ -74,9 +74,9 @@ func platformShowMessage(opts MessageBoxOptions) (string, error) {
 }
 
 func platformShowPrompt(opts PromptOptions) (string, error) {
-	args := []string{"--entry", "--title", opts.Title, "--text", opts.Message}
+	args := []string{"--entry", "--title=" + opts.Title, "--text=" + opts.Message}
 	if opts.DefaultValue != "" {
-		args = append(args, "--entry-text", opts.DefaultValue)
+		args = append(args, "--entry-text="+opts.DefaultValue)
 	}
 	out, err := runZenity(args...)
 	if err != nil {
@@ -97,6 +97,13 @@ func zenityFileFilters(filters []FileFilter) []string {
 	return parts
 }
 
+// Note on argument style: every frontend-supplied value above is passed as
+// `--flag=value`, never as a separate `"--flag", value` pair. zenity uses GNU
+// option parsing, so a value in its own argv slot that begins with `--` (a
+// title of "--help", say) is parsed as another flag instead of as the value.
+// No shell is involved, so this is flag confusion rather than RCE — but it lets
+// a frontend change which dialog appears. The `=` form binds the value to the
+// flag regardless of its contents. zenityFileFilters already did this.
 func runZenity(args ...string) (string, error) {
 	cmd := exec.Command("zenity", args...)
 	out, err := cmd.Output()

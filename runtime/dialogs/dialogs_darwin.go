@@ -66,7 +66,14 @@ func platformSelectFolder(opts FileDialogOptions) (string, error) {
 
 func platformShowMessage(opts MessageBoxOptions) (string, error) {
 	icon := osaMsgIcon(opts.Icon)
-	btns := strings.Join(opts.Buttons, ", ")
+	// Buttons are frontend-supplied, so each label needs the same escaping as
+	// Message/Title — joining them raw let a label close the literal and inject
+	// AppleScript. This was the one spot in this file that skipped escapeOSA.
+	quoted := make([]string, 0, len(opts.Buttons))
+	for _, b := range opts.Buttons {
+		quoted = append(quoted, escapeOSA(b))
+	}
+	btns := strings.Join(quoted, ", ")
 	if btns == "" {
 		btns = `"OK"`
 	}

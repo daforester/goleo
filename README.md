@@ -193,17 +193,25 @@ background · push.
 
 ## Security — capability ACL
 
-Bridge access is permissive by default; set a **`Policy`** to switch to deny-by-default and scope
-sensitive plugins (Tauri-style, enforced centrally on every `invoke`):
+Bridge access is permissive by default; set a **`Policy`** to switch to deny-by-default on a
+per-method basis (Tauri-style, enforced centrally on every `invoke`):
 
 ```go
 app.SetPolicy(&runtime.Policy{
-    Allow:   []string{"goleo:store*", "greet"},   // exact or "prefix*"; core info commands always allowed
-    FSRoots: []string{"/home/me/app-data"},        // scope filesystem access
+    Allow: []string{"goleo:store*", "greet"},   // exact or "prefix*"; core info commands always allowed
 })
 ```
+
+> **The method allow-list (`Allow`) is enforced. The resource-scope lists are not yet.**
+> `FSRoots`, `HTTPHosts` and `ShellPrograms` are accepted by the struct and their
+> `Allows*` helpers exist, but no plugin consults them, so setting them currently
+> restricts nothing. Do not rely on `FSRoots` to confine filesystem access — treat any
+> registered plugin as reachable by anything running in the webview. Wiring these into the
+> plugins is tracked as the next security change.
+
 The loopback bridge is also hardened in production (loopback-only bind, origin allow-list,
-per-launch token).
+per-launch token). `goleo:openURL` only opens `http`/`https`/`mailto`/`tel` plus your own
+`Config.URLScheme`.
 
 ---
 

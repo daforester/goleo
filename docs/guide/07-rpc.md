@@ -107,14 +107,20 @@ Lock down which commands the frontend may call with a `Policy` (deny-by-default
 when set, enforced centrally in `Bridge.HandleRequest` for **every** transport):
 
 ```go
-app.SetPolicy(goleo.Policy{
+app.SetPolicy(&goleo.Policy{
     Allow: []string{"users:*", "files:read", "goleo:clipboard*"},
 })
 ```
 
 - `prefix*` wildcards are supported; core-safe commands are always allowed.
-- Scope helpers gate resource access: `AllowsFSPath`, `AllowsHTTPHost`,
-  `AllowsShellProgram`.
+- `SetPolicy` takes a **pointer** (`*Policy`).
+- **The method allow-list is enforced; the resource-scope lists are not yet.**
+  `FSRoots`, `HTTPHosts` and `ShellPrograms` — and their `AllowsFSPath`,
+  `AllowsHTTPHost`, `AllowsShellProgram` helpers — exist, but no plugin calls them,
+  so setting them restricts nothing today. In particular, a registered filesystem
+  plugin can read and write any path the user can, regardless of `FSRoots`. Gate
+  sensitive plugins by leaving them out of `Allow` (or not registering them) until
+  the scope checks are wired in.
 - The production server also binds loopback-only, checks the WS origin allow-list,
   and injects a per-launch token into `index.html`. Native IPC sidesteps the socket
   surface entirely while the policy still applies.

@@ -686,11 +686,23 @@ Two pre-existing defects surfaced by driving `Quit()` end-to-end:
 ### Security
 - **Capability ACL** (`runtime/policy.go`): `Policy` (Allow list with `prefix*` + always-safe
   core) enforced centrally in `Bridge.HandleRequest` — deny-by-default when set, permissive when
-  not. `App.SetPolicy`. Scope helpers `AllowsFSPath/AllowsHTTPHost/AllowsShellProgram`.
+  not. `App.SetPolicy` (takes a `*Policy`). **Only the method-level `Allow` list is enforced.**
+  The scope lists (`FSRoots`/`HTTPHosts`/`ShellPrograms`) and their
+  `AllowsFSPath`/`AllowsHTTPHost`/`AllowsShellProgram` helpers exist but have **no call sites**, so
+  they restrict nothing — `FSRoots` is *not* filesystem confinement. Wiring them into the plugins
+  is the next security change; `runtime/fs` currently allows any absolute path.
 - **Server hardening** (`runtime/server.go`): production loopback-only bind, origin allow-list on
-  the WS upgrade + CORS (dev/emulation permissive), per-launch token injected into `index.html`.
+  the WS upgrade **and `/api/invoke`** + CORS, per-launch token injected into `index.html`
+  (generation fails closed; comparison is constant-time). Dev mode is permissive only about
+  *which* origin serves the frontend — loopback, private-network and link-local origins are
+  allowed on any port (so Vite, `goleo emulate android` via 10.0.2.2, and LAN device testing all
+  work), public origins are rejected, and `GOLEO_DEV_ALLOWED_ORIGINS` is the escape hatch. It used
+  to allow *any* origin in dev, which let any page the user visited drive the whole bridge.
   Native IPC (above) sidesteps this surface entirely for the window that uses it — no WS upgrade,
   no token needed — while `Policy` still gates every call.
+- **`goleo:openURL` is scheme-allow-listed** (`runtime/platform.go`): `http`/`https`/`mailto`/`tel`
+  plus the app's own `Config.URLScheme` (registered via `AllowURLScheme`). `file://`, UNC paths and
+  bare filesystem paths are refused — the OS handlers would otherwise open executables.
 
 ### Distribution (CLI, `cli/cmd/`)
 - `bundle.go` — `goleo build --bundle`: NSIS (Windows, auto-installs `makensis` via winget/choco/

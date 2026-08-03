@@ -10,10 +10,17 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin:     func(r *http.Request) bool { return true },
+// wsUpgrader returns an upgrader whose CheckOrigin delegates to this server's
+// own origin policy. It used to be a package-level upgrader with
+// `CheckOrigin: return true`, which disabled gorilla's built-in protection
+// entirely and left handleWebSocket's explicit check as the only barrier — so any
+// future upgrade path would have had none. Both layers now apply.
+func (s *Server) wsUpgrader() websocket.Upgrader {
+	return websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin:     func(r *http.Request) bool { return s.originOK(r.Header.Get("Origin")) },
+	}
 }
 
 var hub = &Hub{
