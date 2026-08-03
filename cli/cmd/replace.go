@@ -76,6 +76,32 @@ func ensureGoleoRequire(projectDir string) error {
 	return nil
 }
 
+// keepVendorInSync re-runs `go mod vendor` after go.mod may have changed.
+// ensureGoleoRequire re-pins the goleo require to the running CLI's own
+// version on every dev/build/emulate invocation, not just at `goleo new` —
+// so if that exact version wasn't published to the module proxy yet when the
+// project was scaffolded (falling back to @latest) but is by the time a
+// later command runs, the require bumps forward while the committed
+// vendor/modules.txt is left recording the old version. A vendored project
+// hard-fails `go build`/`go run` with "inconsistent vendoring" the moment
+// go.mod and vendor/modules.txt disagree, so any command that can mutate
+// go.mod after creation must re-vendor to match. No-op if the project isn't
+// vendored (no vendor/modules.txt); best-effort otherwise, matching `goleo
+// new`'s own vendoring step, so a network hiccup here doesn't block the
+// build — Go will still surface the real error if vendor/ ends up stale.
+func keepVendorInSync(dir string) {
+	if _, err := os.Stat(filepath.Join(dir, "vendor", "modules.txt")); err != nil {
+		return
+	}
+	vendor := exec.Command("go", "mod", "vendor")
+	vendor.Dir = dir
+	vendor.Stdout = os.Stdout
+	vendor.Stderr = os.Stderr
+	if err := vendor.Run(); err != nil {
+		fmt.Printf("  Warning: go mod vendor failed (vendor/ may be stale): %v\n", err)
+	}
+}
+
 // goGetQuiet runs `go get <spec>` capturing output, so an expected miss (the
 // pinned version not being tagged yet) doesn't spew go's raw error.
 func goGetQuiet(projectDir, spec string) (string, error) {
