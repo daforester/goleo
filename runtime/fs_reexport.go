@@ -4,6 +4,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 
@@ -55,12 +56,21 @@ func RegisterFS(b *Bridge) {
 		if err != nil {
 			return nil, err
 		}
-		return map[string]string{"data": string(data)}, nil
+		// base64, not string(data). Returning the raw bytes as a Go string put
+		// arbitrary binary through encoding/json, which replaces every invalid UTF-8
+		// sequence with U+FFFD — so a PNG was already corrupted on the wire, before
+		// the frontend saw it. base64 is exactly what encoding/json does for []byte,
+		// so the two directions now agree.
+		return map[string]string{"data": base64.StdEncoding.EncodeToString(data)}, nil
 	})
 
 	b.Handle("goleo:fsWriteBinaryFile", func(ctx context.Context, args json.RawMessage) (any, error) {
 		var req struct {
 			Path string `json:"path"`
+			// []byte means encoding/json expects a base64 STRING here. That was
+			// always the contract; the TS side was sending TextDecoder output
+			// instead, so any non-ASCII payload either failed to unmarshal or
+			// produced the wrong bytes. Both sides use base64 now.
 			Data []byte `json:"data"`
 		}
 		if err := json.Unmarshal(args, &req); err != nil {

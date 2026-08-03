@@ -12,7 +12,7 @@ vi.mock('./bridge', () => ({
   }),
 }))
 
-const { readTextFile, writeTextFile, listDir, deleteFile, appDataDir, homeDir } = await import('./fs')
+const { readTextFile, writeTextFile, listDir, deleteFile, appDataDir, homeDir, readBinaryFile, writeBinaryFile } = await import('./fs')
 
 afterEach(() => {
   vi.clearAllMocks()
@@ -83,5 +83,67 @@ describe('happy paths', () => {
     invoke.mockResolvedValue('/cfg/goleo-demo')
     await appDataDir('goleo-demo')
     expect(invoke).toHaveBeenCalledWith('goleo:fsAppDataDir', { appName: 'goleo-demo' })
+  })
+})
+
+describe('binary encoding', () => {
+  // Both directions used TextEncoder/TextDecoder, which mangles anything that is
+  // not valid UTF-8. The wire format is base64 — what encoding/json already uses
+  // for a Go []byte — so these assert the exact bytes survive.
+  const png = new Uint8Array([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    0xff, 0xfe, 0xfd, 0x00, 0x01, 0x80, 0xc0, 0xc1,
+  ])
+  const pngB64 = 'iVBORw0KGgr//v0AAYDAwQ=='
+
+  it('writeBinaryFile sends base64, not TextDecoder output', async () => {
+    isConnected.mockReturnValue(true)
+    invoke.mockResolvedValue(undefined)
+
+    await writeBinaryFile('/blob.bin', png)
+
+    expect(invoke).toHaveBeenCalledWith('goleo:fsWriteBinaryFile', {
+      path: '/blob.bin',
+      data: pngB64,
+    })
+  })
+
+  it('readBinaryFile decodes base64 back to the exact bytes', async () => {
+    isConnected.mockReturnValue(true)
+    invoke.mockResolvedValue({ data: pngB64 })
+
+    const out = await readBinaryFile('/blob.bin')
+    expect(Array.from(out)).toEqual(Array.from(png))
+  })
+
+  it('round-trips every byte value 0-255 without loss', async () => {
+    const all = new Uint8Array(256)
+    for (let i = 0; i < 256; i++) all[i] = i
+
+    isConnected.mockReturnValue(true)
+    invoke.mockResolvedValue(undefined)
+    await writeBinaryFile('/all.bin', all)
+    const sent = invoke.mock.calls[0][1] as { data: string }
+
+    invoke.mockResolvedValue({ data: sent.data })
+    const back = await readBinaryFile('/all.bin')
+    expect(Array.from(back)).toEqual(Array.from(all))
+  })
+
+  it('handles a payload larger than the fromCharCode argument limit', async () => {
+    // String.fromCharCode(...bytes) blows the stack somewhere around a few hundred
+    // KB — an ordinary file size — so the encoder chunks.
+    const big = new Uint8Array(200_000).map((_, i) => i % 256)
+
+    isConnected.mockReturnValue(true)
+    invoke.mockResolvedValue(undefined)
+    await expect(writeBinaryFile('/big.bin', big)).resolves.toBeUndefined()
+
+    const sent = invoke.mock.calls[0][1] as { data: string }
+    invoke.mockResolvedValue({ data: sent.data })
+    const back = await readBinaryFile('/big.bin')
+    expect(back.length).toBe(big.length)
+    expect(back[0]).toBe(big[0])
+    expect(back[back.length - 1]).toBe(big[big.length - 1])
   })
 })

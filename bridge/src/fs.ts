@@ -54,11 +54,39 @@ export async function writeTextFile(path: string, content: string): Promise<void
   }
 }
 
+// Binary payloads cross the bridge as base64.
+//
+// They used to cross as TextEncoder/TextDecoder output, which corrupts anything
+// that is not valid UTF-8 — so both directions were broken for real binary:
+//   read:  Go sent string(bytes), which encoding/json rewrote every invalid UTF-8
+//          sequence in as U+FFFD, and TextEncoder then re-expanded multibyte runes,
+//          giving garbage of the wrong length.
+//   write: Go declares Data []byte, so encoding/json expects base64 — TextDecoder
+//          output either failed to unmarshal or produced the wrong bytes.
+// base64 is what encoding/json already uses for []byte, so both ends now agree.
+
+function bytesToBase64(bytes: Uint8Array): string {
+  // Chunked: String.fromCharCode(...bytes) blows the argument limit (and the
+  // stack) somewhere around a few hundred KB, which is an ordinary file size.
+  const CHUNK = 0x8000
+  let binary = ''
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
+  }
+  return btoa(binary)
+}
+
+function base64ToBytes(b64: string): Uint8Array {
+  const binary = atob(b64)
+  const out = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i)
+  return out
+}
+
 export async function readBinaryFile(path: string): Promise<Uint8Array> {
   try {
     const result = await bridge().invoke<{ data: string }>('goleo:fsReadBinaryFile', { path })
-    const encoder = new TextEncoder()
-    return encoder.encode(result.data)
+    return base64ToBytes(result.data)
   } catch (e) {
     throw fsError('readBinaryFile', e)
   }
@@ -66,8 +94,7 @@ export async function readBinaryFile(path: string): Promise<Uint8Array> {
 
 export async function writeBinaryFile(path: string, data: Uint8Array): Promise<void> {
   try {
-    const decoder = new TextDecoder()
-    await bridge().invoke<void>('goleo:fsWriteBinaryFile', { path, data: decoder.decode(data) })
+    await bridge().invoke<void>('goleo:fsWriteBinaryFile', { path, data: bytesToBase64(data) })
   } catch (e) {
     throw fsError('writeBinaryFile', e)
   }
