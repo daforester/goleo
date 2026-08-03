@@ -1,5 +1,3 @@
-//go:build darwin && !ios
-
 package dialogs
 
 import (

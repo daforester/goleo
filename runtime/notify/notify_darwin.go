@@ -21,17 +21,6 @@ func platformNotify(title, body string) error {
 	return nil
 }
 
-// escapeOSA renders s as a quoted AppleScript string literal (quotes included).
-// Deliberately duplicated from runtime/dialogs' identical helper: these feature
-// packages don't depend on each other, and the one place that skipped escaping
-// is what produced the injection above. Keep the two in sync.
-func escapeOSA(s string) string {
-	s = strings.ReplaceAll(s, "\\", "\\\\")
-	s = strings.ReplaceAll(s, "\"", "\\\"")
-	s = strings.ReplaceAll(s, "\n", "\\n")
-	return `"` + s + `"`
-}
-
 func platformPermissionGranted() bool {
 	return true
 }

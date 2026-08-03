@@ -140,10 +140,3 @@ func osascript(args ...string) (string, error) {
 	}
 	return strings.TrimSpace(string(out)), nil
 }
-
-func escapeOSA(s string) string {
-	s = strings.ReplaceAll(s, "\\", "\\\\")
-	s = strings.ReplaceAll(s, "\"", "\\\"")
-	s = strings.ReplaceAll(s, "\n", "\\n")
-	return `"` + s + `"`
-}
