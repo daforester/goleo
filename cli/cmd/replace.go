@@ -47,8 +47,65 @@ func ensureLocalReplace(projectDir string) error {
 		return fmt.Errorf("GOLEO_ROOT=%q does not contain runtime/app.go", root)
 	}
 
+	// Already vendored and already consistent — leave it alone. Without this,
+	// ensureGoleoRequire's `go get` runs unconditionally on every single
+	// dev/build/emulate invocation, so a lagging module proxy or checksum
+	// database (routinely the case for a few minutes right after a fresh
+	// goleo release — see AGENTS.md/SPIKES.md) can re-pin go.mod to a
+	// different version than what's already vendored, corrupting an
+	// otherwise-healthy project with an "inconsistent vendoring" error on the
+	// very next `go build`/`go run`. Only fall through to network resolution
+	// when go.mod has no require yet (fresh scaffold) or it actively
+	// disagrees with vendor/modules.txt (needs reconciling).
+	if _, err := os.Stat(filepath.Join(projectDir, "vendor", "modules.txt")); err == nil {
+		if reqV := requiredGoleoVersion(projectDir); reqV != "" && reqV == vendoredGoleoVersion(projectDir) {
+			return nil
+		}
+	}
+
 	// End users: resolve from the module proxy.
 	return ensureGoleoRequire(projectDir)
+}
+
+// requiredGoleoVersion returns the version (without the "v" prefix) go.mod
+// currently requires for goleoModule, or "" if there's no require for it yet.
+func requiredGoleoVersion(projectDir string) string {
+	data, err := os.ReadFile(filepath.Join(projectDir, "go.mod"))
+	if err != nil {
+		return ""
+	}
+	re := regexp.MustCompile(`(?:^|\s)` + regexp.QuoteMeta(goleoModule) + `\s+v(\S+)`)
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.Contains(line, "=>") {
+			continue // a replace directive, not a require
+		}
+		if m := re.FindStringSubmatch(strings.TrimSpace(line)); m != nil {
+			return m[1]
+		}
+	}
+	return ""
+}
+
+// vendoredGoleoVersion returns the version vendor/modules.txt records as the
+// explicit (directly required) entry for goleoModule, or "" if the project
+// isn't vendored or doesn't vendor it explicitly.
+func vendoredGoleoVersion(projectDir string) string {
+	data, err := os.ReadFile(filepath.Join(projectDir, "vendor", "modules.txt"))
+	if err != nil {
+		return ""
+	}
+	prefix := "# " + goleoModule + " v"
+	lines := strings.Split(string(data), "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, prefix) {
+			continue
+		}
+		if i+1 < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[i+1]), "## explicit") {
+			return strings.TrimPrefix(trimmed, prefix)
+		}
+	}
+	return ""
 }
 
 // ensureGoleoRequire points the project's go.mod at a published goleo version and
