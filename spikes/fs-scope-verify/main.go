@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	goleo "github.com/daforester/goleo/runtime"
@@ -61,6 +62,7 @@ func main() {
 	})
 
 	var once sync.Once
+	var failed atomic.Bool
 	b.Handle("verify:report", func(ctx context.Context, args json.RawMessage) (any, error) {
 		var r struct {
 			Native                bool `json:"native"`
@@ -83,6 +85,7 @@ func main() {
 			if ok {
 				fmt.Println("RESULT: PASS (fs confined over native IPC in a real window)")
 			} else {
+				failed.Store(true)
 				fmt.Println("RESULT: FAIL")
 			}
 			go func() { time.Sleep(300 * time.Millisecond); app.Quit() }()
@@ -93,11 +96,18 @@ func main() {
 	// Safety net: never hang.
 	go func() {
 		time.Sleep(35 * time.Second)
-		once.Do(func() { fmt.Println("RESULT: FAIL (timeout — page never reported)"); app.Quit() })
+		once.Do(func() { failed.Store(true); fmt.Println("RESULT: FAIL (timeout — page never reported)"); app.Quit() })
 	}()
 
 	if rerr := app.Run(); rerr != nil {
 		fmt.Println("run error:", rerr)
+		os.Exit(1)
+	}
+	// Exit non-zero on a failed verdict. Without this the process printed
+	// "RESULT: FAIL" and still exited 0, so the CI step went GREEN on a failing
+	// verification — which is exactly the kind of silent pass this spike exists to
+	// prevent. It is how the macOS in-scope-write regression reached master.
+	if failed.Load() {
 		os.Exit(1)
 	}
 }

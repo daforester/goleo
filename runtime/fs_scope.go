@@ -68,12 +68,37 @@ func (b *Bridge) AddFSRoot(dir string) {
 	s := b.fsScope()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, r := range s.roots {
-		if r == abs {
-			return
+	// Store BOTH the literal and the symlink-resolved form. checkFSPath resolves
+	// the requested path before comparing, so a root left unresolved would never
+	// match: on macOS os.MkdirTemp and os.TempDir hand back /var/folders/... while
+	// /var is a symlink to /private/var, so a resolved /private/var/... path was
+	// compared against a /var/... root and every in-scope write was refused. Real
+	// macOS hardware caught this; Windows and Linux did not, because their temp
+	// and config dirs are not symlinks.
+	for _, cand := range fsRootForms(abs) {
+		if !containsPath(s.roots, cand) {
+			s.roots = append(s.roots, cand)
 		}
 	}
-	s.roots = append(s.roots, abs)
+}
+
+// fsRootForms returns the distinct spellings of a root that a resolved request
+// path might legitimately match: the path itself and its symlink-resolved form.
+func fsRootForms(abs string) []string {
+	forms := []string{abs}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil && resolved != abs {
+		forms = append(forms, resolved)
+	}
+	return forms
+}
+
+func containsPath(list []string, p string) bool {
+	for _, e := range list {
+		if e == p {
+			return true
+		}
+	}
+	return false
 }
 
 // GrantFSPath records a path the user explicitly chose in a native dialog, so the
@@ -91,7 +116,11 @@ func (b *Bridge) GrantFSPath(path string) {
 	s := b.fsScope()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.grants[normalizeFSPath(abs)] = true
+	// Both spellings, for the same reason as AddFSRoot: the request is compared
+	// after symlink resolution.
+	for _, form := range fsRootForms(abs) {
+		s.grants[normalizeFSPath(form)] = true
+	}
 }
 
 // fsDenied is refused in every mode, including FSScopeUnrestricted. These are
@@ -174,6 +203,11 @@ func (b *Bridge) checkFSPath(path string, op fsOp) (string, error) {
 	if mode == FSScopeUnrestricted || fsUnrestrictedEnv() {
 		return resolved, nil
 	}
+	// Only the RESOLVED request may be compared against the roots. Matching the
+	// unresolved path as well would reopen the symlink escape this check exists to
+	// close: a link at <root>/link pointing outside still has <root>/ as a literal
+	// prefix, so an unresolved comparison would admit it. Cross-spelling matching
+	// belongs on the root side (fsRootForms), never on the request side.
 	if granted || fsWithinRoots(resolved, roots) {
 		return resolved, nil
 	}

@@ -20,7 +20,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	goleo "github.com/daforester/goleo/runtime"
@@ -36,6 +38,7 @@ func main() {
 		permGranted bool // getUserMedia got past the permission gate (shim fired)
 		win2Ready   bool // 2nd window (OpenWindow -> mainLoopWindowManager) loaded
 		doneOnce    sync.Once
+		failed      atomic.Bool // drives a non-zero exit so CI can actually fail
 	)
 
 	var app *goleo.App
@@ -62,7 +65,7 @@ func main() {
 		mu.Unlock()
 		if ok {
 			doneOnce.Do(func() {
-				fmt.Println("RESULT: PASS (native IPC + permission auto-grant + in-process 2nd window on Linux)")
+				fmt.Printf("RESULT: PASS (native IPC + permission auto-grant + in-process 2nd window on %s)\n", runtime.GOOS)
 				go func() { time.Sleep(300 * time.Millisecond); app.Quit() }()
 			})
 		}
@@ -102,11 +105,20 @@ func main() {
 		mu.Lock()
 		fmt.Printf("RESULT: FAIL (native1=%v permGranted=%v win2=%v)\n", nativeWin1, permGranted, win2Ready)
 		mu.Unlock()
+		failed.Store(true)
 		app.Quit()
 	}()
 
 	if err := app.Run(); err != nil {
 		fmt.Println("run error:", err)
+		os.Exit(1)
+	}
+	// Exit non-zero when the verdict was FAIL. Without this the process printed
+	// "RESULT: FAIL" and still exited 0, so the CI step went green regardless —
+	// the hardware verification this spike backs could not fail the build. The
+	// sibling fs-scope-verify had the same defect, which is how a real macOS
+	// regression reached master under a green tick.
+	if failed.Load() {
 		os.Exit(1)
 	}
 }

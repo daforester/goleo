@@ -121,6 +121,69 @@ func TestScopeResistsTraversalAndSymlinks(t *testing.T) {
 	}
 }
 
+// Regression, found by the macos-14 CI runner: checkFSPath resolves the requested
+// path through EvalSymlinks, so a root that was NOT resolved could never match it.
+// On macOS os.MkdirTemp/os.TempDir return /var/folders/... while /var is a symlink
+// to /private/var, so a resolved /private/var/... request was compared against a
+// /var/... root and EVERY in-scope write was refused — the plugin was unusable
+// there while still looking correct on Windows and Linux, whose temp and config
+// directories are not symlinks.
+func TestRootReachedThroughASymlinkStillMatches(t *testing.T) {
+	real := t.TempDir()
+	linkParent := t.TempDir()
+	link := filepath.Join(linkParent, "aliased")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlinks unavailable here: %v", err)
+	}
+
+	// The app registers the *aliased* spelling, exactly as macOS hands it over.
+	b := NewBridge()
+	b.AddFSRoot(link)
+
+	// A write through either spelling must be allowed — both name the same place.
+	for _, p := range []string{
+		filepath.Join(link, "notes.txt"),
+		filepath.Join(real, "notes.txt"),
+	} {
+		if _, err := b.checkFSPath(p, fsWrite); err != nil {
+			t.Errorf("%q is inside the registered root and must be writable, got %v", p, err)
+		}
+	}
+
+	// And the reverse: registering the real path must accept the aliased request.
+	b2 := NewBridge()
+	b2.AddFSRoot(real)
+	if _, err := b2.checkFSPath(filepath.Join(link, "x.txt"), fsWrite); err != nil {
+		t.Errorf("aliased request into a real root must be allowed, got %v", err)
+	}
+
+	// Confinement must still hold — this fix widens spellings, not scope.
+	if _, err := b.checkFSPath(filepath.Join(t.TempDir(), "outside.txt"), fsWrite); err == nil {
+		t.Error("a genuinely out-of-scope path must still be refused")
+	}
+}
+
+// Session grants have the same asymmetry: a granted path is compared post-resolution.
+func TestGrantThroughASymlinkStillMatches(t *testing.T) {
+	real := t.TempDir()
+	linkParent := t.TempDir()
+	link := filepath.Join(linkParent, "aliased")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlinks unavailable here: %v", err)
+	}
+	target := filepath.Join(link, "picked.txt")
+
+	b := NewBridge()
+	b.AddFSRoot(t.TempDir()) // some unrelated root
+	if _, err := b.checkFSPath(target, fsWrite); err == nil {
+		t.Fatal("precondition: should start out of scope")
+	}
+	b.GrantFSPath(target) // as a dialog would
+	if _, err := b.checkFSPath(target, fsWrite); err != nil {
+		t.Errorf("a granted aliased path must be writable, got %v", err)
+	}
+}
+
 // The deny-list holds even in unrestricted mode: these are places where a write
 // damages the machine, not the app's data.
 func TestDenyListAppliesEvenWhenUnrestricted(t *testing.T) {
