@@ -123,6 +123,21 @@ func ensureGoleoRequire(projectDir string) error {
 		}
 		fmt.Printf("  %s@v%s not tagged as a Go module yet — using @latest\n", goleoModule, v)
 	}
+	// Drop the current require before falling back. `go get X@latest` still has to
+	// load the module graph first, so an UNRESOLVABLE pin already in go.mod makes
+	// even this recovery path fail:
+	//
+	//   go: github.com/daforester/goleo@v0.8.8: reading .../go.mod at revision
+	//   v0.8.8: unknown revision v0.8.8
+	//
+	// which is precisely the situation the fallback exists for — a scaffold pinned
+	// to this CLI's version (see scaffoldGoleoVersion) during the window after an
+	// npm publish but before the matching Go tag is fetchable, or any pin that was
+	// later yanked. Dropping it first lets @latest resolve cleanly; it's a no-op
+	// when the module isn't required.
+	if err := runGo(projectDir, modModEnv(), "mod", "edit", "-droprequire", goleoModule); err != nil {
+		return fmt.Errorf("clearing the unresolved %s require before falling back: %w", goleoModule, err)
+	}
 	// `go get` refuses to run under -mod=vendor (scaffolds commit a vendor/), so
 	// force -mod=mod to resolve from the module cache/proxy.
 	if err := runGo(projectDir, modModEnv(), "get", goleoModule+"@latest"); err != nil {

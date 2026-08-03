@@ -110,6 +110,36 @@ func TestEnsureLocalReplaceSkipsResolutionWhenVendorConsistent(t *testing.T) {
 	}
 }
 
+// An unresolvable pin must be cleared before the @latest fallback runs, because
+// `go get X@latest` loads the module graph first and dies on the bad revision —
+// so without this the fallback cannot recover from the very case it exists for
+// (a scaffold pinned to a CLI version whose Go tag isn't fetchable yet).
+// Hermetic: GOPROXY=off makes @latest fail, and we assert on what go.mod looks
+// like afterwards rather than on network behaviour.
+func TestEnsureGoleoRequireDropsUnresolvablePinBeforeFallback(t *testing.T) {
+	proj := t.TempDir()
+	// v0.99.99 is a VALID module version for an unsuffixed path (must be v0/v1)
+	// that simply does not exist — so go.mod still parses and only resolution
+	// fails, which is the situation under test.
+	goMod := "module example.com/x\n\ngo 1.26\n\nrequire " + goleoModule + " v0.99.99\n"
+	if err := os.WriteFile(filepath.Join(proj, "go.mod"), []byte(goMod), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("GOPROXY", "off")
+	if err := ensureGoleoRequire(proj); err == nil {
+		t.Fatal("expected the offline @latest fallback to fail")
+	}
+
+	data, err := os.ReadFile(filepath.Join(proj, "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "v0.99.99") {
+		t.Errorf("unresolvable pin should have been dropped before the fallback, got:\n%s", data)
+	}
+}
+
 // Sanity check on the other side: when go.mod and vendor actively disagree,
 // the fast path must NOT mask that — resolution should still be attempted
 // (and here, offline, fail), rather than silently no-op-ing on a real
