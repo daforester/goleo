@@ -5,16 +5,16 @@
 # is optional; use it if you want to own the source.
 #
 # One-time manual step first: fork github.com/crgimenes/glaze on GitHub (the
-# fork copies its tags, incl. v0.0.31). Then:
-#   scripts/pin-glaze-fork.sh github.com/<you>/glaze            # defaults to v0.0.31
-#   scripts/pin-glaze-fork.sh github.com/<you>/glaze v0.0.31
+# fork copies its tags, incl. v0.0.46). Then:
+#   scripts/pin-glaze-fork.sh github.com/<you>/glaze            # defaults to v0.0.46
+#   scripts/pin-glaze-fork.sh github.com/<you>/glaze v0.0.46
 #
 # Repoints the root module. Review the go.mod/go.sum changes and commit. Undo:
 # `go mod edit -dropreplace github.com/crgimenes/glaze`. (The cli/npm/goleo bundle
 # is generated from the root by cli/npm/copy-source.js, so it inherits the pin.)
 set -euo pipefail
 FORK="${1:?usage: pin-glaze-fork.sh <fork-module-path> [version]}"
-VER="${2:-v0.0.31}"
+VER="${2:-v0.0.46}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ( cd "$ROOT" && go mod edit -replace "github.com/crgimenes/glaze=${FORK}@${VER}" && go mod tidy && go mod vendor )
 echo "Pinned glaze -> ${FORK}@${VER} in the root module. Review go.mod/go.sum and commit."

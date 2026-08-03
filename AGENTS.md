@@ -329,7 +329,7 @@ goleo build      # Build for current platform
 ### Go Dependencies
 - github.com/spf13/cobra - CLI framework
 - github.com/gorilla/websocket - WebSocket support
-- github.com/crgimenes/glaze - cgo-free WKWebView/WebKitGTK/WebView2 backend (the sole webview binding for ALL desktops; pinned to the daforester/glaze fork)
+- github.com/crgimenes/glaze - cgo-free WKWebView/WebKitGTK/WebView2 backend (the sole webview binding for ALL desktops; upstream `v0.0.46`, `replace`d with the `daforester/glaze` fork solely for the Windows permission auto-grant)
 - github.com/ebitengine/purego - dlopen/FFI used by the cgo-free webview + tray backends
 - github.com/gogpu/systray - cgo-free system tray
 - github.com/dop251/goja - JS engine for `init.js`
@@ -348,7 +348,7 @@ the root (runtime + go.mod + vendor + bridge) produced by `cli/npm/copy-source.j
 at `npm publish`/`scripts/setup.*` time and gitignored. It inherits the root's vendor
 tree, so it needs no separate vendoring or pinning and CI doesn't check it.
 
-- **Update a dep:** `scripts/update-vendor.{sh,ps1} github.com/crgimenes/glaze@v0.0.32`
+- **Update a dep:** `scripts/update-vendor.{sh,ps1} github.com/crgimenes/glaze@v0.0.46`
   (bumps it in the root module, then re-runs `go mod tidy && go mod vendor`).
 - **Update everything:** `scripts/update-vendor.{sh,ps1} -u ./...`
 - **Just refresh after editing go.mod:** `scripts/update-vendor.{sh,ps1}` (no args).
@@ -419,16 +419,23 @@ So **every desktop target is pure-Go and cross-compilable from one machine**, on
 single binding. Shutdown unblocks the run loop via `endRunLoop()`
 (glaze's `Terminate()`) — not a GOOS check.
 
-### Why goleo pins a glaze fork (`daforester/glaze`, currently `v0.0.32-goleo.5`)
+### Why goleo pins a glaze fork (`daforester/glaze`, currently `v0.0.46-goleo.1`)
 
-goleo `replace`s `crgimenes/glaze` with the fork for **one reason now: the Windows
-WebView2 permission auto-grant.** The custom-scheme API the fork was originally
-created for is **merged into upstream glaze** — but (a) upstream hasn't tagged a
-release containing it yet (latest is `v0.0.31`), and (b) the Windows
+goleo `replace`s `crgimenes/glaze` with the fork for **exactly one reason: the
+Windows WebView2 permission auto-grant.** The custom-scheme API the fork was
+originally created for is **merged into upstream glaze and released** (it ships in
+`v0.0.46`), so the fork no longer carries it — the fork is now a **rebase of
+upstream `v0.0.46` plus one commit**, and its whole delta is the `go.mod` module
+line plus the ~50-line grant (`webview2_permissions_windows.go` + its wiring). The
 `PermissionRequested`→Allow handler was deliberately **kept out of the upstream
 PR**: auto-granting camera/mic/geolocation is a security *policy* that suits goleo
 (it loads only its own trusted content) but is wrong as a default for a general
 library.
+
+Note the grant is **not** an API goleo calls — it is internal to glaze. So a
+downstream module that drops the `replace` still *compiles*; it just silently loses
+camera/mic/geolocation on Windows. That is why `goleo new` scaffolds the `replace`
+into the generated `go.mod` (Go replace directives don't transit).
 
 **Why that grant has to live in the fork** (unlike Linux, which goleo handles in
 its own runtime): glaze owns the WebView2 setup and exposes only the **HWND** via
@@ -440,11 +447,23 @@ contrast, on **Linux** the equivalent is a GObject signal on the `WebKitWebView`
 (`runtime/webview_glaze_permissions_linux.go`) with no fork. On **macOS** WKWebView
 grants media itself — no-op (`runtime/webview_glaze_permissions_other.go`).
 
-**Path off the fork:** land an upstream permission-request *hook* (glaze surfaces
-the request, the host returns allow/deny; goleo supplies an auto-allow callback) —
-drafted in `spikes/glaze-scheme-secure/PERMISSION_HOOK_ISSUE.md` — and pin an
-upstream release that carries the scheme API. Then the `replace` goes away. Full
-history in `SPIKES.md`.
+**Path off the fork (now the only remaining step):** land an upstream
+permission-request *hook* (glaze surfaces the request, the host returns allow/deny;
+goleo supplies an auto-allow callback) — drafted in
+`spikes/glaze-scheme-secure/PERMISSION_HOOK_ISSUE.md`. The scheme-API half of this
+condition is already satisfied, so once that hook exists upstream the `replace`
+goes away entirely and goleo pins plain `crgimenes/glaze`. Full history in
+`SPIKES.md`.
+
+**Rebasing the fork onto a newer upstream** (`scripts/pin-glaze-fork.*` pins it;
+the rebase itself is manual): branch off the new upstream tag, cherry-pick the
+grant commit, rewrite `go.mod`'s module line to `github.com/daforester/glaze`, tag
+`<upstream>-goleo.N`, then re-pin + `go mod vendor`. Leave every other upstream
+file byte-identical — in particular do **not** repoint upstream's
+`editor_scenario_darwin_test.go` import at the fork: `go mod tidy` in a *consuming*
+module walks a dependency's test imports, and that would make it resolve
+`daforester/glaze` as an external module instead of through the consumer's
+`replace`, breaking `go mod tidy` for every downstream project.
 
 ### Window modes (`Config.WindowMode`)
 
@@ -645,13 +664,12 @@ Added on top of the core bridge/feature system. Full rationale + status in
   shared `buildAssetServer` resolves request paths to bytes+MIME from
   `frontend/dist` with SPA index fallback and bridge-token injection. The loopback server stays up
   as the fallback transport. Verified end-to-end on Linux + `macos-14` (`goleo://app`) and Windows
-  (`https://goleo.localhost`) via `spikes/goleo-scheme-verify`. **Requires the glaze fork** (`NewWithOptions`): goleo pins
-  `crgimenes/glaze => daforester/glaze` via `replace`, and because Go `replace` directives don't
-  transit, **any downstream module importing goleo's runtime needs the same replace** — `goleo new`
-  scaffolds it into the generated `go.mod`. See `SPIKES.md` (2026-07-13). Update: the scheme API is
-  now **merged into upstream `crgimenes/glaze`**; the fork (currently `v0.0.32-goleo.5`) is retained
-  only until upstream cuts a release carrying it *and* the Windows permission auto-grant moves off
-  the fork — see the fork-retirement note in `SPIKES.md` + `spikes/glaze-scheme-secure/PERMISSION_HOOK_ISSUE.md`.
+  (`https://goleo.localhost`) via `spikes/goleo-scheme-verify`. The `NewWithOptions`/`SchemeHandlers`
+  API this needs is **upstream** as of `crgimenes/glaze` `v0.0.46`, so scheme assets no longer
+  require the fork (the fork is still pinned, but only for the Windows permission auto-grant — see
+  "Why goleo pins a glaze fork" above). Because Go `replace` directives don't transit, **any
+  downstream module importing goleo's runtime still needs the same replace** to inherit that grant —
+  `goleo new` scaffolds it into the generated `go.mod`. See `SPIKES.md` (2026-07-13, 2026-08-03).
 
 ### GUI lifecycle threading (fixed alongside native IPC)
 Two pre-existing defects surfaced by driving `Quit()` end-to-end:

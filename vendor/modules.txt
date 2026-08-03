@@ -3,7 +3,7 @@
 github.com/akavel/rsrc/binutil
 github.com/akavel/rsrc/coff
 github.com/akavel/rsrc/ico
-# github.com/crgimenes/glaze v0.0.31 => github.com/daforester/glaze v0.0.32-goleo.5
+# github.com/crgimenes/glaze v0.0.46 => github.com/daforester/glaze v0.0.46-goleo.1
 ## explicit; go 1.26.5
 github.com/crgimenes/glaze
 # github.com/dlclark/regexp2/v2 v2.2.1
@@ -21,7 +21,7 @@ github.com/dop251/goja/ftoa/internal/fast
 github.com/dop251/goja/parser
 github.com/dop251/goja/token
 github.com/dop251/goja/unistring
-# github.com/ebitengine/purego v0.10.1
+# github.com/ebitengine/purego v0.10.2
 ## explicit; go 1.18
 github.com/ebitengine/purego
 github.com/ebitengine/purego/internal/cgo
@@ -97,4 +97,4 @@ golang.org/x/text/language
 golang.org/x/text/transform
 golang.org/x/text/unicode/norm
 golang.org/x/text/unicode/rangetable
-# github.com/crgimenes/glaze => github.com/daforester/glaze v0.0.32-goleo.5
+# github.com/crgimenes/glaze => github.com/daforester/glaze v0.0.46-goleo.1

@@ -627,3 +627,50 @@ grant substitute.
   bug). Note CI runs **no** `go test` step at all today, so these tests only run locally.
   Sibling shell-outs (`runtime/dialogs`, `runtime/notify`) pass one whole script string as the
   single `-Command` argument, which is the safe shape — they were not affected.
+
+---
+
+## Fork slimmed: rebased onto upstream `v0.0.46`, scheme API dropped (2026-08-03)
+
+**Upstream released the scheme API.** `crgimenes/glaze` has moved `v0.0.31` → **`v0.0.46`**, and the
+merged custom-scheme PR now ships in a tagged release (`scheme.go`, `webview2_scheme_windows.go`,
+plus the darwin/linux handlers — the full `Options`/`NewWithOptions`/`SchemeHandler`/`SchemeRequest`/
+`SchemeResponse` surface goleo calls). That closes the first of the two conditions the 2026-07-20
+entry above listed for retiring the fork.
+
+**The fork is still required — but its delta is now one commit.** Rebased
+`daforester/glaze` onto `v0.0.46` carrying only the WebView2 permission auto-grant, tagged
+**`v0.0.46-goleo.1`**; goleo re-pinned + re-vendored. Total delta vs upstream is **53 insertions /
+1 deletion across 4 files**: `go.mod`'s module line + `webview2_permissions_windows.go` + its
+wiring in `webview2_windows.go`/`webview_windows.go`. Everything the fork used to carry for the
+scheme API now comes from upstream. `scripts/pin-glaze-fork.*` defaults bumped `v0.0.31` → `v0.0.46`,
+and the scaffold templates (`cli/cmd/templates.go`, `cli/cmd/templates/demo/go.mod.tmpl`) re-pointed
+at the new tag.
+
+**Re-confirmed the grant still can't move into goleo's runtime** (so the fork can't be dropped
+outright): upstream v0.0.46 declares the `AddPermissionRequested`/`RemovePermissionRequested` vtable
+slots, but wires **no** handler and exposes **no** permission hook — and every COM type
+(`iCoreWebView2`, `asWebView2`, …) is still unexported with no accessor. `Window()` returns the HWND
+only, and WebView2 has no HWND→interface recovery, so there remains no external attachment point for
+a COM event on `ICoreWebView2`. The remaining path off the fork is unchanged: an upstream
+permission-request *hook* (`spikes/glaze-scheme-secure/PERMISSION_HOOK_ISSUE.md`).
+
+**A subtlety that bites consumers — do NOT repoint upstream's test imports at the fork.** The first
+rebase attempt also rewrote `editor_scenario_darwin_test.go`'s `github.com/crgimenes/glaze/editor`
+import to `daforester/…` for internal consistency. That **broke `go mod tidy` in goleo**:
+`go mod tidy` walks the *test* imports of dependencies (`github.com/crgimenes/glaze tested by
+…glaze.test imports github.com/daforester/glaze/editor`), and because the consumer's `replace` maps
+`crgimenes/glaze` — not `daforester/glaze` — that import resolved as a *separate external module*,
+whose `@latest` (`v0.0.32-goleo.5`) has no `editor` package: `module … found, but does not contain
+package`. Left as upstream's path it resolves through the consumer's own replace and tidies clean.
+So: change **only** `go.mod`'s module line; leave every other upstream file byte-identical.
+
+**Verified (from the Windows host, `CGO_ENABLED=0`):** `go mod tidy` + `go mod vendor` clean;
+`go vet ./runtime/... ./cli/...` clean; and — per the cross-link/fakecgo lesson above — a real executable
+importing **both** the webview (glaze/purego) and the tray was **cross-linked**, not just compiled,
+for all six desktop targets (windows,linux,darwin × amd64,arm64): all six link, and `runtime/cgo` is
+absent from the dep tree on each. That link check matters here specifically because v0.0.46 bumped
+`purego` `v0.10.1` → `v0.10.2` — the exact library whose `fakecgo` `_cgo_init` export collides with
+`gogpu/systray`'s `goffi` on Mach-O. It does not collide. Real-GUI behavior (the grant actually
+firing on WebView2) is unchanged code on an unchanged path, but has **not** been re-driven on
+hardware in this pass.

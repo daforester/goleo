@@ -43,8 +43,10 @@ One caveat, "self-contained" isn't misread: glaze does **not** bundle a browser 
 - Zero bundled native libraries -- binds the OS WebView directly (WKWebView / WebKitGTK / WebView2)
 - JavaScript to Go binding
 - Helpers for common desktop patterns: `BindMethods`, `RenderHTML`, `AppWindow`, a Go↔JS `Events` bridge
+- A dependency-free code editor component (`glaze/editor`): line numbers, syntax highlighting, autocompletion, error marks — Filo and SQL definitions included, languages pluggable
 - Native file dialogs (`OpenFile`/`OpenFiles`/`SaveFile`/`OpenDirectory`) and a reusable native menu bar (`glaze/menu`)
-- Window control from Go: `SetTitle`, `SetSize`, `Focus` (explicit keyboard focus into the web content)
+- Custom URL schemes: serve embedded assets from a portless, secure-context `app://` origin (`NewWithOptions`)
+- Window control from Go: `SetTitle`, `SetSize`, `Focus` (keyboard focus into the web content) and `Raise` (front the window and activate the app)
 - `NewWindow(debug, window)` embeds the WebView into an existing native window (`New` is the create-a-window shortcut)
 - Plays nicely with `go.work` multi-module setups
 
@@ -204,6 +206,89 @@ err := glaze.AppWindow(glaze.AppOptions{
 })
 ```
 
+### Custom URL schemes
+
+Serve a window's assets from your own `app://`-style origin -- one that WebKit
+and WebView2 treat as a **secure context** -- without opening a TCP port. Hand
+`NewWithOptions` a map of scheme name to handler; the handler turns a request
+into bytes:
+
+```go
+//go:embed ui
+var uiFS embed.FS
+
+w, err := glaze.NewWithOptions(glaze.Options{
+    Debug: true,
+    SchemeHandlers: map[string]glaze.SchemeHandler{
+        "app": func(req *glaze.SchemeRequest) *glaze.SchemeResponse {
+            data, ctype := serve(req.URL) // from your embedded FS, however you like
+            if data == nil {
+                return nil // a nil response is a 404
+            }
+            return &glaze.SchemeResponse{Body: data, MIMEType: ctype}
+        },
+    },
+})
+w.Navigate("app://home/index.html") // secure origin, no port
+```
+
+Why not just `file://` or `SetHtml`? Because neither is a **secure context**,
+and a large part of the web platform is gated behind one:
+
+| Approach | Port? | Secure context? |
+| --- | --- | --- |
+| Loopback `http://127.0.0.1:<port>` server | opens a port | yes |
+| `file://` / `SetHtml` | no port | **no** -- `crypto.subtle` is undefined, `getUserMedia`/geolocation are blocked, `localStorage` is unreliable, routing is hash-only |
+| **Custom scheme (this)** | **no port** | **yes** -- `localStorage`, `crypto.subtle`, `getUserMedia`, and path routing all work |
+
+Handlers are supplied at construction (not added later) because macOS bakes the
+scheme handlers into the `WKWebViewConfiguration` before the `WKWebView` exists.
+`New`/`NewWindow` delegate to `NewWithOptions`, so existing code is unaffected.
+
+Each backend uses its own native mechanism: macOS a `WKURLSchemeHandler`; Linux
+`webkit_web_context_register_uri_scheme` marked secure. **Windows** has no
+per-scheme secure flag, so the scheme is served over a per-scheme
+`https://<scheme>.localhost` virtual host (an https origin is a secure context)
+and `Navigate` rewrites `<scheme>://…` to it -- so your handler and your
+`Navigate` URLs use the one `scheme://` form on every platform. See
+[examples/scheme](examples/scheme/).
+
+### First click on an inactive window (macOS)
+
+On macOS a click on a window that does not have focus is spent *activating* the
+window: it never reaches the page. For a control panel, a dashboard or a player
+-- anything the user clicks in passing -- that reads as a broken button, and the
+user ends up clicking twice.
+
+```go
+w, err := glaze.NewWithOptions(glaze.Options{AcceptsFirstMouse: true})
+```
+
+It is **opt-in**, and deliberately so: the AppKit default is what protects
+destructive interfaces. In a drawing tool, an editor, or any window with a
+delete button, a click that merely raises the window must not also press
+whatever happens to sit under the cursor. Leave it off when a stray first click
+could destroy something.
+
+macOS only; ignored on Linux and Windows, where a click on an inactive window
+already reaches the content. The mechanism is a `WKWebView` subclass answering
+`YES` to `acceptsFirstMouse:` -- AppKit asks the *view* under the cursor, so
+there is no window-level or runtime switch for it.
+
+**It is not always enough.** AppKit will deliver the click to the view, but
+WebKit hosts the page in another process and does not always forward that first
+click to the DOM while the window is not key -- measured, not assumed. When a
+program *knows* it took its own focus away (it launched a window that
+activates, say), the reliable answer is to take the focus back:
+
+```go
+w.Raise() // front the window and activate the app; the next click just works
+```
+
+`Raise` is the blunt instrument and should be used sparingly -- stealing focus
+from someone typing in another application is worse than the second click it
+saves. `Focus` is the other half: it moves the caret *inside* the page.
+
 ### Events
 
 A lightweight publish/subscribe bridge between Go and JavaScript, layered on
@@ -292,6 +377,7 @@ cd examples
 go run ./simple
 go run ./bind
 go run ./zero_tcp
+go run ./scheme
 ```
 
 Or from each example directory:
@@ -305,6 +391,11 @@ cd examples/filorepl && go run .
 `examples/zero_tcp` shows a local-first UI with no HTTP server and no loopback
 TCP gateway: it stages the frontend to disk, navigates to a `file://` URL, and
 talks to Go through `BindMethods` alone.
+
+`examples/scheme` is the secure-context counterpart: it serves an embedded
+frontend from a portless `app://` origin via a custom scheme handler, so
+`localStorage`, `crypto.subtle`, and path routing all work (they do not on the
+`file://` origin above).
 
 ## Testing
 
@@ -346,6 +437,7 @@ go build -ldflags="-H windowsgui" .
 - `webview_common.go` -- the `WebView` interface, function-wrapper, and JS marshalling
 - `webview_bridge.go` / `webview_bridge_webkit.go` -- the injected JS bridge (init/bind scripts)
 - `webview_darwin.go` / `webview_linux.go` / `webview_windows.go` (+ `webview2_windows.go`, `putbounds_amd64.go`, `putbounds_arm64.go`) -- the per-OS pure-Go backends
+- `scheme.go` (+ `webview2_scheme_windows.go`) -- the custom URL-scheme handler API (`NewWithOptions` / `SchemeHandler`)
 - `appwindow.go` -- desktop window + local HTTP server helper
 - `dialog.go` / `dialog_darwin.go` / `dialog_windows.go` / `dialog_linux.go` -- native file dialogs
 - `helpers.go` -- utility helpers (`BindMethods`, `RenderHTML`)
@@ -366,8 +458,9 @@ Glaze loads the OS WebView framework directly and bundles or extracts no native 
 ## More of my projects
 
 - [filo](https://github.com/crgimenes/filo): a small scripting language safe to embed in Go programs.
+- [keikiban](https://github.com/crgimenes/keikiban): a PostgreSQL dashboard; database load, top SQL, locks, index health.
 - [kutta](https://github.com/crgimenes/kutta): a 2D wind tunnel; watch air misbehave around an airfoil.
-- [neko](https://github.com/crgimenes/neko): the classic desktop cat chasing your pointer, in Go.
 - [minigui](https://github.com/crgimenes/minigui): a tiny immediate-mode GUI for Ebitengine.
+- [neko](https://github.com/crgimenes/neko): the classic desktop cat chasing your pointer, in Go.
 
 More at [github.com/crgimenes](https://github.com/crgimenes) and [crg.eti.br](https://crg.eti.br).

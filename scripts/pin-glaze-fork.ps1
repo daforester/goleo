@@ -5,16 +5,16 @@
 # is optional; use it if you want to own the source.
 #
 # One-time manual step first: fork github.com/crgimenes/glaze on GitHub (the
-# fork copies its tags, incl. v0.0.31). Then:
-#   scripts/pin-glaze-fork.ps1 github.com/<you>/glaze          # defaults to v0.0.31
-#   scripts/pin-glaze-fork.ps1 github.com/<you>/glaze v0.0.31
+# fork copies its tags, incl. v0.0.46). Then:
+#   scripts/pin-glaze-fork.ps1 github.com/<you>/glaze          # defaults to v0.0.46
+#   scripts/pin-glaze-fork.ps1 github.com/<you>/glaze v0.0.46
 #
 # Repoints the root module. Review the go.mod/go.sum changes and commit. To undo:
 # `go mod edit -dropreplace github.com/crgimenes/glaze`. (The cli/npm/goleo bundle
 # is generated from the root by cli/npm/copy-source.js, so it inherits the pin.)
 param(
   [Parameter(Mandatory = $true)] [string]$Fork,
-  [string]$Version = "v0.0.31"
+  [string]$Version = "v0.0.46"
 )
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot

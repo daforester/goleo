@@ -38,9 +38,15 @@ purego: macOS (objc `NSMenu`), Windows (user32 + wndproc subclass), Linux **GTK3
 accelerators) **and GTK4** (GMenu + `GtkPopoverMenuBar`). Plus a **bridge menu API**
 (`goleo:setMenu` + `@goleo/bridge` `setMenu`/`onMenu`) for frontend-defined menus (leaf items emit
 `menu:<id>` events). Verified: Windows (local GUI), Linux GTK3 + GTK4 (Docker), macOS (`macos-14`).
-Residual caveats: `goleo://` asset serving is deferred (`SPIKES.md`); accelerators are full on
-macOS/GTK3, best-effort on Windows/GTK4; interactive/pixel UX only headless on CI. See Track D,
-`SPIKES.md`, and `spikes/glaze-*`.
+Residual caveats: accelerators are full on macOS/GTK3, best-effort on Windows/GTK4;
+interactive/pixel UX only headless on CI. See Track D, `SPIKES.md`, and `spikes/glaze-*`.
+
+> **Currency note (2026-08-03).** Entries below that describe `goleo://` asset serving as
+> *deferred*, or the custom-scheme API as *requiring a glaze fork*, are **history**. `goleo://`
+> shipped as opt-in `Config.SchemeAssets` on all three desktops, and the scheme API has since been
+> **merged and released upstream** in `crgimenes/glaze v0.0.46`. The `daforester/glaze` fork is
+> still pinned, but now solely for the Windows WebView2 permission auto-grant; it is a rebase of
+> upstream `v0.0.46` plus that one commit (`v0.0.46-goleo.1`). See `SPIKES.md` (2026-08-03).
 
 ## 0. Current status (what is built vs designed)
 

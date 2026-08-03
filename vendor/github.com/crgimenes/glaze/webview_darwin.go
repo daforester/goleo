@@ -30,6 +30,7 @@ const (
 
 	nsApplicationActivationPolicyRegular = 0
 
+	nsEventTypeKeyDown            = 10
 	nsEventTypeApplicationDefined = 15
 	nsEventMaskAny                = ^uint(0)
 
@@ -117,7 +118,7 @@ var (
 	dispatchWork   uintptr
 
 	appDelegateClass, scriptHandlerClass, windowDelegateClass, uiDelegateClass objc.Class
-	schemeHandlerClass                                                         objc.Class
+	schemeHandlerClass, firstMouseViewClass                                    objc.Class
 )
 
 // Init prepares the macOS backend: loads AppKit + WebKit and registers the
@@ -234,6 +235,22 @@ func registerClasses() error {
 		})
 	if err != nil {
 		return fmt.Errorf("webview: url scheme handler class: %w", err)
+	}
+
+	// A WKWebView that answers YES to acceptsFirstMouse:, used only when
+	// Options.AcceptsFirstMouse asks for it. NSView's default is NO, so a click
+	// on an inactive window is spent activating it and never reaches the page —
+	// the "I had to click twice" complaint. Subclassing is the whole mechanism:
+	// AppKit asks the VIEW under the cursor, and there is no window-level or
+	// runtime switch for it.
+	firstMouseViewClass, err = objc.RegisterClass(
+		"GlazeFirstMouseWebView", objc.GetClass("WKWebView"), nil, nil,
+		[]objc.MethodDef{{
+			Cmd: sel("acceptsFirstMouse:"),
+			Fn:  func(self objc.ID, _cmd objc.SEL, event objc.ID) bool { return true },
+		}})
+	if err != nil {
+		return fmt.Errorf("webview: first-mouse web view class: %w", err)
 	}
 	return nil
 }
@@ -397,6 +414,9 @@ type webview struct {
 
 	ownsWindow bool
 	debug      bool
+	// firstMouse makes a click on an INACTIVE window reach the page instead of
+	// only bringing the window forward. See Options.AcceptsFirstMouse.
+	firstMouse bool
 
 	isSizeSet         bool
 	isInitScriptAdded bool
@@ -447,6 +467,7 @@ func NewWithOptions(opts Options) (WebView, error) {
 	w := &webview{
 		ownsWindow:     true,
 		debug:          opts.Debug,
+		firstMouse:     opts.AcceptsFirstMouse,
 		bindings:       map[string]func(id, req string) (any, error){},
 		schemeHandlers: opts.SchemeHandlers,
 	}
@@ -536,7 +557,13 @@ func (w *webview) windowSettings(debug bool) {
 			config.Send(sel("setURLSchemeHandler:forURLScheme:"), sh, nsstr(scheme))
 		}
 
-		wv := class("WKWebView").Send(sel("alloc"))
+		// The first-mouse variant is a WKWebView subclass, so everything below
+		// treats it as one; only the class allocated differs.
+		viewClass := objc.Class(class("WKWebView"))
+		if w.firstMouse {
+			viewClass = firstMouseViewClass
+		}
+		wv := objc.ID(viewClass).Send(sel("alloc"))
 		wv = wv.Send(sel("initWithFrame:configuration:"), rect, config)
 		w.webView = wv.Send(sel("retain"))
 		w.webView.Send(sel("setAutoresizingMask:"), uint(nsViewWidthSizable|nsViewHeightSizable))
@@ -565,6 +592,13 @@ func (w *webview) windowSettings(debug bool) {
 		w.window.Send(sel("setContentView:"), w.widget)
 		if w.ownsWindow {
 			w.window.Send(sel("makeKeyAndOrderFront:"), objc.ID(0))
+			// The content view is a plain NSView container, and a plain NSView
+			// REFUSES first-responder status — so when the window becomes key,
+			// AppKit's offer stops at the window itself and every keystroke is
+			// an unhandled key: the system beep. A click fixed it only because
+			// hit-testing hands the WKWebView the responder role. Hand it over
+			// at birth instead, so a freshly opened window types.
+			w.window.Send(sel("makeFirstResponder:"), w.webView)
 		}
 	})
 }
@@ -637,6 +671,21 @@ func (w *webview) Focus() {
 	// when it becomes key, and restores it on re-activation. Kept as the explicit,
 	// on-demand path and to mirror the other backends.
 	autorelease(func() { w.window.Send(sel("makeFirstResponder:"), w.webView) })
+}
+
+func (w *webview) Raise() {
+	if w.window == 0 {
+		return
+	}
+	autorelease(func() {
+		// Both halves are needed and neither substitutes for the other:
+		// activateIgnoringOtherApps brings the APPLICATION forward (without it
+		// the window rises inside an app that is still in the background, and
+		// the click that follows is still spent activating), and
+		// makeKeyAndOrderFront brings THIS window forward within the app.
+		w.app.Send(sel("activateIgnoringOtherApps:"), true)
+		w.window.Send(sel("makeKeyAndOrderFront:"), objc.ID(0))
+	})
 }
 
 func (w *webview) SetSize(width, height int, hint Hint) {
