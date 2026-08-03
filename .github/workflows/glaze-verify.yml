@@ -92,6 +92,26 @@ jobs:
             ./glazert
           fi
 
+      # Filesystem confinement (Config.FSScope / Bridge.checkFSPath), driven from a
+      # REAL page over native IPC rather than from a Go test. Asserts an in-scope
+      # write and read succeed, that an out-of-scope write AND delete are refused,
+      # and that the out-of-scope file is byte-for-byte intact afterwards. The unit
+      # tests cover the logic; this covers the whole path a hostile script would
+      # actually take — webview → native channel → Bridge → fs plugin.
+      - name: Build fs-scope verify (CGO_ENABLED=0)
+        working-directory: spikes/fs-scope-verify
+        run: CGO_ENABLED=0 go build -o fsscope .
+
+      - name: Run fs-scope verify (fs confined over native IPC)
+        working-directory: spikes/fs-scope-verify
+        timeout-minutes: 3
+        run: |
+          if [ "${{ matrix.display }}" = "true" ]; then
+            xvfb-run -a ./fsscope
+          else
+            ./fsscope
+          fi
+
       # System tray: macOS uses the purego/objc NSStatusItem backend (must link
       # alongside glaze without the goffi/purego fakecgo collision); Linux uses
       # gogpu/systray. A Background app builds a tray, runs the loop, self-quits.
