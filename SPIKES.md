@@ -624,7 +624,10 @@ grant substitute.
   backticks, `$(…)`, `;`/`|`/`&&`, leading `-`, newlines, unicode, empty, whitespace-only) —
   green on real Windows **and** on Linux/xclip under Docker+xvfb. macOS is compile-verified only
   (pbcopy/pbpaste already took the payload on stdin, so they were never affected by the quoting
-  bug). Note CI runs **no** `go test` step at all today, so these tests only run locally.
+  bug). Note CI ran **no** `go test` step at all when this was written, so these tests only ran
+  locally. **Superseded 2026-08-03:** `ci.yml` now has a `go test ./...` step — safe on a bare
+  runner because this package's round-trip skips without `xclip`. Adding it immediately paid for
+  itself by surfacing six `cli/cmd` android_deps tests that had been failing permanently on Windows.
   Sibling shell-outs (`runtime/dialogs`, `runtime/notify`) pass one whole script string as the
   single `-Command` argument, which is the safe shape — they were not affected.
 
