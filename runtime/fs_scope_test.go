@@ -440,6 +440,96 @@ func TestHomeDirHandlerGrantsNothing(t *testing.T) {
 	}
 }
 
+// Replays the scaffolded demo's FileSystemDemo.vue sequence through the real
+// bridge, because that page is the first thing anyone clicks and it is what caught
+// the fsAppDataDir problem. Order matters: appDataDir() is what brings the
+// directory into scope, and write() calls ensureDir() before writing.
+func TestDemoFileSystemFlowWorksEndToEnd(t *testing.T) {
+	app := New(Config{Title: "Demo", AppID: "demo-flow"})
+	b := app.Bridge()
+	RegisterFS(b)
+
+	call := func(method, args string) InvokeResponse {
+		return b.HandleRequest(InvokeRequest{ID: "1", Method: method, Args: []byte(args)})
+	}
+
+	// ensureDir(): appDataDir('goleo-demo')
+	resp := call("goleo:fsAppDataDir", `{"appName":"goleo-demo"}`)
+	if resp.Error != "" {
+		t.Fatalf("appDataDir: %s", resp.Error)
+	}
+	dir := resp.Result.(string)
+	file := strings.ReplaceAll(filepath.Join(dir, "goleo-demo.txt"), `\`, `\\`)
+	t.Cleanup(func() { os.RemoveAll(dir) })
+
+	// write()
+	if r := call("goleo:fsWriteTextFile", `{"path":"`+file+`","content":"hello demo"}`); r.Error != "" {
+		t.Fatalf("write: %s", r.Error)
+	}
+	// read()
+	if r := call("goleo:fsReadTextFile", `{"path":"`+file+`"}`); r.Error != "" {
+		t.Errorf("read: %s", r.Error)
+	} else if r.Result != "hello demo" {
+		t.Errorf("read returned %#v", r.Result)
+	}
+	// list()
+	if r := call("goleo:fsListDir", `{"path":"`+strings.ReplaceAll(dir, `\`, `\\`)+`"}`); r.Error != "" {
+		t.Errorf("listDir: %s", r.Error)
+	}
+	// remove()
+	if r := call("goleo:fsDelete", `{"path":"`+file+`"}`); r.Error != "" {
+		t.Errorf("delete: %s", r.Error)
+	}
+}
+
+// The demo's read()/remove() do NOT call ensureDir first, so on a fresh page they
+// pass "./goleo-demo.txt" — a RELATIVE path, which resolves against the backend's
+// working directory rather than the app data dir. Confinement must refuse the
+// delete rather than removing a file from the project directory, which is what the
+// old unconfined code did.
+func TestDemoRelativePathBeforeResolveIsRefused(t *testing.T) {
+	app := New(Config{Title: "Demo", AppID: "demo-rel"})
+	b := app.Bridge()
+	RegisterFS(b)
+
+	// Run from a directory that is definitely not in scope.
+	t.Chdir(t.TempDir())
+
+	r := b.HandleRequest(InvokeRequest{
+		ID: "1", Method: "goleo:fsDelete", Args: []byte(`{"path":"./goleo-demo.txt"}`),
+	})
+	if r.Error == "" {
+		t.Error("a relative path outside the scope must be refused for delete")
+	}
+}
+
+// The refusal message is the only thing a developer sees when confinement bites,
+// so its content is part of the contract. It must name the offending path and every
+// way to allow it — a bare "permission denied" would send people guessing. (The
+// bridge's fs.ts used to discard this entirely and substitute "requires the Go
+// backend", which pointed at the wrong problem; it now rethrows the original.)
+func TestRefusalMessageIsActionable(t *testing.T) {
+	b := NewBridge()
+	b.AddFSRoot(t.TempDir())
+	offending := filepath.Join(t.TempDir(), "victim.txt")
+
+	_, err := b.checkFSPath(offending, fsWrite)
+	if err == nil {
+		t.Fatal("expected a refusal")
+	}
+	msg := err.Error()
+	for _, want := range []string{
+		filepath.Base(offending), // names what was refused
+		"Policy.FSRoots",         // remedy 1
+		"dialog",                 // remedy 2
+		"FSScopeUnrestricted",    // remedy 3
+	} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("refusal message should mention %q; got: %s", want, msg)
+		}
+	}
+}
+
 func TestValidAppDataName(t *testing.T) {
 	for _, ok := range []string{"goleo", "my-app", "My_App.v2", "goleo-demo"} {
 		if !validAppDataName(ok) {

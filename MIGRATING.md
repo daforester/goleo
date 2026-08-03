@@ -65,9 +65,37 @@ output, you are unaffected.
   or set `GOLEO_FS_UNRESTRICTED=1` in the environment. The system-location
   deny-list still applies to writes.
 
+### What is already in scope for you
+
+- **`appDataDir()` brings its own directory into scope.** Calling
+  `goleo:fsAppDataDir` / `appDataDir("my-app")` registers the directory it returns,
+  so you can write there immediately without touching `Policy.FSRoots`. Vending a
+  path and then refusing writes to it would be incoherent — and it broke the
+  scaffolded demo, whose FileSystem page does exactly this.
+
+  One new restriction: `appName` becomes a path element, so it may not contain a
+  path separator or `..`. `appDataDir("../../etc")` used to return `/etc`; it now
+  errors. Without that guard, granting the result would have handed out an
+  arbitrary directory to anything running in the webview.
+
+- **`homeDir()` grants nothing.** It answers "where is home", which is
+  informational. Granting it would hand back the whole user profile and defeat the
+  confinement, so writing under it still needs `Policy.FSRoots` or a dialog-picked
+  path.
+
+- **Relative paths resolve against the backend's working directory**, not your app
+  data directory, and are therefore usually out of scope. Previously a relative path
+  silently wrote into the project directory. Resolve `appDataDir()` first and join
+  onto it.
+
 ### Also in this change
 
 - `Policy.FSRoots` is now actually enforced (it previously did nothing).
+- Error messages are preserved end-to-end. `@goleo/bridge`'s `fs` wrappers used to
+  replace every failure with `"<op> requires the Go backend"`, which would have
+  masked the confinement message entirely. They now rethrow the backend's own error
+  — which names the offending path and the three ways to allow it — and only claim
+  the backend is missing when it genuinely is.
 - `Policy.HTTPHosts` and `Policy.ShellPrograms` are documented as **reserved** —
   goleo has no http or shell plugin, so they gate nothing today. They are still
   accepted so a policy written now keeps working when those plugins land.
