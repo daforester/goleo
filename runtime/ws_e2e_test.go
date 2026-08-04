@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -180,5 +181,54 @@ func TestWebSocketUpgradeRequiresTheToken(t *testing.T) {
 		if resp.StatusCode != http.StatusUnauthorized {
 			t.Errorf("status = %d, want 401", resp.StatusCode)
 		}
+	}
+}
+
+// Stop() used to read s.hub directly (`if s.hub != nil`) while an incoming
+// WebSocket upgrade created it lazily under hubOnce — an unsynchronised read of a
+// concurrent write. The race detector caught it on Linux CI via the tests above,
+// but only because the interleaving happened to land; it passed on Windows.
+//
+// This makes it deterministic: hammer the lazy-init path and Stop concurrently, so
+// -race sees the two accesses overlap on every run rather than by luck. It is a
+// race test, so it asserts nothing itself — the detector is the assertion, and
+// without -race it just checks Stop stays safe under concurrent use.
+func TestHubInitAndStopDoNotRace(t *testing.T) {
+	for i := 0; i < 50; i++ {
+		srv, err := NewServer(Config{Title: "racecheck"}, NewBridge())
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var wg sync.WaitGroup
+		start := make(chan struct{})
+
+		// Racers that create the hub, as a WS upgrade does.
+		for j := 0; j < 4; j++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				_ = srv.clients()
+			}()
+		}
+		// And one tearing the server down at the same moment.
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			_ = srv.Stop(ctx)
+		}()
+
+		close(start)
+		wg.Wait()
+
+		// Stop must remain idempotent — close() is guarded by stopOnce, and a second
+		// Stop after the hub is gone must not panic on a double close.
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		_ = srv.Stop(ctx)
+		cancel()
 	}
 }

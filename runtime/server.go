@@ -128,9 +128,19 @@ func (s *Server) Stop(ctx context.Context) error {
 	// Release the hub goroutine and every client with it. run() used to loop
 	// forever with no exit, so a server that came and went leaked a goroutine and
 	// its clients.
-	if s.hub != nil {
-		s.hub.close()
-	}
+	//
+	// Go through clients() rather than reading s.hub directly: an incoming
+	// WebSocket upgrade creates the hub lazily under hubOnce, so a bare
+	// `if s.hub != nil` here is a read racing that write. The race detector flags
+	// it whenever a client connects while the server is being torn down — which is
+	// ordinary shutdown, not a corner case.
+	//
+	// When no hub was ever created this makes one only to close it. That is a
+	// channel allocation plus a goroutine that immediately observes the closed stop
+	// channel and returns, which is cheaper than the alternatives (an extra mutex on
+	// every broadcast, or an atomic.Pointer that complicates the bare-struct-literal
+	// case tests rely on).
+	s.clients().close()
 	if s.server != nil {
 		return s.server.Shutdown(ctx)
 	}

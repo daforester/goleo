@@ -14,6 +14,25 @@ const here = dirname(fileURLToPath(import.meta.url))
 const bridge = join(here, '..', '..', 'bridge')
 const dest = join(here, 'frontend', 'dist', 'bridge')
 
+// Make sure the bridge's own toolchain is present before asking it to build.
+//
+// This is not hypothetical tidiness: the first CI run of this spike passed on
+// ubuntu-latest and failed on windows-latest and macos-14 with "'tsc' is not
+// recognized". The Ubuntu runner image happens to ship a global typescript, the
+// others do not — so the step was quietly depending on a runner-provided global.
+// Installing here fixes both jobs and means a fresh clone can run the spike
+// without knowing to install the bridge's devDependencies first.
+if (!existsSync(join(bridge, 'node_modules', 'typescript'))) {
+  console.log('installing @goleo/bridge devDependencies…')
+  // bridge is an npm workspace of the repo root, and `npm ci` from inside a
+  // workspace directory does not always accept that; fall back the way ci.yml does.
+  try {
+    execSync('npm ci', { cwd: bridge, stdio: 'inherit' })
+  } catch {
+    execSync('npm install', { cwd: bridge, stdio: 'inherit' })
+  }
+}
+
 console.log('building @goleo/bridge…')
 execSync('npm run build', { cwd: bridge, stdio: 'inherit' })
 
