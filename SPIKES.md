@@ -857,3 +857,92 @@ the only remaining confirmation that Play accepts the AAB and does not flag the 
 set. CI (`mobile-verify`'s `android-release` job) covers the AAB build, jarsigner
 verification, the manifest being minimal, and that `--no-sign` really produces something
 unsigned.
+
+---
+
+## Cross-cutting — "accepted and ignored" is its own bug class (2026-08-04)
+
+Four flags and one whole template were accepted by the CLI and then not read. They are
+worth recording together because the shape repeats and because **each one reported
+success**, which is what makes the class expensive: the user gets an artifact that is
+wrong in a way nothing announces.
+
+- **`goleo build ios --release`** — exempted from the mobile flag check in anticipation of
+  an `.ipa` export that does not exist, so `buildForIOS` never read it. You asked for a
+  release artifact, got a debug build, and the build printed a success line.
+- **`--android-ndk`** — declared on **both** `build` and `emulate`, documented in `--help`
+  as "Path to Android NDK", read by **nothing**: resolution went straight to
+  `ANDROID_NDK_HOME` and autodiscovery. So naming an NDK silently built against a
+  different one, and when none was found the error said *"Set ANDROID_NDK_HOME manually"*
+  with the flag sitting unused in the help output. `docs/guide/01-installation.md` had
+  documented it as a working alternative the whole time.
+- **`--android-abi` on a non-Android target** — accepted, ignored.
+- **`goleo emulate android -o NAME`** — declared as "Output APK name" into the *build*
+  command's `buildOutput` global. The dev APK is built inside `.goleo/android-dev/` and
+  `adb install`ed straight from there, so there was never an artifact for a name to apply
+  to. Removed rather than implemented.
+- **`mobile.ios.bundle_identifier` / `deployment_target`** — parsed into the config struct
+  in 0.9.0 and then discarded; `xcodegen.yml` took the bundle id from the **Android**
+  `package_name`. `MIGRATING.md` had announced them as working.
+
+**Why the whole class survived: `runBuild`'s flag-rejection block had no test at all.**
+Extracted as `validateTargetFlags` and covered by an exhaustive *flag × target* table, so
+an unwired flag now shows up as an accepted no-op rather than shipping as one. `--no-sign`
+is deliberately excluded, with the reasoning recorded beside it: every other flag asks for
+something to **happen**, so ignoring it leaves the user with an artifact they did not ask
+for, whereas `--no-sign` asks for something **not** to happen and a target with no signing
+step satisfies that. There is nothing silently wrong to report.
+
+**A config key can be worse than a missing one.** `--ios-target` defaulted to 14.0 and fed
+gomobile while `mobile.ios.deployment_target` defaulted to 15.0 and fed xcodegen — two
+independent sources for one value, disagreeing with **no configuration at all**. It never
+showed because a framework minimum *below* the app's is harmless; the failing direction is
+above, so lowering `deployment_target` to 13.0 made Xcode refuse the link citing iOS 14.0,
+a version the user never chose. Now one source (`cli/cmd/mobile_minversion.go`), with the
+flags as explicit overrides. The invariant is asserted by rendering the template and
+comparing, not by restating the expected value.
+
+**Making that config-driven turned a latent divergence into a build failure**, which is
+worth noting as a hazard of this kind of fix: `android-dev/app/build.gradle.kts` hardcoded
+`minSdk 24` while the release template read `min_sdk`. Harmless while `-androidapi` was
+also hardcoded 24; once gomobile followed the config, any project raising `min_sdk` above
+24 failed on the `goleo emulate` path only — Gradle rejects a library whose `minSdk`
+exceeds the app's. Fixed by templating the dev project too, with a test that dev and
+release must declare the same levels.
+
+### The frontend was shipped twice in every mobile artifact
+
+`frontend/dist` was copied into the native project (`app/src/main/assets` on Android,
+`App/Assets` on iOS) **and** embedded in the Go library via the generated
+`backend/gomobile`'s `//go:embed all:frontend/dist`. Only the embedded copy is ever used:
+the shells load `http://127.0.0.1:<port>`, which the Go server serves from `EmbedFS` — and
+it has to be loopback, because that is a secure context and `file:///android_asset` is not.
+Confirmed in a real APK before the fix: `assets/index.html`, `assets/manifest.json`,
+`assets/sw.js` and 18 `assets/assets/*.js` chunks, ~130 KB uncompressed for the demo app,
+scaling with the frontend. Nothing in `MainActivity.java` or `AppDelegate.swift` referenced
+any of it.
+
+Verified after removal on a real Windows host: `goleo build android` produces an APK with
+**no** `assets/` entries, while the exact hashed chunk name from that same build
+(`index-C8-X-0Q5.js`) is present inside `lib/x86_64/libgojni.so` — so the copy the server
+actually serves is intact and the removed one was redundant. A test fails if a shell starts
+referencing native assets while the copy is gone, since the reference and the copy have to
+return together.
+
+**A measurement trap while doing this:** the pre-existing `app.apk` in the test project was
+a `--release` build (an `app.aab` sat beside it), so comparing its size against a fresh
+**debug** APK was meaningless — the new one was *larger*. Different build types, different
+R8/dexopt output, and a `baseline.prof` present in one and not the other. Sizes are only
+comparable across identical build types at the same revision.
+
+### Mutation testing lies when the pattern does not match the line endings
+
+`cli/cmd/android_deps.go` is **CRLF**; most of `cli/cmd` is LF. A mutation applied with a
+multi-line `\n` pattern silently matched nothing, the test passed, and that read as "the
+test does not catch this" — the inverse of the truth. It was caught only because the
+expected failure message never appeared, prompting a match-count check.
+
+This is the same family as the `//go:embed` staleness already recorded above: **a
+verification loop that can silently do nothing will eventually tell you something false.**
+Rule: every mutation must assert it applied (`assert s.count(old) == 1`) before the test is
+run, and must detect the file's own line ending rather than assuming `\n`.

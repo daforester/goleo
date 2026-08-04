@@ -212,6 +212,27 @@ The server auto-selects a port if the configured one is in use and sets CORS hea
 | ios | ios | arm64 + arm64-simulator | `GoleoApp.app` (debug; the `.xcframework` is an intermediate and is deleted) | gomobile + Xcode |
 | pwa | js | wasm | dist-pwa/ | none |
 
+### Build-flag validation (`validateTargetFlags`, `cli/cmd/build.go`)
+
+Every `goleo build` flag is either honoured by a target or **refused** there — never
+accepted and ignored. `validateTargetFlags` is the single gate, and
+`cli/cmd/build_flags_test.go` asserts the full *flag x target* matrix, so a new flag that
+nobody wires in surfaces as an accepted no-op instead of shipping as one. `--no-sign` is the
+one deliberate exception (it asks for something *not* to happen, which a target with no
+signing step satisfies); the reasoning is recorded next to its test.
+
+Minimum OS versions have **one** source each (`cli/cmd/mobile_minversion.go`):
+`mobile.android.min_sdk` / `mobile.ios.deployment_target` drive both gomobile
+(`-androidapi`/`-iosversion`) and the native project (`minSdk`/`deploymentTarget`), with
+`--android-api` / `--ios-target` as explicit per-build overrides. They must agree: a Go
+library whose minimum exceeds the app's fails to link. The dev and release Android templates
+are asserted to declare the same levels.
+
+The frontend is embedded in the Go library and served over `http://127.0.0.1:<port>` on
+mobile — it is **not** copied into the native project. A loopback origin is a secure context
+and `file:///android_asset` is not, so the native copy could not serve the UI even if
+something wanted it to; it was a second copy of the whole frontend in every APK/AAB/.app.
+
 ## Frontend Bridge (@goleo/bridge)
 
 ### Initialization
