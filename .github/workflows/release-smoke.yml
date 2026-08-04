@@ -26,6 +26,12 @@ name: release-smoke
 # here means "yank or patch", and it is far better to learn that from CI minutes
 # after publishing than from an issue days later.
 #
+# Not handled: a PRERELEASE tag (v0.9.0-rc1). scaffoldBridgeVersion only pins an
+# exact X.Y.Z release and falls back to "latest" otherwise, so the pin assertions
+# below would report a mismatch that is a design question about prereleases rather
+# than a defect in the release. goleo has only ever cut plain versions; whoever cuts
+# the first prerelease should decide what these checks ought to expect.
+#
 # Validating changes to this file without dispatch rights: install the published
 # CLI into an isolated prefix (`npm install --prefix <tmp> @goleo/cli@<version>`,
 # NOT `-g`, so a developer's global install survives), put <tmp>/node_modules/.bin
@@ -84,11 +90,40 @@ jobs:
           set -euo pipefail
           v="${{ inputs.version }}"
           if [ -z "$v" ]; then
-            v=$(npm view @goleo/cli version)
-            echo "no version given, using the latest on npm: $v"
+            # Triggered by a release: take the version from the TAG that started
+            # it, not from npm's `latest` dist-tag.
+            #
+            # `npm view @goleo/cli version` reads `latest`, which can still point at
+            # the PREVIOUS release for a short while after publishing. This job runs
+            # seconds after the release workflow, so that window is exactly when it
+            # runs — and testing the previous release against the new one's expected
+            # version reports a pile of failures belonging to neither. head_branch is
+            # the tag name for a tag-triggered run (release.yml runs on `v*`).
+            tag="${{ github.event.workflow_run.head_branch }}"
+            v="${tag#v}"
+            [ -n "$v" ] && echo "resolved from the release tag $tag: $v"
           fi
+          if [ -z "$v" ]; then
+            v=$(npm view @goleo/cli version)
+            echo "no version input and no tag; falling back to npm latest: $v"
+          fi
+          echo "smoke-testing @goleo/cli@$v"
           echo "SMOKE_VERSION=$v" >> "$GITHUB_ENV"
-          npm install -g "@goleo/cli@$v"
+
+          # Retry: the registry can 404 an exact version briefly after publish, and
+          # this job deliberately runs immediately after. Without this the whole
+          # matrix fails on propagation timing rather than on anything about the
+          # release. (The scaffold step below retries for the same reason, against
+          # the Go module proxy.)
+          for attempt in 1 2 3 4; do
+            if npm install -g "@goleo/cli@$v"; then break; fi
+            if [ "$attempt" = 4 ]; then
+              echo "::error::@goleo/cli@$v never became installable from npm"
+              exit 1
+            fi
+            echo "not on the registry yet, retrying in 30s"
+            sleep 30
+          done
           goleo version
 
       # The published CLI must report the version we asked for. If the platform
