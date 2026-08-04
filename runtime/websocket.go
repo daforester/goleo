@@ -23,17 +23,37 @@ func (s *Server) wsUpgrader() websocket.Upgrader {
 	}
 }
 
-var hub = &Hub{
-	register:   make(chan *WSClient),
-	unregister: make(chan *WSClient),
-	clients:    make(map[*WSClient]bool),
-}
-
+// Hub tracks the WebSocket clients of ONE server.
+//
+// It used to be a package-level global started from init(), shared by every
+// Server/App in the process and never shut down. Clients were registered with no
+// association to the server that accepted them, so broadcastEvent fanned out to all
+// of them: in a process running two Apps, app A's bridge events were delivered to
+// app B's frontend, and in tests one case's clients leaked into the next.
 type Hub struct {
 	register   chan *WSClient
 	unregister chan *WSClient
 	clients    map[*WSClient]bool
 	mu         sync.RWMutex
+	stop       chan struct{}
+	stopOnce   sync.Once
+}
+
+func newHub() *Hub {
+	h := &Hub{
+		register:   make(chan *WSClient),
+		unregister: make(chan *WSClient),
+		clients:    make(map[*WSClient]bool),
+		stop:       make(chan struct{}),
+	}
+	go h.run()
+	return h
+}
+
+// close stops the hub goroutine and releases every client. run() previously looped
+// forever with no exit, so each server that came and went leaked a goroutine.
+func (h *Hub) close() {
+	h.stopOnce.Do(func() { close(h.stop) })
 }
 
 func (h *Hub) GetAll() []*WSClient {
@@ -46,13 +66,18 @@ func (h *Hub) GetAll() []*WSClient {
 	return result
 }
 
-func init() {
-	go hub.run()
-}
-
 func (h *Hub) run() {
 	for {
 		select {
+		case <-h.stop:
+			h.mu.Lock()
+			for c := range h.clients {
+				delete(h.clients, c)
+				close(c.send)
+			}
+			h.mu.Unlock()
+			return
+
 		case client := <-h.register:
 			h.mu.Lock()
 			h.clients[client] = true
@@ -72,11 +97,18 @@ func (h *Hub) run() {
 type WSClient struct {
 	conn *websocket.Conn
 	send chan []byte
+	// hub is the server that accepted this client, so unregistering targets the
+	// right one rather than a process-wide global.
+	hub *Hub
 }
 
 func (c *WSClient) readPump(bridge *Bridge) {
 	defer func() {
-		hub.unregister <- c
+		// Don't block forever if the hub has already stopped (server shutting down).
+		select {
+		case c.hub.unregister <- c:
+		case <-c.hub.stop:
+		}
 		c.conn.Close()
 	}()
 

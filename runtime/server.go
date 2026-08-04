@@ -15,6 +15,7 @@ import (
 	neturl "net/url"
 	"os"
 	"strings"
+	"sync"
 )
 
 type Server struct {
@@ -33,6 +34,21 @@ type Server struct {
 	// origins (and, in dev, the Vite origin). Blocks a malicious page in the
 	// user's browser from driving the bridge over the loopback port.
 	allowedOrigins []string
+	// hub tracks THIS server's WebSocket clients. Previously a package-level
+	// global, which meant two Apps in one process broadcast into each other.
+	hub     *Hub
+	hubOnce sync.Once
+}
+
+// clients returns this server's hub, creating it on first use so a Server built
+// as a bare struct literal (as tests do) still works.
+func (s *Server) clients() *Hub {
+	s.hubOnce.Do(func() {
+		if s.hub == nil {
+			s.hub = newHub()
+		}
+	})
+	return s.hub
 }
 
 func NewServer(cfg Config, bridge *Bridge) (*Server, error) {
@@ -109,6 +125,12 @@ func (s *Server) Start(ctx context.Context) (int, error) {
 }
 
 func (s *Server) Stop(ctx context.Context) error {
+	// Release the hub goroutine and every client with it. run() used to loop
+	// forever with no exit, so a server that came and went leaked a goroutine and
+	// its clients.
+	if s.hub != nil {
+		s.hub.close()
+	}
 	if s.server != nil {
 		return s.server.Shutdown(ctx)
 	}
@@ -133,7 +155,7 @@ func (s *Server) handleEvents(ctx context.Context) {
 }
 
 func (s *Server) broadcastEvent(msg EventMessage) {
-	conns := hub.GetAll()
+	conns := s.clients().GetAll()
 	// Wrap in the same {type, data} envelope the client's handleMessage
 	// switches on (matching the invokeResult/pong frames in websocket.go);
 	// without the "event" type the frontend logs "unknown message type".
@@ -204,11 +226,13 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h := s.clients()
 	c := &WSClient{
 		conn: conn,
 		send: make(chan []byte, 256),
+		hub:  h,
 	}
-	hub.register <- c
+	h.register <- c
 
 	go c.writePump()
 	go c.readPump(s.bridge)
