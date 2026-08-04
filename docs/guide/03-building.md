@@ -106,18 +106,23 @@ npm run goleo:build-ios        # -> GoleoApp.app, a DEBUG build (macOS + Xcode)
   The generated manifest declares only the permissions your app enables, and the build
   prints the list with the feature that asked for each one. If something is missing, add
   it to `mobile.android.extra_permissions` in `goleo.json`.
-- **iOS**: builds a **debug** `GoleoApp.app` with `xcodebuild`. macOS only. The
-  `.xcframework` gomobile produces is an intermediate that the build consumes and then
-  deletes, so there is nothing to integrate by hand.
+- **iOS**: **not working as of 0.10.2** — the build stops at the Swift compile because the
+  native shell's gomobile binding names were never compiled. Android is the supported
+  mobile target; see [Mobile](10-mobile.md) for what is fixed and what remains. The rest of
+  this bullet describes the intended behaviour.
+
+  Builds a **debug** `GoleoApp.app` with `xcodebuild`. macOS only. The `.xcframework`
+  gomobile produces is an intermediate that the build consumes and then deletes, so there
+  is nothing to integrate by hand.
 
   ```bash
   goleo build ios                 # device build; needs a signing certificate
   goleo build ios --simulator     # Simulator build; needs NO Apple account
   ```
 
-  `--simulator` is the path that works without an Apple Developer account: it compiles
-  against the iOS Simulator SDK with code signing off, so you can run the app in the
-  Simulator on any Mac with Xcode. Install and launch it with:
+  `--simulator` is the path that needs no Apple Developer account: it compiles against the
+  iOS Simulator SDK with code signing off, so you can run the app in the Simulator on any
+  Mac with Xcode. Install and launch it with:
 
   ```bash
   xcrun simctl boot "iPhone 16"          # or any device in `xcrun simctl list devices`

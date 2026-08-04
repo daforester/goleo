@@ -34,7 +34,9 @@ targets:
     sources:
       - App
     dependencies:
-      - framework: App.xcframework
+      # Must match xcfName in buildForIOS; gomobile also derives the Swift module name
+      # ("import Goleo") from this basename.
+      - framework: Goleo.xcframework
         embed: true
     settings:
       base:

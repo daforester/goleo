@@ -64,7 +64,8 @@ host the built artifact + `manifest.json` at that URL.
     then `adb install`s + launches), or `goleo install android`.
   - For the Play Store, sign a release APK/AAB with your keystore per Android's
     standard process.
-- **iOS**: `goleo build ios` produces a **debug** `GoleoApp.app`. There is no `.ipa` export
+- **iOS**: **not working as of 0.10.2** (the build stops at the Swift compile — see
+  [Mobile](10-mobile.md)). Intended: `goleo build ios` produces a **debug** `GoleoApp.app`. There is no `.ipa` export
   yet, so distribute by opening the generated Xcode project and archiving from there.
   `goleo build ios --simulator` builds an unsigned Simulator app, which is the only iOS
   target that needs no Apple Developer account — see [Mobile](10-mobile.md).

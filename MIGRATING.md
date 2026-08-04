@@ -473,11 +473,26 @@ override. If you were passing `--ios-target`/`--android-api` to *raise* the mini
 value into `mobile.ios.deployment_target` / `mobile.android.min_sdk` so the native project
 agrees with it.
 
-**Also in this release:** `goleo build ios --simulator` builds an unsigned app for the iOS
-Simulator, which is the only iOS target that needs no Apple Developer account — see
-[Mobile](docs/guide/10-mobile.md). And `Info.plist` referenced a `LaunchScreen` storyboard that
-was missing from the template altogether (a black launch screen, and an App Store rejection);
-it is now present.
+**Also in this release:** `goleo build ios --simulator` is added — a build against the iOS
+Simulator SDK with code signing off, which is the only iOS target needing no Apple Developer
+account. **It does not complete yet**, and neither does `goleo build ios`: see
+[Mobile](docs/guide/10-mobile.md). What this release fixes is everything up to the Swift
+compile, none of which worked before because iOS had never been built anywhere:
+
+- gomobile now binds a simulator slice (`-target ios,iossimulator`), confirmed on a macOS runner
+- the generated Xcode project is in a format your Xcode can open (it was XcodeGen's default,
+  objectVersion 77, which no Xcode below 16.0 will read)
+- the project and the build agree on the framework name (`Goleo.xcframework`; the project asked
+  for `App.xcframework`, which never existed)
+- `Info.plist` no longer hardcodes the app name and version, and the `LaunchScreen` storyboard
+  it references is actually present — it was missing from the template altogether, which is a
+  black launch screen and an App Store rejection
+- `mobile.ios.bundle_identifier` and `deployment_target` reach the project (see above)
+
+What remains is `App/AppDelegate.swift`: its gomobile binding names were written without ever
+being compiled, and the Swift module name (`Goleo`, from the artifact) differs from the
+Objective-C class prefix gobind derives from the Go package (`Gomobile`). That is being fixed
+against the real generated headers rather than guessed at.
 
 **Flags that were accepted and ignored are now refused or honoured.** Each did nothing,
 so a script passing one already was not getting what it asked for; the change is that you

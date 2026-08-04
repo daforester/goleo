@@ -888,7 +888,13 @@ func buildForIOS(distDir string) error {
 	os.RemoveAll(buildDir)
 	os.MkdirAll(buildDir, 0755)
 
-	xcfName := "goleo.xcframework"
+	// The name matters in three places and they must agree. gomobile derives the Swift
+	// MODULE name from this basename (bind_iosapp.go: name = base minus ".xcframework";
+	// title = strings.Title(name); Module: title), the outer bundle is this exact name, and
+	// xcodegen.yml references the bundle. It was "goleo.xcframework" while xcodegen asked
+	// for "App.xcframework", so xcodebuild failed with "There is no XCFramework found at
+	// .goleo/ios/App.xcframework" — a mismatch only a real iOS build could surface.
+	xcfName := "Goleo.xcframework"
 	xcfPath := filepath.Join(cwd, xcfName)
 
 	bindTags, err := mobileBindTags(".")

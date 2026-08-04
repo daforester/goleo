@@ -187,7 +187,7 @@ The server auto-selects a port if the configured one is in use and sets CORS hea
 | goleo build darwin | Cross-compile for macOS amd64 |
 | goleo build android | Build an unsigned debug .apk (gomobile AAR + Gradle) |
 | goleo build android --release | Build a **signed .aab** for Play (`--android-format apk` for a signed APK) |
-| goleo build ios | Build a debug iOS `GoleoApp.app` (gomobile xcframework + xcodegen + xcodebuild) |
+| goleo build ios | Build a debug iOS `GoleoApp.app` (gomobile xcframework + xcodegen + xcodebuild). **Fails at the Swift compile as of 0.10.2** — `AppDelegate.swift`'s gomobile binding names were never compiled; see the iOS session summary below |
 | goleo build ios --simulator | Build an **unsigned Simulator** app — the only iOS path that needs no Apple Developer account |
 | goleo build pwa | Build Progressive Web App (no Go backend) |
 | goleo build --bundle | Also package the desktop app into a native installer (dist/bundle/) |
@@ -428,7 +428,7 @@ asserts that, and `checkWrapperJar` verifies the embed really is a wrapper JAR. 
 |---------|---------|-------|-------|---------|-----|-----|
 | Dev mode | yes | yes | yes | n/a | n/a | yes |
 | Desktop build | yes | yes | yes | n/a | n/a | n/a |
-| Mobile build | n/a | n/a | yes | yes | yes | n/a |
+| Mobile build | n/a | n/a | yes | yes | **not yet** | n/a |
 | PWA build | yes | yes | yes | yes | yes | yes |
 | PWA dev mode | yes | yes | yes | yes | yes | yes |
 | Gomobile | n/a | n/a | yes | yes | yes | n/a |
@@ -867,6 +867,24 @@ iOS was the only target with no verification of any kind. "Tier 1" is everything
   build, verify the bundle (name, executable, LaunchScreen, `CFBundleName` is not the
   placeholder), boot a simulator with `xcrun simctl`, install, launch, assert still running,
   upload a screenshot.
+
+**Status after the first real macOS runs (2026-08-04/05): iOS still does not build.** Each run
+peeled off one layer that had never been exercised, in order:
+1. the simulator-slice probe **passed** — gomobile does emit `ios-arm64-simulator`;
+2. `xcodebuild` refused the project: XcodeGen's default `projectFormat` writes objectVersion
+   77 and the runner's Xcode is 15.4 — pinned to `xcode14_0`;
+3. `error: There is no XCFramework found at .goleo/ios/App.xcframework` — the template asked
+   for `App.xcframework` while the build wrote `goleo.xcframework`; both are now
+   `Goleo.xcframework`, which is also what gomobile derives the Swift module name from
+   (`bind_iosapp.go`: `title = strings.Title(base minus ".xcframework")`, `Module: title`);
+4. **current blocker:** `App/AppDelegate.swift`. It was written without ever being compiled,
+   and the two names it needs come from different places — the Swift module is `Goleo` (from
+   the artifact name) while gobind derives the Objective-C class prefix from the Go *package*
+   (`gomobile` → `Gomobile`). So `import Goleo` is right but `Goleo.setHomeDir(...)` and
+   `GoleoNotifierProtocol` are not. The CI job now prints the generated headers so the real
+   symbols can be read off a macOS run instead of guessed at across round-trips.
+
+Docs say iOS does not build; do not describe it as working until a runner produces a bundle.
 
 **Tier 2 (not done, and not blocked on hardware):** signed `.ipa` via `archive` +
 `-exportArchive`, `ExportOptions.plist`, entitlements, TestFlight upload. All of that needs a

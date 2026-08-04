@@ -383,7 +383,40 @@ jobs:
         env:
           GOLEO_ROOT: ${{ github.workspace }}
           GOFLAGS: -mod=mod
+        # continue-on-error so the diagnostic step below still runs: the Swift shell
+        # (AppDelegate.swift) has never been compiled anywhere, and its gomobile binding
+        # names were written blind. Reading the REAL generated symbols beats guessing at
+        # them one CI round-trip at a time.
+        continue-on-error: true
+        id: iosbuild
         run: /tmp/goleo build ios --simulator
+
+      # gobind derives ObjC class names from the Go PACKAGE name (gomobile -> Gomobile)
+      # while the Swift module name comes from the -o basename (Goleo). Those differ, so
+      # the only reliable source for what AppDelegate.swift must call is the generated
+      # header. Print it.
+      - name: Generated Objective-C API surface (ground truth for AppDelegate.swift)
+        if: always()
+        working-directory: /tmp/ios/iosapp
+        run: |
+          set -uo pipefail
+          echo "--- xcframework layout (depth-limited) ---"
+          find .goleo/ios -maxdepth 4 -name "*.framework" -print 2>/dev/null | head
+          echo "--- every generated header ---"
+          # Cast wide on purpose: gobind writes both <Module>.h and a per-package
+          # <Prefix><Package>.objc.h, and which name carries the declarations is exactly
+          # what is being established here.
+          find .goleo/ios -name "*.h" -path "*Headers*" -print 2>/dev/null | head -20
+          for h in $(find .goleo/ios -name "*.h" -path "*Headers*" 2>/dev/null | head -20); do
+            echo "===== $h ====="
+            grep -nE "@protocol|@interface|FOUNDATION_EXPORT|^-|^\+" "$h" | head -80 || true
+          done
+
+      - name: Fail if the iOS build failed
+        if: steps.iosbuild.outcome == 'failure'
+        run: |
+          echo "::error::goleo build ios --simulator failed — see the step above and the generated API surface printed after it"
+          exit 1
 
       # Assert the artifact and the two things that were previously wrong in it: the name
       # (the CLI used to report a path it never wrote) and the launch storyboard.
