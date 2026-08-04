@@ -734,8 +734,26 @@ on a now-unused symbol meant the mutation never got built (silenced by `>/dev/nu
 
 **CI:** added to `glaze-verify.yml` on the mac/Linux matrix arm *and* the Windows job — worth both
 because WebView2 serves the assets over the `https://goleo.localhost` vhost while WKWebView/WebKitGTK
-serve the literal `goleo://`, so the page reaches its modules by different routes. Verified locally on
-real WebView2; the mac/Linux arms are **pending their first hardware run**.
+serve the literal `goleo://`, so the page reaches its modules by different routes.
+
+**Hardware results (2026-08-04): ✅ Windows/WebView2 (local, `https://goleo.localhost`) and
+✅ ubuntu-latest/WebKitGTK (CI, `goleo://app`)** — both byte-exact on the binary round-trip, both
+enforcing confinement with the backend's own error. macOS is still pending (its first run failed on
+the toolchain issue below, not on the spike).
+
+**First CI run also exposed a runner-image dependency:** the step passed on ubuntu-latest and failed
+on windows-latest + macos-14 with `'tsc' is not recognized`. The Ubuntu image ships a **global
+`typescript`**; the others do not, so the step was silently relying on a runner-provided global.
+`prepare.mjs` now installs the bridge's devDependencies when absent — which also means a fresh clone
+can run the spike. Lesson: a step that shells out to a JS tool must install it, and a green Ubuntu
+arm is not evidence the other two have the tool.
+
+**And the real-socket tests from the same batch found a genuine data race** in the Phase 3 per-server
+hub: `Server.Stop` read `s.hub` directly (`if s.hub != nil`) while a WebSocket upgrade created it
+lazily under `hubOnce`, so an ordinary shutdown-with-a-client-connecting was an unsynchronised
+read/write. It reproduced on **Linux CI only** and passed on Windows, i.e. it was found by luck of
+interleaving — `runtime/ws_e2e_test.go`'s `TestHubInitAndStopDoNotRace` now forces the overlap and
+reproduces it on Windows too. Fixed by routing `Stop` through `clients()`.
 
 ---
 
