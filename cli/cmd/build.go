@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -39,16 +40,19 @@ Examples:
 }
 
 var (
-	buildOutput     string
-	buildFrontend   string
-	buildAndroid    string
-	androidAPI      int
-	iosDeployTarget string
-	buildBundle     bool
-	buildPublish    bool
-	buildArch       string
-	buildAndroidABI string
-	buildNoSign     bool
+	buildOutput        string
+	buildFrontend      string
+	buildAndroid       string
+	androidAPI         int
+	iosDeployTarget    string
+	buildBundle        bool
+	buildPublish       bool
+	buildArch          string
+	buildAndroidABI    string
+	buildNoSign        bool
+	buildRelease       bool
+	buildAndroidFormat string
+	buildVersionCode   int
 )
 
 func init() {
@@ -62,6 +66,78 @@ func init() {
 	buildCmd.Flags().StringVar(&buildArch, "arch", "", "Target architecture for desktop targets, e.g. amd64 or arm64 (default: the target's own, or the host's for 'current')")
 	buildCmd.Flags().StringVar(&buildAndroidABI, "android-abi", "", "Comma-separated Android ABIs to build: arm64-v8a, armeabi-v7a, x86_64, x86 (GOARCH names also accepted). Default: all four, ~4x the APK size")
 	buildCmd.Flags().BoolVar(&buildNoSign, "no-sign", false, "Skip code signing even when signing credentials are configured")
+	buildCmd.Flags().BoolVar(&buildRelease, "release", false, "Build a signed release artifact (Android: an .aab for Play; see --android-format)")
+	buildCmd.Flags().StringVar(&buildAndroidFormat, "android-format", "", "Android artifact: aab or apk (default: aab with --release, apk otherwise)")
+	buildCmd.Flags().IntVar(&buildVersionCode, "version-code", 0, "Override the Android versionCode (default: mobile.android.version_code, else derived from version)")
+}
+
+// androidArtifactFormat is the Android output kind.
+type androidArtifactFormat string
+
+const (
+	androidFormatAPK androidArtifactFormat = "apk"
+	androidFormatAAB androidArtifactFormat = "aab"
+)
+
+// resolveAndroidFormat picks the artifact format.
+//
+// Play requires an .aab for new uploads, so --release defaults to that; a debug build
+// defaults to .apk because that is what you sideload with `adb install`. An explicit
+// --android-format always wins, including `--release --android-format apk` for a signed
+// APK to distribute outside a store.
+func resolveAndroidFormat(flag string, release bool) (androidArtifactFormat, error) {
+	switch strings.ToLower(strings.TrimSpace(flag)) {
+	case "":
+		if release {
+			return androidFormatAAB, nil
+		}
+		return androidFormatAPK, nil
+	case "aab":
+		return androidFormatAAB, nil
+	case "apk":
+		return androidFormatAPK, nil
+	default:
+		return "", fmt.Errorf("unsupported --android-format %q (want aab or apk)", flag)
+	}
+}
+
+// androidSigningConfigured reports whether the release signing environment is present.
+//
+// Only the keystore path is checked here; the passwords and alias are read inside
+// build.gradle.kts (deliberately, so they never reach argv or gradle.properties) and
+// Gradle reports a clear error itself if they are missing or wrong. Checking the path
+// is enough to distinguish "the user meant to sign" from "the user has configured
+// nothing".
+func androidSigningConfigured() bool {
+	return strings.TrimSpace(os.Getenv("GOLEO_ANDROID_KEYSTORE")) != ""
+}
+
+// androidGradleTask maps the build type and format to the Gradle task and the artifact
+// Gradle will leave behind.
+//
+// The unsigned candidate matters: `assembleRelease` with no signingConfig emits
+// app-release-unsigned.apk, not app-release.apk, so looking only for the latter would
+// hit the "gradle succeeded but no artifact" path for a legitimate --no-sign build.
+func androidGradleTask(format androidArtifactFormat, release bool) (task string, candidates []string) {
+	switch {
+	case format == androidFormatAAB && release:
+		return "bundleRelease", []string{
+			filepath.Join("app", "build", "outputs", "bundle", "release", "app-release.aab"),
+		}
+	case format == androidFormatAAB:
+		return "bundleDebug", []string{
+			filepath.Join("app", "build", "outputs", "bundle", "debug", "app-debug.aab"),
+		}
+	case release:
+		return "assembleRelease", []string{
+			filepath.Join("app", "build", "outputs", "apk", "release", "app-release.apk"),
+			filepath.Join("app", "build", "outputs", "apk", "release", "app-release-unsigned.apk"),
+		}
+	default:
+		return "assembleDebug", []string{
+			filepath.Join("app", "build", "outputs", "apk", "debug", "app-debug.apk"),
+		}
+	}
 }
 
 type buildTarget struct {
@@ -112,6 +188,51 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	}
 
 	buildFrontend = resolveFrontendDir(cmd, buildFrontend, ".")
+
+	// Reject flags this target cannot honour, rather than accepting them and doing
+	// nothing. The mobile and pwa paths return before the bundle/publish block, so
+	// --bundle and --publish were silently ignored: you asked for an installer and a
+	// signed update manifest, got neither, and the build reported success.
+	//
+	// They are refused rather than implemented because neither has a meaning here.
+	// --bundle makes a native desktop installer, but on Android the APK/AAB IS the
+	// installable artifact (--release --android-format aab is what you want), and on
+	// PWA the output is a directory to host. --publish writes a manifest for goleo's
+	// own self-updater, which mobile apps do not use — Play and the App Store handle
+	// updates, and a sideloaded APK cannot replace its own running binary.
+	if targetName == "android" || targetName == "ios" || targetName == "pwa" {
+		for flag, set := range map[string]bool{"--bundle": buildBundle, "--publish": buildPublish} {
+			if !set {
+				continue
+			}
+			hint := "the built artifact is already the distributable one"
+			if targetName == "android" {
+				hint = "use --release (and --android-format aab|apk) for a store-ready artifact"
+			}
+			return fmt.Errorf("%s does not apply to the %s target — %s", flag, targetName, hint)
+		}
+	}
+	// The Android-only flags should not look effective on a desktop build either.
+	if targetName != "android" {
+		if buildAndroidFormat != "" {
+			return fmt.Errorf("--android-format only applies to the android target")
+		}
+		if buildVersionCode > 0 {
+			return fmt.Errorf("--version-code only applies to the android target")
+		}
+		if buildRelease && targetName != "ios" {
+			return fmt.Errorf("--release only applies to mobile targets; desktop builds use --bundle and the GOLEO_* signing variables")
+		}
+	}
+
+	if targetName == "android" {
+		// Validate the release flags BEFORE the frontend build and gomobile bind.
+		// Checking them where they are used meant waiting through minutes of
+		// cross-compilation only to be told a keystore is missing.
+		if err := validateAndroidRelease(); err != nil {
+			return err
+		}
+	}
 
 	if err := checkGoleoJSON(); err != nil {
 		return err
@@ -533,6 +654,24 @@ func buildForAndroid(distDir string, deps *androidDeps) error {
 	mobileCfg := loadMobileConfig(".")
 	iconSrc, hasIcon := mobileIconSource()
 	mobileCfg.HasIcon = hasIcon
+
+	// versionCode precedence: the env var wins so CI can stamp a build number without
+	// editing goleo.json, then --version-code, then goleo.json, then a value derived
+	// from the semver. Play rejects an upload whose versionCode has not increased, and
+	// it is the one field a human cannot reasonably remember to bump.
+	if env := strings.TrimSpace(os.Getenv("GOLEO_ANDROID_VERSION_CODE")); env != "" {
+		n, err := strconv.Atoi(env)
+		if err != nil || n <= 0 {
+			return fmt.Errorf("GOLEO_ANDROID_VERSION_CODE=%q is not a positive integer", env)
+		}
+		mobileCfg.VersionCode = n
+	} else if buildVersionCode > 0 {
+		mobileCfg.VersionCode = buildVersionCode
+	}
+
+	if err := setAndroidPermissions(&mobileCfg, "."); err != nil {
+		return err
+	}
 	if err := extractMobileTemplate("android", buildDir, &mobileCfg); err != nil {
 		return fmt.Errorf("generating Android project: %w", err)
 	}
@@ -559,13 +698,39 @@ func buildForAndroid(distDir string, deps *androidDeps) error {
 		}
 	}
 
+	format, err := resolveAndroidFormat(buildAndroidFormat, buildRelease)
+	if err != nil {
+		return err
+	}
+
+	// An unsigned release artifact is useless — Play rejects it and Android refuses to
+	// install it — so this errors rather than following the "print a notice and carry
+	// on" pattern the desktop signing paths use. --no-sign is the explicit way to say
+	// you want the unsigned artifact anyway (to sign it yourself, or to check the
+	// build works before setting up a keystore).
+	signRelease := buildRelease && !buildNoSign
+	if signRelease && !androidSigningConfigured() {
+		return errAndroidKeystoreMissing
+	}
+	if buildRelease && buildNoSign {
+		fmt.Println("  --no-sign: building an UNSIGNED release artifact (not installable or uploadable as-is)")
+	}
+	// Gradle reads the keystore itself from the environment (build.gradle.kts), so with
+	// --no-sign the variable has to be taken away from it, or it would sign anyway.
+	gradleEnvOverrides := []string(nil)
+	if buildRelease && buildNoSign {
+		gradleEnvOverrides = append(gradleEnvOverrides, "GOLEO_ANDROID_KEYSTORE=")
+	}
+
 	outputName := buildOutput
 	if outputName == "" {
-		outputName = "app.apk"
+		outputName = "app." + string(format)
 	}
 	outputPath := filepath.Join(cwd, outputName)
 
-	fmt.Println("  Compiling APK with Gradle...")
+	gradleTask, artifactCandidates := androidGradleTask(format, buildRelease)
+	kind := strings.ToUpper(string(format))
+	fmt.Printf("  Compiling %s with Gradle (%s)...\n", kind, gradleTask)
 	gradlew := filepath.Join(buildDir, "gradlew")
 	if _, err := os.Stat(gradlew); os.IsNotExist(err) {
 		// Report this. It was `_ = err` here while the dev-build path and
@@ -577,29 +742,58 @@ func buildForAndroid(distDir string, deps *androidDeps) error {
 		}
 	}
 
-	gradleCmd := exec.Command(gradlew, "assembleDebug")
+	gradleCmd := exec.Command(gradlew, gradleTask)
 	gradleCmd.Dir = buildDir
 	gradleCmd.Stdout = os.Stdout
 	gradleCmd.Stderr = os.Stderr
 	setMobileEnv(gradleCmd, deps)
+	gradleCmd.Env = append(gradleCmd.Env, gradleEnvOverrides...)
 	if err := gradleCmd.Run(); err != nil {
 		return fmt.Errorf("gradle build failed: %w", err)
 	}
 
-	// Gradle exited 0, so the APK must be where it says. If it is not, that is a
+	// Gradle exited 0, so the artifact must be where it says. If it is not, that is a
 	// failure — this used to print "APK built in: <dir>" and return nil, so
 	// `goleo build android` exited 0 having produced nothing at the path it just
 	// told the user about. A CI job or a script checking the exit code saw success.
-	apkPath := filepath.Join(buildDir, "app", "build", "outputs", "apk", "debug", "app-debug.apk")
-	if _, err := os.Stat(apkPath); err != nil {
-		return fmt.Errorf("gradle reported success but no APK at %s: %w\n"+
-			"  look under %s for what it did produce", apkPath, err,
+	artifact := ""
+	for _, c := range artifactCandidates {
+		p := filepath.Join(buildDir, c)
+		if _, err := os.Stat(p); err == nil {
+			artifact = p
+			break
+		}
+	}
+	if artifact == "" {
+		return fmt.Errorf("gradle (%s) reported success but produced none of:\n    %s\n"+
+			"  look under %s for what it did produce",
+			gradleTask, strings.Join(artifactCandidates, "\n    "),
 			filepath.Join(buildDir, "app", "build", "outputs"))
 	}
-	if err := copyFile(apkPath, outputPath); err != nil {
-		return fmt.Errorf("copying APK to %s: %w", outputPath, err)
+	// A signed release must not come back as the -unsigned variant. Gradle silently
+	// falls back to it when the signingConfig did not apply, so without this check
+	// `--release` could hand over an unsigned artifact while reporting success.
+	if signRelease && strings.Contains(filepath.Base(artifact), "-unsigned") {
+		return fmt.Errorf("--release produced %s: the signing config did not apply.\n"+
+			"  Check GOLEO_ANDROID_KEYSTORE_PASSWORD, GOLEO_ANDROID_KEY_ALIAS and\n"+
+			"  GOLEO_ANDROID_KEY_PASSWORD — Gradle skips signing rather than failing when\n"+
+			"  the keystore cannot be opened.", filepath.Base(artifact))
 	}
-	fmt.Printf("  APK: %s\n", outputPath)
+	if err := copyFile(artifact, outputPath); err != nil {
+		return fmt.Errorf("copying %s to %s: %w", filepath.Base(artifact), outputPath, err)
+	}
+	signedNote := ""
+	if buildRelease {
+		if signRelease {
+			signedNote = " (signed release)"
+		} else {
+			signedNote = " (UNSIGNED release)"
+		}
+	}
+	fmt.Printf("  %s: %s%s\n", kind, outputPath, signedNote)
+	if format == androidFormatAAB && signRelease {
+		fmt.Println("  Verify before uploading:  bundletool validate --bundle=" + outputName)
+	}
 
 	os.Remove(aanPath)
 	fmt.Printf("  Android build complete!\n")
@@ -1067,3 +1261,31 @@ const gradleWrapperVersion = "9.4.1"
 func gradleWrapperJarURL() string {
 	return "https://github.com/gradle/gradle/raw/v" + gradleWrapperVersion + "/gradle/wrapper/gradle-wrapper.jar"
 }
+
+// validateAndroidRelease checks the release/signing flags before any expensive work.
+//
+// buildForAndroid re-resolves the format where it needs it; this exists purely so the
+// failure arrives in the first second rather than after a gomobile bind.
+func validateAndroidRelease() error {
+	if _, err := resolveAndroidFormat(buildAndroidFormat, buildRelease); err != nil {
+		return err
+	}
+	if buildRelease && !buildNoSign && !androidSigningConfigured() {
+		return errAndroidKeystoreMissing
+	}
+	return nil
+}
+
+// errAndroidKeystoreMissing is returned when --release has no signing configuration.
+//
+// A sentinel rather than two copies of the message: it is raised both by the early
+// validation in runBuild and by buildForAndroid, which keeps its own check so the
+// function stays correct if ever called from somewhere that skips validation.
+var errAndroidKeystoreMissing = fmt.Errorf(
+	"--release needs a keystore: set GOLEO_ANDROID_KEYSTORE (plus\n" +
+		"  GOLEO_ANDROID_KEYSTORE_PASSWORD, GOLEO_ANDROID_KEY_ALIAS, GOLEO_ANDROID_KEY_PASSWORD).\n" +
+		"  Generate one with:\n" +
+		"    keytool -genkeypair -v -keystore release.jks -keyalg RSA -keysize 2048 \\n" +
+		"      -validity 10000 -alias upload\n" +
+		"  Keep it and its passwords safe: losing the upload key means you cannot ship an\n" +
+		"  update to an existing Play listing. Or pass --no-sign to build unsigned.")

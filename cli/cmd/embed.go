@@ -30,6 +30,10 @@ type mobileConfig struct {
 	TargetSDK   int
 	// ExtraPermissions are appended to the generated Android manifest verbatim.
 	ExtraPermissions []string
+	// Perms is the resolved manifest entry set the template renders. Populated by the
+	// Android build path (setAndroidPermissions), not by loadMobileConfig, because it
+	// needs a source scan.
+	Perms androidManifestPerms
 
 	// IOSBundleID is the iOS bundle identifier. It falls back to PackageName,
 	// which used to be the *only* source — so setting mobile.ios.bundle_identifier

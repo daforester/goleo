@@ -107,3 +107,159 @@ jobs:
           grep -q "classes.jar" /tmp/aar.txt || { echo "::error::AAR has no classes.jar — bindings were not generated"; cat /tmp/aar.txt; exit 1; }
           grep -q "jni/arm64-v8a/libgojni.so" /tmp/aar.txt || { echo "::error::AAR has no native library"; cat /tmp/aar.txt; exit 1; }
           echo "AAR ok: $(stat -c%s /tmp/mob/goleo.aar) bytes"
+
+  # A real SIGNED RELEASE build, end to end through the CLI.
+  #
+  # The android job above proves `gomobile bind` still works. This proves the thing a
+  # developer actually ships: `goleo build android --release` producing a signed .aab.
+  # Nothing else covers it, and it cannot be checked on the author's machine without a
+  # keystore, so it is checked here with a THROWAWAY one generated on the runner.
+  #
+  # A throwaway key is the right call: the point is to exercise the signing path — that
+  # build.gradle.kts reads the credentials from the environment, that Gradle applies the
+  # signingConfig, and that the artifact comes out signed rather than as the
+  # -unsigned variant. None of that needs a real upload key, and putting one in CI would
+  # be a liability (losing or leaking an upload key means never updating a Play listing).
+  android-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Install gomobile
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          go install golang.org/x/mobile/cmd/gobind@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Build the CLI
+        run: go build -o /tmp/goleo ./cli/goleo
+
+      - name: Scaffold a project
+        run: |
+          mkdir -p /tmp/rel && cd /tmp/rel
+          GOLEO_ROOT="$GITHUB_WORKSPACE" /tmp/goleo new relapp --no-install
+
+      - name: Locate the Android NDK
+        run: |
+          ndk="${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_ROOT:-${ANDROID_NDK_HOME:-}}}"
+          if [ -z "$ndk" ] && [ -d "$ANDROID_HOME/ndk" ]; then
+            ndk="$ANDROID_HOME/ndk/$(ls "$ANDROID_HOME/ndk" | sort -V | tail -1)"
+          fi
+          if [ -z "$ndk" ] || [ ! -d "$ndk" ]; then
+            echo "::error::no Android NDK on this runner"; exit 1
+          fi
+          echo "ANDROID_NDK_HOME=$ndk" >> "$GITHUB_ENV"
+
+      # Refusing to build unsigned is a deliberate behaviour, so check it BEFORE
+      # providing a keystore — otherwise a regression that silently produced unsigned
+      # release artifacts would pass this whole job.
+      - name: --release without a keystore must be refused
+        working-directory: /tmp/rel/relapp
+        run: |
+          if GOLEO_ROOT="$GITHUB_WORKSPACE" /tmp/goleo build android --release; then
+            echo "::error::--release succeeded with no keystore configured"
+            exit 1
+          fi
+          echo "correctly refused"
+
+      - name: Generate a throwaway keystore
+        run: |
+          keytool -genkeypair -v -keystore /tmp/rel/throwaway.jks \
+            -storepass throwaway -keypass throwaway -alias upload \
+            -keyalg RSA -keysize 2048 -validity 30 \
+            -dname "CN=goleo-ci, OU=ci, O=goleo, L=nowhere, S=nowhere, C=GB"
+
+      - name: Build a signed release AAB
+        working-directory: /tmp/rel/relapp
+        env:
+          GOLEO_ROOT: ${{ github.workspace }}
+          GOFLAGS: -mod=mod
+          GOLEO_ANDROID_KEYSTORE: /tmp/rel/throwaway.jks
+          GOLEO_ANDROID_KEYSTORE_PASSWORD: throwaway
+          GOLEO_ANDROID_KEY_ALIAS: upload
+          GOLEO_ANDROID_KEY_PASSWORD: throwaway
+          GOLEO_ANDROID_VERSION_CODE: "42"
+        run: /tmp/goleo build android --release
+
+      # Assert the artifact, its signature, and its versionCode. "Gradle exited 0" is not
+      # enough: it emits app-release-unsigned.aab-equivalents and skips signing rather
+      # than failing when a keystore cannot be opened.
+      - name: Verify the AAB is real and signed
+        working-directory: /tmp/rel/relapp
+        run: |
+          set -euo pipefail
+          test -f app.aab || { echo "::error::no app.aab"; ls -la; exit 1; }
+          echo "size: $(stat -c%s app.aab) bytes"
+          [ "$(stat -c%s app.aab)" -gt 1000000 ] || { echo "::error::app.aab is implausibly small"; exit 1; }
+
+          # An AAB is a jar-signed zip, so jarsigner verifies it (apksigner does not).
+          jarsigner -verify -verbose:summary app.aab | tail -5
+          jarsigner -verify app.aab | grep -q "jar verified" || {
+            echo "::error::app.aab is not signed"; exit 1; }
+
+          unzip -l app.aab | grep -q "base/manifest/AndroidManifest.xml" || {
+            echo "::error::app.aab has no base module manifest"; exit 1; }
+
+      # The permission derivation is the other half of Phase 4, and its whole point is
+      # that a minimal app stops declaring camera/location/NFC/Bluetooth. Assert against
+      # the manifest the build actually generated.
+      - name: Verify the generated manifest declares only what the app enables
+        working-directory: /tmp/rel/relapp
+        run: |
+          set -euo pipefail
+          m=.goleo/android/app/src/main/AndroidManifest.xml
+          test -f "$m" || { echo "::error::no generated manifest at $m"; exit 1; }
+          echo "--- generated manifest permissions ---"
+          grep -o 'android.permission.[A-Z_]*' "$m" | sort -u || true
+
+          grep -q "android.permission.INTERNET" "$m" || {
+            echo "::error::manifest is missing INTERNET"; exit 1; }
+
+          # The minimal scaffold enables no camera/location/NFC/BLE features, so none of
+          # these may appear. They used to be declared unconditionally for every app.
+          for unwanted in CAMERA ACCESS_FINE_LOCATION NFC BLUETOOTH_SCAN BLUETOOTH_CONNECT BODY_SENSORS; do
+            if grep -q "android.permission.$unwanted" "$m"; then
+              echo "::error::minimal app still declares $unwanted"
+              exit 1
+            fi
+          done
+          echo "manifest is minimal"
+
+      - name: Verify versionCode came from the environment
+        working-directory: /tmp/rel/relapp
+        run: |
+          set -euo pipefail
+          g=.goleo/android/app/build.gradle.kts
+          grep -q "versionCode = 42" "$g" || {
+            echo "::error::GOLEO_ANDROID_VERSION_CODE=42 did not reach the gradle build:"
+            grep -n "versionCode" "$g" || true
+            exit 1; }
+          echo "versionCode wired through"
+
+      # And the unsigned escape hatch must actually produce an unsigned artifact rather
+      # than signing anyway because the keystore is still in the environment.
+      - name: --no-sign produces an unsigned artifact
+        working-directory: /tmp/rel/relapp
+        env:
+          GOLEO_ROOT: ${{ github.workspace }}
+          GOFLAGS: -mod=mod
+          GOLEO_ANDROID_KEYSTORE: /tmp/rel/throwaway.jks
+          GOLEO_ANDROID_KEYSTORE_PASSWORD: throwaway
+          GOLEO_ANDROID_KEY_ALIAS: upload
+          GOLEO_ANDROID_KEY_PASSWORD: throwaway
+        run: |
+          set -euo pipefail
+          /tmp/goleo build android --release --no-sign -o unsigned.aab
+          test -f unsigned.aab || { echo "::error::no unsigned.aab"; exit 1; }
+          if jarsigner -verify unsigned.aab | grep -q "jar verified"; then
+            echo "::error::--no-sign still produced a SIGNED artifact"
+            exit 1
+          fi
+          echo "--no-sign honoured"

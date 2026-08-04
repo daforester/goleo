@@ -2,19 +2,51 @@ plugins {
     id("com.android.application")
 }
 
+// Release signing comes from the environment, and is read HERE rather than being
+// passed in by the CLI.
+//
+// Anything the CLI puts on gradle's command line shows up in `ps` output and in
+// gradle's own logs, and anything written to gradle.properties lands in a file that
+// tends to get committed. System.getenv keeps the keystore password out of both.
+//
+// When GOLEO_ANDROID_KEYSTORE is unset there is simply no release signingConfig, so
+// Gradle produces an unsigned release artifact — the CLI refuses that unless you pass
+// --no-sign, because an unsigned release AAB cannot be uploaded anywhere.
+val goleoKeystore: String? = System.getenv("GOLEO_ANDROID_KEYSTORE")
+val goleoSigningEnabled = !goleoKeystore.isNullOrBlank()
+
 android {
     namespace = "{{.PackageName}}"
-    compileSdk = 36
+    compileSdk = {{.TargetSDK}}
     defaultConfig {
         applicationId = "{{.PackageName}}"
-        minSdk = 24
-        targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        minSdk = {{.MinSDK}}
+        targetSdk = {{.TargetSDK}}
+        // versionCode must increase on every Play upload; versionName is what users
+        // see. Both come from goleo.json (version / mobile.android.version_code).
+        // They were hardcoded 1 and "1.0" here, so goleo.json's values were loaded and
+        // then thrown away, and every build of every app declared the same version.
+        versionCode = {{.VersionCode}}
+        versionName = "{{.VersionName}}"
     }
+
+    if (goleoSigningEnabled) {
+        signingConfigs {
+            create("release") {
+                storeFile = file(goleoKeystore!!)
+                storePassword = System.getenv("GOLEO_ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("GOLEO_ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("GOLEO_ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (goleoSigningEnabled) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
     compileOptions {

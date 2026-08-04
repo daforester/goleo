@@ -79,6 +79,13 @@ func signWindows(sc signConfig, file string) error {
 // codesignMac signs a .app bundle (deep, hardened runtime). No-op when
 // unconfigured.
 func codesignMac(sc signConfig, path string) error {
+	// --no-sign was honoured only in signWindows, so `--bundle --no-sign` on macOS
+	// signed anyway whenever GOLEO_MAC_IDENTITY happened to be set — exactly the CI
+	// situation the flag exists for.
+	if buildNoSign {
+		fmt.Printf("  Code signing skipped for %s (--no-sign)\n", filepath.Base(path))
+		return nil
+	}
 	if !sc.macSignEnabled() {
 		fmt.Printf("  Code signing skipped for %s (set GOLEO_MAC_IDENTITY to enable)\n", filepath.Base(path))
 		return nil
@@ -99,6 +106,12 @@ func codesignMac(sc signConfig, path string) error {
 // notarizeMac submits a .dmg to Apple's notary service, waits, and staples the
 // ticket. No-op when unconfigured.
 func notarizeMac(sc signConfig, dmg string) error {
+	// Same as codesignMac: --no-sign must win. Notarising an unsigned artifact cannot
+	// succeed anyway, so proceeding would only produce a confusing Apple-side error.
+	if buildNoSign {
+		fmt.Printf("  Notarization skipped for %s (--no-sign)\n", filepath.Base(dmg))
+		return nil
+	}
 	if !sc.macNotarizeEnabled() {
 		fmt.Printf("  Notarization skipped for %s (set GOLEO_APPLE_ID + GOLEO_APPLE_TEAM_ID + GOLEO_APPLE_PASSWORD to enable)\n", filepath.Base(dmg))
 		return nil
