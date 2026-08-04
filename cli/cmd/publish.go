@@ -66,6 +66,12 @@ func runPublish(target buildTarget, binaryPath string, cfg bundleConfig) error {
 
 	fmt.Printf("\n  Published %s → %s\n", platform, rel.URL)
 	fmt.Printf("  Signed manifest: %s\n", manifestPath)
+	// Be explicit about which artifact this is. --bundle may have just produced an
+	// installer in dist/bundle/, and the updater cannot use one, so without this the
+	// combination reads as if the installer had been published.
+	fmt.Println("  Artifact: the raw binary — the updater replaces the running executable")
+	fmt.Println("    in place, so an installer cannot serve as an update. Distribute any")
+	fmt.Println("    installer from dist/bundle/ separately, for first-time installs.")
 	return nil
 }
 

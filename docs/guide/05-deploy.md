@@ -42,6 +42,16 @@ verify the signed manifest before applying).
 ```bash
 GOLEO_UPDATE_PRIVKEY=... npm run goleo:publish      # goleo build --publish
 ```
+
+> `--publish` stages the **raw binary**, not the installer `--bundle` builds. That is
+> deliberate: the updater replaces the running executable in place
+> (`updater.ApplyAndRelaunch`), so an NSIS `setup.exe` or a `.dmg` cannot serve as an
+> update — it would replace the app with its own installer. Ship the installer from
+> `dist/bundle/` for first-time installs, and let the manifest point at the binary for
+> in-place updates.
+
+```bash
+```
 Set `bundle.update_url_base` (and optional `release_notes`) in `goleo.json`, then
 host the built artifact + `manifest.json` at that URL.
 

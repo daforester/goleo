@@ -157,13 +157,70 @@ func nsisScript(cfg bundleConfig, binaryPath, binBase, outFile string) string {
 	b.WriteString("Section\n  SetOutPath $INSTDIR\n")
 	fmt.Fprintf(&b, "  File %q\n", binaryPath)
 	fmt.Fprintf(&b, "  CreateShortcut \"$SMPROGRAMS\\%s.lnk\" \"$INSTDIR\\%s\"\n", cfg.AppName, binBase)
-	b.WriteString("  WriteUninstaller \"$INSTDIR\\uninstall.exe\"\nSectionEnd\n")
+	b.WriteString("  WriteUninstaller \"$INSTDIR\\uninstall.exe\"\n")
+
+	// Add/Remove Programs. Without these the app installs but never appears in Windows
+	// Settings or Control Panel, so the only way to remove it is finding uninstall.exe
+	// in the install directory by hand — which nobody thinks to do. NSIS does not write
+	// them for you.
+	//
+	// HKLM is correct here because the installer is RequestExecutionLevel admin and
+	// installs into $PROGRAMFILES64; a per-user install would use HKCU.
+	//
+	// `$\"` is NSIS's escape for a literal quote. UninstallString must be quoted or
+	// Windows mis-parses a path containing spaces, which $PROGRAMFILES64 always does.
+	key := uninstallRegKey(cfg)
+	quoted := func(inner string) string { return `"$\"` + inner + `$\""` }
+	fmt.Fprintf(&b, "  WriteRegStr HKLM \"%s\" \"DisplayName\" %q\n", key, cfg.AppName)
+	fmt.Fprintf(&b, "  WriteRegStr HKLM \"%s\" \"DisplayVersion\" %q\n", key, cfg.Version)
+	if cfg.Publisher != "" {
+		fmt.Fprintf(&b, "  WriteRegStr HKLM \"%s\" \"Publisher\" %q\n", key, cfg.Publisher)
+	}
+	fmt.Fprintf(&b, "  WriteRegStr HKLM \"%s\" \"UninstallString\" %s\n", key, quoted(`$INSTDIR\uninstall.exe`))
+	fmt.Fprintf(&b, "  WriteRegStr HKLM \"%s\" \"QuietUninstallString\" \"$\\\"$INSTDIR\\uninstall.exe$\\\" /S\"\n", key)
+	fmt.Fprintf(&b, "  WriteRegStr HKLM \"%s\" \"DisplayIcon\" %s\n", key, quoted(`$INSTDIR\`+binBase))
+	fmt.Fprintf(&b, "  WriteRegStr HKLM \"%s\" \"InstallLocation\" %s\n", key, quoted(`$INSTDIR`))
+	// NoModify/NoRepair hide the Change and Repair buttons, which would do nothing.
+	fmt.Fprintf(&b, "  WriteRegDWORD HKLM \"%s\" \"NoModify\" 1\n", key)
+	fmt.Fprintf(&b, "  WriteRegDWORD HKLM \"%s\" \"NoRepair\" 1\n", key)
+	if kb := estimatedSizeKB(binaryPath); kb > 0 {
+		// Settings shows a blank size without this; fill it from the real binary.
+		fmt.Fprintf(&b, "  WriteRegDWORD HKLM \"%s\" \"EstimatedSize\" %d\n", key, kb)
+	}
+	b.WriteString("SectionEnd\n")
+
 	b.WriteString("Section \"Uninstall\"\n")
 	fmt.Fprintf(&b, "  Delete \"$INSTDIR\\%s\"\n", binBase)
+	// The self-updater renames the running exe aside as <name>.old before swapping the
+	// new one in, so any app that has updated itself leaves that behind and $INSTDIR
+	// would survive the uninstall containing a stale binary.
+	fmt.Fprintf(&b, "  Delete \"$INSTDIR\\%s.old\"\n", binBase)
 	b.WriteString("  Delete \"$INSTDIR\\uninstall.exe\"\n")
 	fmt.Fprintf(&b, "  Delete \"$SMPROGRAMS\\%s.lnk\"\n", cfg.AppName)
+	fmt.Fprintf(&b, "  DeleteRegKey HKLM \"%s\"\n", key)
 	b.WriteString("  RMDir \"$INSTDIR\"\nSectionEnd\n")
 	return b.String()
+}
+
+// uninstallRegKey is where Windows looks for Add/Remove Programs entries.
+//
+// Keyed on the slug rather than the display name, so it stays stable if the app is
+// renamed and a name containing spaces or punctuation cannot produce an awkward key.
+func uninstallRegKey(cfg bundleConfig) string {
+	return `Software\Microsoft\Windows\CurrentVersion\Uninstall\` + slug(cfg.AppName)
+}
+
+// estimatedSizeKB is the installed size Windows Settings displays, in KB.
+//
+// 0 when the path cannot be read: nsisScript is also called from tests with a
+// placeholder path, and omitting the key (Settings shows a blank) beats reporting a
+// wrong size.
+func estimatedSizeKB(binaryPath string) int64 {
+	fi, err := os.Stat(binaryPath)
+	if err != nil || fi.Size() <= 0 {
+		return 0
+	}
+	return (fi.Size() + 1023) / 1024
 }
 
 // --- macOS (.app bundle + .dmg) ---
