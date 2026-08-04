@@ -4,6 +4,8 @@ import (
 	"io/fs"
 	"strings"
 	"testing"
+	"text/template"
+	"unicode/utf8"
 )
 
 // The frontend is embedded in the Go library and served over http://127.0.0.1:<port>; the
@@ -75,4 +77,44 @@ func TestNativeShellsLoadOverLoopback(t *testing.T) {
 				"somewhere else, the removed frontend/dist copy may be needed again", path)
 		}
 	}
+}
+
+// Every mobile template must PARSE as a text/template.
+//
+// extractMobileTemplate runs each file through text/template, so a stray `{{...}}` anywhere —
+// including inside a YAML or XML comment, where it looks inert — is a real action. A comment
+// added to xcodegen.yml explaining the HasIcon conditional contained a literal `{{if
+// .HasIcon}}`, which opened an unterminated if and broke the whole file with
+// "unexpected EOF". Nothing outside a real iOS build would have caught that.
+func TestEveryMobileTemplateParses(t *testing.T) {
+	roots := []string{"templates/android", "templates/android-dev", "templates/ios"}
+	checked := 0
+	for _, root := range roots {
+		err := fs.WalkDir(mobileTemplates, root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			raw, rerr := mobileTemplates.ReadFile(path)
+			if rerr != nil {
+				return rerr
+			}
+			// Binary files (the vendored wrapper jar, PNGs) are copied, not templated.
+			if !utf8.Valid(raw) {
+				return nil
+			}
+			if _, perr := template.New(path).Parse(string(raw)); perr != nil {
+				t.Errorf("%s does not parse as a template: %v\n"+
+					"  (a `{{...}}` in a comment is still an action)", path, perr)
+			}
+			checked++
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walking %s: %v", root, err)
+		}
+	}
+	if checked < 10 {
+		t.Errorf("only %d templates checked — the walk is not finding them", checked)
+	}
+	t.Logf("parsed %d mobile templates", checked)
 }

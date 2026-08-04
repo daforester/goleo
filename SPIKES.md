@@ -1028,3 +1028,36 @@ cap looks like complete coverage.
 `AppDelegate.swift` in the same change also contains those words, so deleting the real import
 left the test green. Found by mutating the import away and getting no failure. It now matches
 the import **statement** with `(?m)^\s*import Goleo\s*$`.
+
+### The Swift compiled; the asset catalog did not (2026-08-05)
+
+Fourth macOS run. **`AppDelegate.swift` compiled** — the binding names read off the generated
+header were right, and every method shape it already declared matched. One error left, and it
+was not in any goleo-authored line:
+
+```
+Assets.xcassets: error: None of the input catalogs contained a matching
+                        ... app icon set named "AppIcon".
+```
+
+**Cause: a `{{if .HasIcon}}` gate that can add a setting but not prevent one.** goleo
+deliberately omits `ASSETCATALOG_COMPILER_APPICON_NAME` when no `bundle.icon` resolves, so the
+app keeps the platform default — and it correctly omitted it here. But **XcodeGen applies its
+own `settingPresets` to an application target, and those include
+`ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon`.** So the project asked `actool` for an icon set
+goleo had deliberately not generated. The fix is an explicit **empty** value in the else
+branch, which overrides the preset and drops `actool`'s `--app-icon`.
+
+Note the blast radius: the scaffold's `goleo.json` points `bundle.icon` at `assets/icon.png`
+and **the scaffold does not create that file**, so `HasIcon` is false by default. This was
+every new project's first iOS build, not an edge case. The same shape as the Android
+launcher-icon gating, but inverted — there the risk was referencing a missing resource; here it
+was a *third party* referencing one on goleo's behalf.
+
+**A comment that was executable.** The explanation added above the fix contained a literal
+`{{if .HasIcon}}`. `extractMobileTemplate` runs every file through `text/template`, so a
+`{{...}}` inside a YAML comment is still an action — it opened an unterminated `if` and broke
+the entire file with `unexpected EOF`. Caught immediately because the new test renders the
+template, but nothing else would have: the file is only rendered during a real mobile build.
+`TestEveryMobileTemplateParses` now parses all 23 mobile templates, so the class is covered
+rather than the instance.

@@ -207,3 +207,52 @@ func TestIOSShellUsesTheGeneratedBindingNames(t *testing.T) {
 		}
 	}
 }
+
+// Both branches of the app-icon setting must be present.
+//
+// XcodeGen applies its own settingPresets to an application target, and those include
+// ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon. So a `{{if .HasIcon}}` that only ADDS the
+// setting cannot prevent it — with no icon configured the project still asked actool for an
+// "AppIcon" set that goleo had deliberately not generated, and the build failed with
+// "None of the input catalogs contained ... an app icon set named AppIcon". Since the
+// scaffold ships no icon file, that was EVERY new project's first iOS build.
+func TestAppIconSettingIsOverriddenWhenThereIsNoIcon(t *testing.T) {
+	render := func(hasIcon bool) string {
+		t.Helper()
+		raw, err := mobileTemplates.ReadFile("templates/ios/xcodegen.yml")
+		if err != nil {
+			t.Fatal(err)
+		}
+		tmpl, err := template.New("x").Parse(string(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg := defaultMobileConfig()
+		cfg.HasIcon = hasIcon
+		var out strings.Builder
+		if err := tmpl.Execute(&out, cfg); err != nil {
+			t.Fatal(err)
+		}
+		return out.String()
+	}
+
+	withIcon := render(true)
+	if !strings.Contains(withIcon, "ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon") {
+		t.Errorf("with an icon, the project must name the generated AppIcon set:\n%s", withIcon)
+	}
+
+	without := render(false)
+	// The setting must be present and EMPTY, not absent: absent means XcodeGen's preset wins.
+	if !strings.Contains(without, `ASSETCATALOG_COMPILER_APPICON_NAME: ""`) {
+		t.Errorf("without an icon, the project must override XcodeGen's preset with an empty "+
+			"ASSETCATALOG_COMPILER_APPICON_NAME; omitting it lets the preset ask actool for an "+
+			"AppIcon set that does not exist:\n%s", without)
+	}
+	// And it must not simultaneously ask for AppIcon.
+	for _, line := range strings.Split(without, "\n") {
+		if strings.Contains(line, "ASSETCATALOG_COMPILER_APPICON_NAME") &&
+			strings.Contains(line, "AppIcon") && !strings.Contains(line, "#") {
+			t.Errorf("without an icon the project still names AppIcon: %q", strings.TrimSpace(line))
+		}
+	}
+}
