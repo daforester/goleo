@@ -232,11 +232,13 @@ func TestGradleWrapperJarMatchesTheTemplateDistribution(t *testing.T) {
 		t.Errorf("gradle-wrapper.properties does not request %s (gradleWrapperVersion=%s):\n%s",
 			want, gradleWrapperVersion, props)
 	}
-	// Guard against a literal version creeping back into the download URL.
-	if contains(gradleWrapperJarURL(), "8.10.2") && gradleWrapperVersion != "8.10.2" {
-		t.Errorf("the wrapper jar URL is pinned to 8.10.2 while the template wants %s", gradleWrapperVersion)
+	// The vendored JAR must actually be a Gradle wrapper. It is committed rather than
+	// downloaded (cli/cmd/gradlewrapper), so a truncated or wrong-file commit would
+	// otherwise surface as an obscure failure inside Gradle's bootstrap.
+	if err := checkWrapperJar(gradleWrapperJAR); err != nil {
+		t.Errorf("vendored gradle-wrapper.jar is not usable: %v", err)
 	}
-	if !contains(gradleWrapperJarURL(), gradleWrapperVersion) {
-		t.Errorf("the wrapper jar URL %q does not reference %s", gradleWrapperJarURL(), gradleWrapperVersion)
+	if len(gradleWrapperJAR) < 10_000 {
+		t.Errorf("vendored gradle-wrapper.jar is only %d bytes — suspiciously small", len(gradleWrapperJAR))
 	}
 }

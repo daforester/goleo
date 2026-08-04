@@ -329,8 +329,8 @@ func buildAndDeployDev(deps *androidDeps, deviceID, pkgName string, vitePort int
 	fmt.Println("  Compiling dev APK with Gradle...")
 	gradlew := filepath.Join(buildDir, "gradlew")
 	if _, err := os.Stat(gradlew); os.IsNotExist(err) {
-		if err := downloadGradleWrapper(buildDir); err != nil {
-			return fmt.Errorf("downloading Gradle wrapper: %w", err)
+		if err := ensureGradleWrapper(buildDir); err != nil {
+			return fmt.Errorf("preparing the Gradle wrapper: %w", err)
 		}
 	}
 

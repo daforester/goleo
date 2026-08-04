@@ -1,9 +1,10 @@
 package cmd
 
 import (
+	"archive/zip"
+	"bytes"
+	_ "embed"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -551,8 +552,8 @@ func buildAndroidDev(deps *androidDeps) (string, error) {
 	fmt.Println("  Compiling dev APK with Gradle...")
 	gradlew := filepath.Join(buildDir, "gradlew")
 	if _, err := os.Stat(gradlew); os.IsNotExist(err) {
-		if err := downloadGradleWrapper(buildDir); err != nil {
-			return "", fmt.Errorf("downloading Gradle wrapper: %w", err)
+		if err := ensureGradleWrapper(buildDir); err != nil {
+			return "", fmt.Errorf("preparing the Gradle wrapper: %w", err)
 		}
 	}
 
@@ -743,8 +744,8 @@ func buildForAndroid(distDir string, deps *androidDeps) error {
 		// `goleo emulate` both return it — so a failed wrapper download (offline, a
 		// proxy, GitHub down) fell through to a Gradle invocation that could only fail
 		// more confusingly, or to the silent-success path below.
-		if err := downloadGradleWrapper(buildDir); err != nil {
-			return fmt.Errorf("downloading Gradle wrapper: %w", err)
+		if err := ensureGradleWrapper(buildDir); err != nil {
+			return fmt.Errorf("preparing the Gradle wrapper: %w", err)
 		}
 	}
 
@@ -1086,7 +1087,20 @@ func copyDir(src, dst string) error {
 	return nil
 }
 
-func downloadGradleWrapper(dir string) error {
+// ensureGradleWrapper writes the wrapper scripts and the VENDORED wrapper JAR.
+//
+// This used to download the JAR with http.Get. Two problems with that, both real:
+// the default http.Client has NO timeout, so a hung connection hung the build
+// indefinitely with no output; and there was no integrity check of any kind on a JAR
+// that is then executed via `java -classpath`. Anyone able to interpose on that request
+// could run code on a developer's machine and in their CI.
+//
+// The JAR is now committed under cli/cmd/gradlewrapper (see the README there for
+// provenance and how to update it) and written from the embed, so the build touches the
+// network for this at all. A pinned checksum was the alternative, but that means owning a
+// checksum treadmill for every Gradle bump; vendoring matches what this repo already does
+// for Go dependencies.
+func ensureGradleWrapper(dir string) error {
 	jarDir := filepath.Join(dir, "gradle", "wrapper")
 	if err := os.MkdirAll(jarDir, 0755); err != nil {
 		return fmt.Errorf("creating wrapper dir: %w", err)
@@ -1103,43 +1117,50 @@ set DIRNAME=%~dp0
 if "%DIRNAME%" == "" set DIRNAME=.
 "%JAVA_HOME%/bin/java" -Dorg.gradle.appname=gradlew -classpath "%DIRNAME%/gradle/wrapper/gradle-wrapper.jar" org.gradle.wrapper.GradleWrapperMain %*
 `
-	os.WriteFile(batScript, []byte(batContent), 0755)
+	if err := os.WriteFile(batScript, []byte(batContent), 0755); err != nil {
+		return fmt.Errorf("writing gradlew.bat: %w", err)
+	}
 
 	shScript := filepath.Join(dir, "gradlew")
 	shContent := `#!/bin/sh
 DIRNAME="$(dirname "$0")"
 java -Dorg.gradle.appname=gradlew -classpath "$DIRNAME/gradle/wrapper/gradle-wrapper.jar" org.gradle.wrapper.GradleWrapperMain "$@"
 `
-	os.WriteFile(shScript, []byte(shContent), 0755)
-
-	// Must match the distribution the template's gradle-wrapper.properties asks for
-	// (gradleWrapperVersion). These had drifted — the jar came from v8.10.2 while the
-	// properties file requested the 9.4.1 distribution — which is the kind of mismatch
-	// that works until it doesn't, then fails inside Gradle's own bootstrap where the
-	// cause is invisible.
-	jarURL := gradleWrapperJarURL()
-	fmt.Println("  Downloading Gradle wrapper JAR...")
-	resp, err := http.Get(jarURL)
-	if err != nil {
-		return fmt.Errorf("downloading wrapper JAR: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("HTTP %d downloading wrapper JAR", resp.StatusCode)
+	if err := os.WriteFile(shScript, []byte(shContent), 0755); err != nil {
+		return fmt.Errorf("writing gradlew: %w", err)
 	}
 
-	out, err := os.Create(jarPath)
-	if err != nil {
-		return fmt.Errorf("creating wrapper JAR: %w", err)
+	// Sanity-check the embedded JAR before handing it to java. Cheap, and it turns a
+	// corrupted or truncated embed into a clear error here rather than an obscure
+	// failure inside Gradle's bootstrap.
+	if err := checkWrapperJar(gradleWrapperJAR); err != nil {
+		return fmt.Errorf("vendored gradle-wrapper.jar is unusable: %w", err)
 	}
-	defer out.Close()
-
-	if _, err := io.Copy(out, resp.Body); err != nil {
-		return fmt.Errorf("writing wrapper JAR: %w", err)
+	if err := os.WriteFile(jarPath, gradleWrapperJAR, 0644); err != nil {
+		return fmt.Errorf("writing gradle-wrapper.jar: %w", err)
 	}
-
 	return nil
+}
+
+// checkWrapperJar verifies the bytes are a JAR containing the wrapper entry point.
+//
+// Structural, not a checksum: the point is to catch a broken or empty embed, not to
+// authenticate the file — provenance is handled by it being committed and reviewed.
+func checkWrapperJar(data []byte) error {
+	if len(data) == 0 {
+		return fmt.Errorf("empty")
+	}
+	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return fmt.Errorf("not a valid JAR/zip: %w", err)
+	}
+	const entry = "org/gradle/wrapper/GradleWrapperMain.class"
+	for _, f := range zr.File {
+		if f.Name == entry {
+			return nil
+		}
+	}
+	return fmt.Errorf("missing %s (%d entries) — not a Gradle wrapper JAR", entry, len(zr.File))
 }
 
 // checkGoleoJSON is the single validation gate for goleo.json. It used to only
@@ -1256,17 +1277,11 @@ func androidBindTarget() (string, error) {
 }
 
 // gradleWrapperVersion is the Gradle version the Android template targets. It is the
-// single source of truth for BOTH the wrapper jar downloaded by downloadGradleWrapper
+// single source of truth for BOTH the vendored wrapper jar (cli/cmd/gradlewrapper)
 // and the distributionUrl in templates/android/gradle/wrapper/gradle-wrapper.properties;
 // a test asserts they agree, because they had silently drifted (jar 8.10.2 against a
 // 9.4.1 distribution).
 const gradleWrapperVersion = "9.4.1"
-
-// gradleWrapperJarURL is the wrapper jar matching gradleWrapperVersion. A function so a
-// test can assert it tracks the constant rather than re-hardcoding a version.
-func gradleWrapperJarURL() string {
-	return "https://github.com/gradle/gradle/raw/v" + gradleWrapperVersion + "/gradle/wrapper/gradle-wrapper.jar"
-}
 
 // validateAndroidRelease checks the release/signing flags before any expensive work.
 //
@@ -1333,3 +1348,10 @@ var errAndroidKeystoreMissing = fmt.Errorf(
 		"      -validity 10000 -alias upload\n" +
 		"  Keep it and its passwords safe: losing the upload key means you cannot ship an\n" +
 		"  update to an existing Play listing. Or pass --no-sign to build unsigned.")
+
+// gradleWrapperJAR is the vendored Gradle wrapper, written into a generated Android
+// project by ensureGradleWrapper. Committed rather than downloaded — see
+// cli/cmd/gradlewrapper/README.md for why, its provenance, and how to update it.
+//
+//go:embed gradlewrapper/gradle-wrapper.jar
+var gradleWrapperJAR []byte

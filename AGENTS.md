@@ -368,6 +368,15 @@ tree, so it needs no separate vendoring or pinning and CI doesn't check it.
 The `spikes/` directories are separate throwaway proof modules and are intentionally
 not vendored.
 
+**The Gradle wrapper JAR is vendored too** (`cli/cmd/gradlewrapper/gradle-wrapper.jar`,
+embedded and written into a generated Android project by `ensureGradleWrapper`). It used to
+be fetched with `http.Get` at build time: no timeout, so a hung connection hung the build
+indefinitely, and no integrity check on a JAR that is then executed via `java -classpath`.
+Same reasoning as the Go deps — and it keeps the Android build path off the network. Its
+version must match `gradleWrapperVersion` and the template's `distributionUrl`; a test
+asserts that, and `checkWrapperJar` verifies the embed really is a wrapper JAR. See
+`cli/cmd/gradlewrapper/README.md` to update it.
+
 ### npm Dependencies (bridge)
 - typescript - Build tool
 
