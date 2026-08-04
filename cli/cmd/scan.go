@@ -46,8 +46,8 @@ var featureRegistry = []Feature{
 		},
 	},
 	{
-		Name:        "Battery",
-		BuildTag:    "goleo_battery",
+		Name:     "Battery",
+		BuildTag: "goleo_battery",
 		// BATTERY_STATS is signature|privileged (for reading OTHER apps'
 		// stats) and can't be held by a normal app. Reading this app's own
 		// battery level/charging state via BatteryManager needs no

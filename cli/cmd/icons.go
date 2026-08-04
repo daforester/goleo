@@ -195,10 +195,10 @@ func pngToICOMulti(pngPath string) (string, func(), error) {
 
 	buf := &bytes.Buffer{}
 	le := binary.LittleEndian
-	_ = binary.Write(buf, le, uint16(0))              // reserved
-	_ = binary.Write(buf, le, uint16(1))              // type: icon
-	_ = binary.Write(buf, le, uint16(len(entries)))   // count
-	offset := 6 + 16*len(entries)                     // dir + entries
+	_ = binary.Write(buf, le, uint16(0))            // reserved
+	_ = binary.Write(buf, le, uint16(1))            // type: icon
+	_ = binary.Write(buf, le, uint16(len(entries))) // count
+	offset := 6 + 16*len(entries)                   // dir + entries
 	dimByte := func(n int) byte {
 		if n >= 256 {
 			return 0 // 0 encodes 256 in an ICONDIRENTRY
@@ -206,14 +206,14 @@ func pngToICOMulti(pngPath string) (string, func(), error) {
 		return byte(n)
 	}
 	for _, e := range entries {
-		buf.WriteByte(dimByte(e.size)) // width
-		buf.WriteByte(dimByte(e.size)) // height
-		buf.WriteByte(0)               // palette count
-		buf.WriteByte(0)               // reserved
-		_ = binary.Write(buf, le, uint16(1))             // color planes
-		_ = binary.Write(buf, le, uint16(32))            // bpp
-		_ = binary.Write(buf, le, uint32(len(e.data)))   // data size
-		_ = binary.Write(buf, le, uint32(offset))        // data offset
+		buf.WriteByte(dimByte(e.size))                 // width
+		buf.WriteByte(dimByte(e.size))                 // height
+		buf.WriteByte(0)                               // palette count
+		buf.WriteByte(0)                               // reserved
+		_ = binary.Write(buf, le, uint16(1))           // color planes
+		_ = binary.Write(buf, le, uint16(32))          // bpp
+		_ = binary.Write(buf, le, uint32(len(e.data))) // data size
+		_ = binary.Write(buf, le, uint32(offset))      // data offset
 		offset += len(e.data)
 	}
 	for _, e := range entries {

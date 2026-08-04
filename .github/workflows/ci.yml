@@ -83,8 +83,30 @@ jobs:
       # clipboard's round-trip skips without xclip; the dialogs tests are
       # //go:build windows), verified in a clean golang container with no xclip or
       # zenity installed.
+      # gofmt is checked here and not on a developer's machine because Windows
+      # checkouts have CRLF line endings, which makes `gofmt -l` flag every file
+      # locally and tells you nothing. The CI checkout is LF, so this is the only
+      # place the check is meaningful.
+      - name: Formatting
+        run: |
+          unformatted=$(gofmt -l runtime cli)
+          if [ -n "$unformatted" ]; then
+            echo "::error::gofmt needed on:"; echo "$unformatted"; exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./runtime/... ./cli/...
+
       - name: Unit tests
         run: go test ./...
+
+      # Separate -race pass. The runtime carries a fair amount of concurrent state
+      # — the per-server WebSocket hub, the filesystem scope, the store's writers —
+      # and none of it was ever exercised under the detector by CI. It roughly
+      # doubles this job's runtime, which is worth it for the class of bug that
+      # otherwise only shows up intermittently in the field.
+      - name: Race detector
+        run: go test -race ./runtime/... ./cli/...
 
       # The TypeScript bridge had no test runner at all until now — only `tsc`,
       # which cannot tell you that a catch block returns the wrong value. That is

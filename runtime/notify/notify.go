@@ -24,8 +24,8 @@ type Notifier interface {
 }
 
 var (
-	mu          sync.RWMutex
-	notifier    Notifier
+	mu       sync.RWMutex
+	notifier Notifier
 )
 
 func SetNotifier(n Notifier) {
