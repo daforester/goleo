@@ -736,3 +736,48 @@ on a now-unused symbol meant the mutation never got built (silenced by `>/dev/nu
 because WebView2 serves the assets over the `https://goleo.localhost` vhost while WKWebView/WebKitGTK
 serve the literal `goleo://`, so the page reaches its modules by different routes. Verified locally on
 real WebView2; the mac/Linux arms are **pending their first hardware run**.
+
+---
+
+## Cross-cutting — the dev path hides the user path (2026-08-04)
+
+Three user-visible bugs shipped for one structural reason, so it is worth stating
+plainly: **`goleo new` behaves differently when you are developing goleo than when
+a user runs it, and only the development path was ever exercised.**
+
+`GOLEO_ROOT` swaps the goleo module for the local checkout via a `replace`, and
+`linkBridge()` npm-links a local `@goleo/bridge` over the frontend's dependency. So
+neither of the two things a real user *resolves* — the Go module version from the
+proxy, the npm range from the registry — is resolved at all in a dev scaffold. The
+only CI job that scaffolds (`mobile-verify.yml`) sets `GOLEO_ROOT` **and**
+`--no-install`, so npm never ran either.
+
+What that hid:
+
+1. **`go: inconsistent vendoring` in a fresh install (v0.8.1–v0.8.8).** Three layers
+   deep into stale `optionalDependencies`. Found by a user, in production.
+2. **`frontend/package.json` pinned `"@goleo/bridge": "^0.2.1"`.** A caret on a `0.x`
+   version locks the minor, so it resolved to 0.2.9 against a v0.8.x runtime —
+   binary file I/O broken, confinement errors misattributed. The Go require beside
+   it had been fixed long before; the npm pin one line away was missed.
+3. **`goleo build` on Windows wrote `app` with no `.exe`.** The `current` target took
+   the host's `GOOS` but hardcoded `OutputExt: ""`. Windows cannot execute it. The
+   default command, on the most common desktop, producing an unrunnable artifact.
+
+Each was invisible to a green CI. Note also that the existing `TestBinaryOutputName`
+constructed **synthetic** `buildTarget` values, so it passed while the real `targets`
+map was wrong — testing the helper, not the table.
+
+**Structural fix: `.github/workflows/release-smoke.yml`.** It installs the published
+`@goleo/cli` from npm on windows/ubuntu/macos-14, scaffolds **without `GOLEO_ROOT`**,
+runs a real `npm install`, builds, and asserts the artifact's name and executability
+per-OS plus that both pins match the release. It has no `actions/checkout` at all —
+anything read from the repo could mask the packaging bug it exists to catch. It runs
+*after* publishing, because the published artifacts are the subject.
+
+Its ESM-loadability step **fails against 0.8.8 and earlier by design** (they shipped
+extensionless relative imports); verified locally against published 0.8.8.
+
+Local reproduction of the whole user path, for future reference: build the CLI with
+`-ldflags "-X …/cli/cmd.Version=<published>"`, then run `goleo new` with
+`env -u GOLEO_ROOT`, `npm install`, and `goleo build`. That sequence found bug 3.

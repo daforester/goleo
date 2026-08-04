@@ -199,7 +199,7 @@ The server auto-selects a port if the configured one is in use and sets CORS hea
 
 | Target | GOOS | GOARCH | Output | Dependency |
 |--------|------|--------|--------|------------|
-| current | auto | auto | binary | none |
+| current | auto | auto | `app.exe` on Windows, `app` elsewhere | none |
 | windows | windows | amd64 | .exe | none |
 | linux | linux | amd64 | binary | none |
 | darwin | darwin | amd64 | binary | none |

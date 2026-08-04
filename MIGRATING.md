@@ -296,3 +296,22 @@ cd frontend && npm install @goleo/bridge@<your goleo version>
 Use the version `goleo version` reports, so the bridge and runtime stay in
 lockstep. New projects now get this automatically: the pin is injected from the
 CLI's own version, exactly like the `go.mod` require.
+
+---
+
+## Unreleased — `goleo build` on Windows now produces `app.exe`
+
+**Affects:** Windows only, and only scripts that referred to the built file by name.
+
+`goleo build` (the default `current` target) wrote a binary with **no extension** —
+`app`, not `app.exe`. Windows will not execute that: double-clicking does nothing
+and `Start-Process .\app` fails with "the system cannot find all the information
+required". Only the explicit cross-target `goleo build windows` was correct, because
+the `current` entry in the target table took the host's `GOOS` while hardcoding an
+empty extension.
+
+**What to do.** Nothing, unless a script, installer input, or CI step referenced
+`app` literally on Windows — those need `app.exe`. `-o` is unaffected: an explicit
+`-o myapp` becomes `myapp.exe`, and `-o myapp.exe` is left alone (no doubling).
+
+If you had worked around this by renaming the output yourself, drop the rename.

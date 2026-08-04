@@ -72,7 +72,13 @@ type buildTarget struct {
 }
 
 var targets = map[string]buildTarget{
-	"current": {GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, OutputExt: "", Label: "current"},
+	// "current" takes the HOST's GOOS, so its extension has to be derived rather
+	// than fixed. It was hardcoded to "" — meaning `goleo build` on Windows, the
+	// default command and the first thing a Windows user runs, produced a binary
+	// named `app` with no `.exe`. Windows will not execute that: double-clicking
+	// does nothing and Start-Process fails outright. Only the explicit
+	// `goleo build windows` cross-target got it right.
+	"current": {GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, OutputExt: hostOutputExt(), Label: "current"},
 	"windows": {GOOS: "windows", GOARCH: "amd64", OutputExt: ".exe", Label: "Windows"},
 	"linux":   {GOOS: "linux", GOARCH: "amd64", OutputExt: "", Label: "Linux"},
 	"darwin":  {GOOS: "darwin", GOARCH: "amd64", OutputExt: "", Label: "macOS"},
@@ -222,6 +228,24 @@ func resolveBuildCommand(projectDir, frontendDir string, extraEnv []string) (*ex
 	cmd.Dir = frontendDir
 	cmd.Env = append(os.Environ(), extraEnv...)
 	return cmd, false
+}
+
+// hostOutputExt is the executable extension for the host OS — the extension the
+// "current" target must use, since it builds for whatever this machine is.
+//
+// Kept as a function rather than inlining `runtime.GOOS == "windows"` at the one
+// call site so desktopOutputExt below can share it: every place that turns a GOOS
+// into a file extension needs to agree, and they previously did not.
+func hostOutputExt() string {
+	return desktopOutputExt(runtime.GOOS)
+}
+
+// desktopOutputExt maps a GOOS to its executable extension.
+func desktopOutputExt(goos string) string {
+	if goos == "windows" {
+		return ".exe"
+	}
+	return ""
 }
 
 // binaryOutputName is the built binary's file name: the -o value (default "app")

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -101,4 +102,54 @@ func indexOf(s, sub string) int {
 		}
 	}
 	return -1
+}
+
+// The test above builds synthetic buildTargets, which is why it never caught the
+// real bug: the `targets` MAP had "current" hardcoded to OutputExt: "" while taking
+// the host's GOOS. So `goleo build` on Windows — the default command — wrote a
+// binary named `app` with no `.exe`, which Windows refuses to execute (double-click
+// does nothing, Start-Process errors). Only the explicit `goleo build windows`
+// cross-target was right. Assert the actual table, not a stand-in.
+func TestTargetsTableExtensionsMatchTheirGOOS(t *testing.T) {
+	for name, target := range targets {
+		switch name {
+		case "android", "ios", "pwa":
+			continue // not plain executables; their own extensions are asserted elsewhere
+		}
+		want := desktopOutputExt(target.GOOS)
+		if target.OutputExt != want {
+			t.Errorf("targets[%q] has GOOS=%q but OutputExt=%q; want %q — "+
+				"a Windows build without .exe is not executable",
+				name, target.GOOS, target.OutputExt, want)
+		}
+	}
+
+	// Pin the two that matter most, so a refactor of desktopOutputExt cannot make
+	// the loop above vacuously true.
+	if got := targets["windows"].OutputExt; got != ".exe" {
+		t.Errorf(`targets["windows"].OutputExt = %q, want ".exe"`, got)
+	}
+	if runtime.GOOS == "windows" {
+		if got := targets["current"].OutputExt; got != ".exe" {
+			t.Errorf(`on Windows, targets["current"].OutputExt = %q, want ".exe"`, got)
+		}
+	} else if got := targets["current"].OutputExt; got != "" {
+		t.Errorf(`on %s, targets["current"].OutputExt = %q, want ""`, runtime.GOOS, got)
+	}
+}
+
+// The whole point is the file name a user ends up with, so check that too — the
+// layer the bug actually surfaced at.
+func TestCurrentTargetProducesARunnableNameOnWindows(t *testing.T) {
+	buildOutput = ""
+	t.Cleanup(func() { buildOutput = "" })
+
+	got := binaryOutputName(targets["current"])
+	if runtime.GOOS == "windows" {
+		if got != "app.exe" {
+			t.Errorf("`goleo build` on Windows names the binary %q; Windows cannot run that", got)
+		}
+	} else if got != "app" {
+		t.Errorf("`goleo build` on %s names the binary %q, want \"app\"", runtime.GOOS, got)
+	}
 }
