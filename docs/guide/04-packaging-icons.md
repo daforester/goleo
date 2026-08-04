@@ -126,3 +126,51 @@ See `cli/cmd/signing.go` for the exact env variables your CI should provide.
 ---
 
 Next: [Deploying & updating →](05-deploy.md)
+
+## Microsoft Store (MSIX)
+
+`--bundle` produces an NSIS `.exe` by default. `--windows-format` selects an MSIX for the
+Store instead, or both from one build:
+
+```bash
+goleo build --bundle --windows-format msix    # .msix for the Store
+goleo build --bundle --windows-format both    # .msix AND the NSIS installer
+```
+
+An MSIX needs identity that must match Partner Center **exactly**, so goleo will not
+invent it:
+
+```jsonc
+"windows": {
+  "msix": {
+    // Partner Center -> Product identity -> Package Name.
+    "identity_name": "12345Contoso.MyApp",
+    // The SUBJECT OF YOUR SIGNING CERTIFICATE, not a company name. Partner Center
+    // shows the exact string. If it differs from the certificate by even a character
+    // the package installs nowhere, and the error does not say which side is wrong.
+    "publisher": "CN=Contoso Ltd, O=Contoso Ltd, L=London, C=GB",
+    // Optional; shown in the listing. Defaults to bundle.publisher, then the
+    // certificate's CN.
+    "publisher_display_name": "Contoso"
+  }
+}
+```
+
+Things worth knowing before you submit:
+
+- **`bundle.icon` is required.** Every logo in the package is generated from it, and the
+  manifest references them, so the build fails without one rather than producing a
+  package with blank tiles.
+- **The version's fourth part is always `0`.** The Store reserves the revision field and
+  rejects a non-zero one, so `1.2.3` becomes `1.2.3.0`. A prerelease suffix is dropped —
+  MSIX versions are numeric only.
+- **An unsigned MSIX cannot be installed at all.** Windows refuses it outright, unlike an
+  unsigned `.exe` which merely warns. Signing uses the same `GOLEO_WIN_CERT` /
+  `GOLEO_WIN_CERT_PASSWORD` variables as the NSIS path.
+- **`makeappx.exe` comes from the Windows SDK** and is not on PATH; goleo finds it under
+  `Windows Kits`. Install it with `winget install Microsoft.WindowsSDK` if it is missing.
+- The package declares `runFullTrust`, which is a *restricted* capability: Partner Center
+  asks for a short justification at submission. It is unavoidable for a packaged Win32
+  app, and it is what lets the Go backend and its loopback bridge work — unlike the Mac
+  App Store sandbox, which is why that target is not supported.
+

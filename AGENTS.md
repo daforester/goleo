@@ -751,7 +751,17 @@ Two pre-existing defects surfaced by driving `Quit()` end-to-end:
 ### Distribution (CLI, `cli/cmd/`)
 - `bundle.go` — `goleo build --bundle`: NSIS (Windows, auto-installs `makensis` via winget/choco/
   scoop), `.app`+`.dmg` (macOS), `.deb`/`.rpm` (nfpm, Linux — with a generated hicolor icon +
-  `.desktop` entry). `signing.go` — env-driven Authenticode / codesign+notarytool.
+  `.desktop` entry). The Windows installer registers with Add/Remove Programs so the app is
+  uninstallable from Settings. `signing.go` — env-driven Authenticode / codesign+notarytool.
+- `msix.go` — `--windows-format msix|both` packages for the **Microsoft Store**: an
+  `AppxManifest.xml` declaring `Windows.FullTrustApplication` + the restricted `runFullTrust`
+  capability (which is what keeps the loopback bridge working — a full-trust package is not
+  sandboxed), logo assets generated from the one `bundle.icon`, `makeappx pack` located under
+  `Windows Kits`, then the existing signtool path. Identity comes from `windows.msix` in
+  goleo.json and is validated rather than guessed: a wrong Name or Publisher builds and signs
+  happily, then fails at install or submission with nothing pointing at the cause. Verified
+  end to end on Windows — a real `.msix` whose manifest parses, with correct XML escaping and
+  full-trust declarations.
 - **Icons (`icons.go`, pure Go — no ImageMagick/iconutil):** one `bundle.icon` PNG (≈1024²) is
   area-averaged/re-encoded into every artifact — multi-size Windows `.ico` (embedded via
   `winres.go`/goversioninfo), macOS `.icns`, Linux hicolor PNG, Android `mipmap-*/ic_launcher(+

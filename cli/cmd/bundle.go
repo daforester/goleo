@@ -80,7 +80,7 @@ func runBundle(target buildTarget, binaryPath string, cfg bundleConfig) error {
 	sc := loadSignConfig()
 	switch target.GOOS {
 	case "windows":
-		return bundleWindows(binaryPath, cfg, outDir, sc)
+		return bundleWindowsFormats(binaryPath, cfg, outDir, target.GOARCH, sc)
 	case "darwin":
 		return bundleDarwin(binaryPath, cfg, outDir, sc)
 	case "linux":
@@ -496,4 +496,56 @@ func nfpmArch(goarch string) string {
 	default:
 		return goarch
 	}
+}
+
+// windowsBundleFormat selects which Windows package(s) --bundle produces.
+type windowsBundleFormat string
+
+const (
+	windowsFormatNSIS windowsBundleFormat = "nsis"
+	windowsFormatMSIX windowsBundleFormat = "msix"
+	windowsFormatBoth windowsBundleFormat = "both"
+)
+
+// resolveWindowsFormat picks the Windows packaging format.
+//
+// Defaults to NSIS because that is what --bundle has always produced, and because an MSIX
+// needs Partner Center identity in goleo.json to be meaningful — defaulting to it would
+// turn every existing project's `--bundle` into a config error.
+func resolveWindowsFormat(flag string) (windowsBundleFormat, error) {
+	switch strings.ToLower(strings.TrimSpace(flag)) {
+	case "", "nsis":
+		return windowsFormatNSIS, nil
+	case "msix":
+		return windowsFormatMSIX, nil
+	case "both":
+		return windowsFormatBoth, nil
+	default:
+		return "", fmt.Errorf("unsupported --windows-format %q (want nsis, msix or both)", flag)
+	}
+}
+
+// bundleWindowsFormats runs whichever Windows packagers the format selects.
+//
+// "both" is genuinely useful — an MSIX for the Store and an NSIS .exe for direct download,
+// from one build. They are independent artifacts, so a failure in one is returned rather
+// than silently skipping the other.
+func bundleWindowsFormats(binaryPath string, cfg bundleConfig, outDir, goarch string, sc signConfig) error {
+	format, err := resolveWindowsFormat(buildWindowsFormat)
+	if err != nil {
+		return err
+	}
+	raw := loadGoleoJSON(".").Windows.MSIX
+
+	if format == windowsFormatNSIS || format == windowsFormatBoth {
+		if err := bundleWindows(binaryPath, cfg, outDir, sc); err != nil {
+			return err
+		}
+	}
+	if format == windowsFormatMSIX || format == windowsFormatBoth {
+		if err := bundleMSIX(binaryPath, cfg, raw, outDir, goarch, sc); err != nil {
+			return err
+		}
+	}
+	return nil
 }

@@ -54,6 +54,7 @@ var (
 	buildRelease       bool
 	buildAndroidFormat string
 	buildVersionCode   int
+	buildWindowsFormat string
 )
 
 func init() {
@@ -70,6 +71,7 @@ func init() {
 	buildCmd.Flags().BoolVar(&buildRelease, "release", false, "Build a signed release artifact (Android: an .aab for Play; see --android-format)")
 	buildCmd.Flags().StringVar(&buildAndroidFormat, "android-format", "", "Android artifact: aab or apk (default: aab with --release, apk otherwise)")
 	buildCmd.Flags().IntVar(&buildVersionCode, "version-code", 0, "Override the Android versionCode (default: mobile.android.version_code, else derived from version)")
+	buildCmd.Flags().StringVar(&buildWindowsFormat, "windows-format", "", "With --bundle on Windows: nsis, msix, or both (default: nsis)")
 }
 
 // androidArtifactFormat is the Android output kind.
@@ -213,6 +215,16 @@ func runBuild(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("%s does not apply to the %s target — %s", flag, targetName, hint)
 		}
 	}
+	// --windows-format is meaningless unless a Windows installer is actually being built.
+	if buildWindowsFormat != "" {
+		if !buildBundle {
+			return fmt.Errorf("--windows-format only applies with --bundle")
+		}
+		if target.GOOS != "windows" {
+			return fmt.Errorf("--windows-format only applies to a Windows target (this is %s)", target.GOOS)
+		}
+	}
+
 	// The Android-only flags should not look effective on a desktop build either.
 	if targetName != "android" {
 		if buildAndroidFormat != "" {
