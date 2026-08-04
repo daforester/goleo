@@ -35,7 +35,7 @@ Build an installable APK and push it to the connected device:
 npm run goleo:sideload-android   # builds app.apk, then adb install + launch
 ```
 
-Under the hood: `goleo build android` (produces `app.apk`) then `goleo install
+Under the hood: `goleo build android` (produces an unsigned debug `app.apk`) then `goleo install
 android` (finds the connected device, `adb install -r`, launches the activity).
 Run the install step alone if you already have an APK:
 
@@ -84,10 +84,26 @@ Set the package name / bundle id and launcher icon per
 
 ```jsonc
 "mobile": {
-  "android": { "min_sdk": 24, "package_name": "com.example.myapp" },
-  "ios":     { "deployment_target": "14.0", "bundle_identifier": "com.example.myapp" }
+  "android": {
+    "package_name": "com.example.myapp",
+    "min_sdk": 24,
+    "target_sdk": 36,
+    // Play rejects an upload whose versionCode has not increased. Omit it and one is
+    // derived from the top-level "version" (1.2.3 -> 10203); GOLEO_ANDROID_VERSION_CODE
+    // overrides both, so CI can stamp a build number without editing this file.
+    "version_code": 10203,
+    // Permissions are derived from the features your app enables. Anything detection
+    // cannot see — a capability used only through a frontend browser API — goes here.
+    "extra_permissions": ["RECORD_AUDIO"]
+  },
+  "ios": { "deployment_target": "14.0", "bundle_identifier": "com.example.myapp" }
 }
 ```
+
+`goleo build android` prints the permissions it derived and the feature that asked for
+each, so a missing one is visible while you build rather than after a user installs — on
+Android an undeclared permission fails silently, with the runtime request returning
+"denied" and no prompt.
 
 ## Tips
 

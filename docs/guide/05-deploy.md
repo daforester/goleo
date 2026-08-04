@@ -47,7 +47,9 @@ host the built artifact + `manifest.json` at that URL.
 
 ## Mobile
 
-- **Android**: `goleo build android` produces an installable `app.apk`.
+- **Android**: `goleo build android` produces an unsigned debug `app.apk` for sideloading.
+  For Play, `goleo build android --release` produces a signed `app.aab` — see
+  [Building](03-building.md) for the keystore setup and `goleo generate android-key`.
   - Sideload it to a connected device: `npm run goleo:sideload-android` (builds
     then `adb install`s + launches), or `goleo install android`.
   - For the Play Store, sign a release APK/AAB with your keystore per Android's

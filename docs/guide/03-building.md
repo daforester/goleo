@@ -58,7 +58,25 @@ npm run goleo:build-ios        # -> .xcframework (macOS + Xcode)
 ```
 
 - **Android**: builds a gomobile AAR, generates an Android project, and compiles
-  an installable `app.apk` with Gradle. Needs the Android SDK + NDK.
+  an unsigned debug `app.apk` with Gradle. Needs the Android SDK + NDK.
+
+  For something you can actually ship, add `--release`:
+
+  ```bash
+  goleo generate android-key                    # creates release.jks, prints the env vars
+  goleo build android --release                 # signed app.aab for Play
+  goleo build android --release --android-format apk   # signed APK for outside a store
+  ```
+
+  `--release` **errors** without a keystore rather than quietly producing an unsigned
+  artifact, since neither Play nor a device will accept one. `--no-sign` is the explicit
+  way to build one anyway. `goleo generate android-key` uses the JDK goleo already
+  resolves for Gradle, so it works when `keytool` is not on your PATH — which it usually
+  is not, as it lives inside the JDK's `bin/`.
+
+  The generated manifest declares only the permissions your app enables, and the build
+  prints the list with the feature that asked for each one. If something is missing, add
+  it to `mobile.android.extra_permissions` in `goleo.json`.
 - **iOS**: builds an `.xcframework` to integrate into an Xcode app. macOS only.
 
 To run on a real device during development, or to sideload the APK, see

@@ -278,7 +278,7 @@ the loop. Mobile builds use `gomobile`; iOS requires macOS + Xcode.
 - **Dev:** Vite serves the UI with HMR and proxies to the Go backend.
 - **Production:** the frontend is embedded in the Go binary (`//go:embed`) and served from a
   hardened loopback server; the OS webview loads it.
-- **Mobile:** a `gomobile` `.aar`/`.xcframework` runs the same Go backend inside the platform's
+- **Mobile:** a `gomobile` `.aar`/`.xcframework` (an intermediate; Gradle turns the AAR into the `app.apk`/`app.aab` you ship) runs the same Go backend inside the platform's
   native WebView.
 
 Deeper docs: [`AGENTS.md`](AGENTS.md) (architecture), [`docs/roadmap.md`](docs/roadmap.md)

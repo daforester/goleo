@@ -87,7 +87,8 @@ Events flow from backend to frontend (push) via WebSocket, or from frontend to b
 3. Go binary serves embedded static files along with API on the same port
 4. A single self-contained executable is produced
 
-## Go Runtime Library (untime/)
+## Go Runtime Library (
+untime/)
 
 The runtime package is imported by user applications.
 
@@ -184,7 +185,8 @@ The server auto-selects a port if the configured one is in use and sets CORS hea
 | goleo build windows | Cross-compile for Windows amd64 |
 | goleo build linux | Cross-compile for Linux amd64 |
 | goleo build darwin | Cross-compile for macOS amd64 |
-| goleo build android | Build an installable Android .apk (gomobile AAR + Gradle) |
+| goleo build android | Build an unsigned debug .apk (gomobile AAR + Gradle) |
+| goleo build android --release | Build a **signed .aab** for Play (`--android-format apk` for a signed APK) |
 | goleo build ios | Build iOS .xcframework via gomobile |
 | goleo build pwa | Build Progressive Web App (no Go backend) |
 | goleo build --bundle | Also package the desktop app into a native installer (dist/bundle/) |
@@ -193,6 +195,7 @@ The server auto-selects a port if the configured one is in use and sets CORS hea
 | goleo install android | Sideload the built app.apk onto a connected device + launch it |
 | goleo generate types | Generate frontend/src/goleo.d.ts (typed invoke() overloads) |
 | goleo generate updater-key | Generate an ed25519 keypair for signing update manifests |
+| goleo generate android-key | Generate an Android signing keystore (uses the JDK goleo resolves, so keytool need not be on PATH) |
 | goleo version | Print version |
 
 ### Build Targets
@@ -203,7 +206,7 @@ The server auto-selects a port if the configured one is in use and sets CORS hea
 | windows | windows | amd64 | .exe | none |
 | linux | linux | amd64 | binary | none |
 | darwin | darwin | amd64 | binary | none |
-| android | android | arm64 | .aar | gomobile + NDK |
+| android | android | arm64 | `app.apk` (debug) or `app.aab` (`--release`) | gomobile + NDK |
 | ios | ios | arm64 | .xcframework | gomobile + Xcode |
 | pwa | js | wasm | dist-pwa/ | none |
 
@@ -290,7 +293,7 @@ my-app/
     "goleo:build-windows": "goleo build windows",
     "goleo:build-linux": "goleo build linux",
     "goleo:build-darwin": "goleo build darwin",
-    "goleo:build-android": "goleo build android",              // installable app.apk
+    "goleo:build-android": "goleo build android",              // unsigned debug app.apk
     "goleo:build-ios": "goleo build ios",
     "goleo:build-pwa": "goleo build pwa",
 
@@ -375,7 +378,7 @@ not vendored.
 
 3. **Vite for frontend tooling**: Fast HMR in development, optimized builds for production. The Vite proxy config forwards API and WebSocket calls to the Go backend during dev.
 
-4. **gomobile for mobile targets**: Uses golang.org/x/mobile (gomobile) to build Android .aar and iOS .xcframework artifacts from the Go backend code.
+4. **gomobile for mobile targets**: Uses golang.org/x/mobile (gomobile) to build an Android `.aar` and an iOS `.xcframework` from the Go backend, which are then consumed by the native shells — Gradle turns the AAR into the `app.apk`/`app.aab` you ship, so the AAR is an intermediate and is deleted.
 
 5. **Framework-agnostic frontend**: The default template uses Vue, but any web framework works. The bridge library communicates via WebSocket/HTTP, so it can be used with React, Svelte, Angular, or vanilla JS.
 
@@ -392,7 +395,7 @@ not vendored.
 | PWA dev mode | yes | yes | yes | yes | yes | yes |
 | Gomobile | n/a | n/a | yes | yes | yes | n/a |
 
-*Cross-compilation for mobile is only supported on macOS due to Apple requirements and gomobile limitations. Android .aar can be built on any platform with the NDK, but ios requires macOS.
+*Cross-compilation for mobile is only supported on macOS due to Apple requirements and gomobile limitations. Android can be built on any platform with the NDK, but ios requires macOS.
 
 ## WebView / Native Window
 

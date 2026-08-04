@@ -368,3 +368,70 @@ line break instead of two.
 **What to do.** Nothing. If you had worked around the Windows prompt by pre-formatting
 messages without newlines, you can stop.
 
+---
+
+## Unreleased — Android permissions are derived from the features you enable
+
+**Affects:** every Android build. Check the permission list `goleo build android` now prints
+before you ship.
+
+The generated `AndroidManifest.xml` used to declare thirteen permissions for **every** app —
+`CAMERA`, `RECORD_AUDIO`, both location grants, `VIBRATE`, `NFC` and four `BLUETOOTH_*` —
+because the bundled demo needed them. Play flags unjustified permissions, and a user
+installing a note-taking app should not be told it wants their camera and location.
+
+They are now derived from the features your app enables, plus an unconditional core set
+(`INTERNET`, `ACCESS_NETWORK_STATE`, `POST_NOTIFICATIONS`). A minimal app declares 3
+instead of 13+; the demo scaffold declares 14, each traceable to a feature it uses.
+
+**This can remove a permission you were relying on.** Detection looks for `Register*` calls
+in your Go source. If you use a capability purely through a frontend browser API — say
+`getUserMedia` in your Vue code without ever calling `runtime.RegisterCamera` — nothing in
+your Go source names it, so the permission is no longer declared. On Android a missing
+manifest permission fails **silently**: the runtime request returns "denied" without
+prompting.
+
+**What to do.** Run a build and read the printed list:
+
+```
+  Manifest permissions (3):
+    ACCESS_NETWORK_STATE     <- core
+    INTERNET                 <- core
+    POST_NOTIFICATIONS       <- core
+```
+
+Anything missing goes in `goleo.json`, which is trusted verbatim:
+
+```json
+{
+  "mobile": {
+    "android": {
+      "extra_permissions": ["RECORD_AUDIO", "android.permission.READ_CONTACTS"]
+    }
+  }
+}
+```
+
+Bare names and fully-qualified ones both work.
+
+**Also in this release**, for the same target:
+
+- `goleo build android --release` produces a **signed `.aab`** for Play. It is an error if no
+  keystore is configured — an unsigned release artifact cannot be uploaded or installed —
+  and `--no-sign` is the explicit way to build one anyway. `--android-format apk` gives a
+  signed APK for distribution outside a store. Without `--release` the output is an
+  unsigned debug `.apk`, exactly as before.
+- `goleo generate android-key` creates a keystore using the JDK goleo already resolves, so
+  it works when `keytool` is not on your PATH (it usually is not — it lives in the JDK's
+  `bin/`).
+- `versionCode` and `versionName` now come from `goleo.json` instead of being hardcoded `1`
+  and `"1.0"`. If you were relying on every build declaring version 1, Play will now see
+  the real version. `GOLEO_ANDROID_VERSION_CODE` overrides it for CI, then
+  `--version-code`, then `mobile.android.version_code`, then a value derived from your
+  semver (`1.2.3` becomes `10203`).
+- `mobile.android.min_sdk` and `target_sdk` are finally read. They were loaded from
+  `goleo.json` and then discarded, so the template's 24 and 36 always won.
+- `--bundle` and `--publish` are now **refused** on mobile and pwa targets instead of being
+  silently ignored. Neither had a meaning there: the APK/AAB is already the distributable,
+  and mobile apps update through the store rather than goleo's self-updater.
+
