@@ -157,6 +157,26 @@ jobs:
           fi
           echo "ANDROID_NDK_HOME=$ndk" >> "$GITHUB_ENV"
 
+      # This is the first CI job to run GRADLE (the job above stops at gomobile bind), so
+      # the SDK platform the template compiles against has to actually be present. The
+      # CLI cannot self-heal it here: ensureAndroidDeps skips its interactive sdkmanager
+      # install when CI is set. Without this the build fails with "Failed to find target
+      # with hash string 'android-N'", which reads like a goleo bug and is not one.
+      #
+      # The platform is read from the template rather than hardcoded, so bumping
+      # defaultAndroidTargetSDK does not silently leave CI installing the wrong one.
+      - name: Install the SDK platform the template targets
+        run: |
+          set -euo pipefail
+          sdk=$(grep -oE 'defaultAndroidTargetSDK[[:space:]]*=[[:space:]]*[0-9]+' cli/cmd/embed.go | grep -oE '[0-9]+$')
+          [ -n "$sdk" ] || { echo "::error::could not read defaultAndroidTargetSDK"; exit 1; }
+          echo "template targets android-$sdk"
+          mgr="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          [ -x "$mgr" ] || mgr=$(find "$ANDROID_HOME" -name sdkmanager -type f 2>/dev/null | head -1)
+          [ -n "$mgr" ] || { echo "::error::no sdkmanager on this runner"; exit 1; }
+          yes | "$mgr" --licenses >/dev/null 2>&1 || true
+          "$mgr" "platforms;android-$sdk" "build-tools;$sdk.0.0" ||             "$mgr" "platforms;android-$sdk"
+
       # Refusing to build unsigned is a deliberate behaviour, so check it BEFORE
       # providing a keystore — otherwise a regression that silently produced unsigned
       # release artifacts would pass this whole job.
