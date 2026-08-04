@@ -34,7 +34,9 @@ func runPublish(target buildTarget, binaryPath string, cfg bundleConfig) error {
 		return err
 	}
 
-	artifact := fmt.Sprintf("%s-%s-%s-%s%s", slug(cfg.AppName), cfg.Version, target.GOOS, target.GOARCH, target.OutputExt)
+	// One name for both the staged file and the manifest URL below — if they ever
+	// diverge the updater downloads a 404.
+	artifact := publishArtifactName(cfg, target)
 	dst := filepath.Join(outDir, artifact)
 	if err := copyFile(binaryPath, dst); err != nil {
 		return fmt.Errorf("publish: staging artifact: %w", err)
@@ -113,4 +115,18 @@ func sha256File(path string) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// publishArtifactName is the file name a released binary is staged and published
+// under, e.g. my-app-1.2.3-windows-amd64.exe.
+//
+// Extracted so the extension can actually be asserted. It was inline, and the
+// `current` target used to carry OutputExt: "" while taking the host's GOOS — so
+// on Windows this produced my-app-1.2.3-windows-amd64 with no extension: an update
+// artifact a user downloads and cannot run. That was the third consequence of one
+// wrong field, after the unrunnable build output and the installer shortcut
+// pointing at a non-executable.
+func publishArtifactName(cfg bundleConfig, target buildTarget) string {
+	return fmt.Sprintf("%s-%s-%s-%s%s",
+		slug(cfg.AppName), cfg.Version, target.GOOS, target.GOARCH, target.OutputExt)
 }

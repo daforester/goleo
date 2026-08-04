@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"crypto/ed25519"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/daforester/goleo/runtime/updater"
@@ -47,5 +49,28 @@ func TestMergeAndSign_VerifiesAndAccumulates(t *testing.T) {
 	m3, _ := updater.VerifyManifest(doc3, pub)
 	if m3.Releases["windows/amd64"].Version != "2.0.0" || len(m3.Releases) != 2 {
 		t.Fatalf("overwrite failed: %+v", m3)
+	}
+}
+
+// A published artifact must be runnable on the platform it targets. The `current`
+// target used to yield no extension on Windows, so `goleo build --publish` staged
+// an update binary users could download but not execute.
+func TestPublishArtifactNameCarriesTheExecutableExtension(t *testing.T) {
+	cfg := bundleConfig{AppName: "My App", Version: "1.2.3"}
+
+	if got := publishArtifactName(cfg, targets["windows"]); got != "my-app-1.2.3-windows-amd64.exe" {
+		t.Errorf("windows target artifact = %q, want my-app-1.2.3-windows-amd64.exe", got)
+	}
+	if got := publishArtifactName(cfg, targets["linux"]); got != "my-app-1.2.3-linux-amd64" {
+		t.Errorf("linux target artifact = %q, want my-app-1.2.3-linux-amd64", got)
+	}
+
+	// The one that was broken: `--publish` with no explicit target.
+	got := publishArtifactName(cfg, targets["current"])
+	if runtime.GOOS == "windows" && filepath.Ext(got) != ".exe" {
+		t.Errorf("publishing from Windows stages %q, which cannot be executed", got)
+	}
+	if runtime.GOOS != "windows" && filepath.Ext(got) == ".exe" {
+		t.Errorf("publishing from %s stages %q", runtime.GOOS, got)
 	}
 }
