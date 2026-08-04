@@ -1,5 +1,21 @@
 name: GoleoApp
 options:
+  # Pin the project FILE FORMAT. XcodeGen defaults to xcode16_0, which writes
+  # objectVersion 77, and any Xcode older than 16.0 refuses to open it at all:
+  #
+  #   The project 'GoleoApp' cannot be opened because it is in a future Xcode
+  #   project file format (77).            xcodebuild: exit status 74
+  #
+  # That couples the generated project to whatever XcodeGen `brew install` happens to
+  # give you rather than to the user's Xcode — and goleo tells people to open this
+  # project in Xcode for device builds, so it has to be readable by the Xcode they have.
+  # xcode14_0 is objectVersion 56 + compatibilityVersion "Xcode 14.0": newer Xcodes read
+  # old formats fine, so the oldest format that carries what goleo generates is also the
+  # most compatible. Nothing here needs a newer one — these are plain build settings.
+  #
+  # NOTE an unrecognised value silently falls back to xcode16_0/77, so an XcodeGen too
+  # old to know this key lands back on the failure above rather than erroring.
+  projectFormat: xcode14_0
   # The bundle id comes from mobile.ios.bundle_identifier, NOT the Android package_name.
   # It used to use PackageName for both, so setting bundle_identifier in goleo.json did
   # nothing and every iOS build reused the Android id — which makes the two apps

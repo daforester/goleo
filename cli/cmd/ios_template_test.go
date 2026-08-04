@@ -87,3 +87,51 @@ func TestLaunchScreenStoryboardExists(t *testing.T) {
 			"is not in the template: %v", err)
 	}
 }
+
+// The generated project's FILE FORMAT must be pinned, not inherited from whatever XcodeGen
+// the user happens to have. XcodeGen defaults to xcode16_0 = objectVersion 77, and an Xcode
+// older than 16.0 refuses to open that at all:
+//
+//	The project 'GoleoApp' cannot be opened because it is in a future Xcode project
+//	file format (77).                                  xcodebuild: exit status 74
+//
+// which is how the first run of the ios-simulator CI job failed. It matters beyond CI:
+// goleo tells users to open this project in Xcode for device builds, so it has to be
+// readable by the Xcode they have, and `brew install xcodegen` tracks the newest Xcode
+// rather than theirs.
+func TestGeneratedXcodeProjectFormatIsPinnedToTheMostCompatible(t *testing.T) {
+	raw, err := mobileTemplates.ReadFile("templates/ios/xcodegen.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := string(raw)
+
+	if !strings.Contains(spec, "projectFormat:") {
+		t.Fatal("xcodegen.yml does not set options.projectFormat, so the generated project " +
+			"takes XcodeGen's default (xcode16_0 / objectVersion 77) and will not open in " +
+			"any Xcode older than 16.0")
+	}
+	// xcode14_0 is objectVersion 56 — the oldest format that carries what goleo generates,
+	// and therefore the one the most Xcode versions can read. Newer Xcodes read old formats.
+	if !strings.Contains(spec, "projectFormat: xcode14_0") {
+		t.Errorf("projectFormat should be xcode14_0 (the most compatible); a newer value " +
+			"excludes older Xcodes for no benefit — goleo generates only plain build settings")
+	}
+	// An unrecognised value silently falls back to xcode16_0/77, so a typo here reintroduces
+	// the failure with no error of its own.
+	valid := map[string]bool{
+		"xcode14_0": true, "xcode15_0": true, "xcode15_3": true,
+		"xcode16_0": true, "xcode16_3": true,
+	}
+	for _, line := range strings.Split(spec, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "projectFormat:") {
+			continue
+		}
+		v := strings.TrimSpace(strings.TrimPrefix(line, "projectFormat:"))
+		if !valid[v] {
+			t.Errorf("projectFormat %q is not one of XcodeGen's formats; an unrecognised "+
+				"value falls back to xcode16_0 (objectVersion 77) silently", v)
+		}
+	}
+}

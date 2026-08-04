@@ -320,6 +320,21 @@ jobs:
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
           brew install xcodegen
 
+      # The runner's Xcode and whatever `brew install` gives us for xcodegen are BOTH
+      # moving targets, and their mismatch is what failed the first run of this job:
+      # xcodegen defaults to writing objectVersion 77 (Xcode 16.0's project format) and
+      # this Xcode refused to open it, reporting only "future Xcode project file format
+      # (77)" and exit 74. The template now pins options.projectFormat, but print both
+      # versions so the next mismatch is diagnosable from the log instead of guessed at.
+      - name: Record toolchain versions
+        run: |
+          xcodebuild -version
+          xcodegen --version
+          echo "--- Xcodes available on this image ---"
+          ls -d /Applications/Xcode*.app 2>/dev/null || true
+          echo "--- selected ---"
+          xcode-select -p
+
       # THE LOAD-BEARING CHECK, deliberately first and on its own.
       #
       # An app can only run on a simulator if the xcframework carries a SIMULATOR slice.
@@ -376,6 +391,17 @@ jobs:
         working-directory: /tmp/ios/iosapp
         run: |
           set -euo pipefail
+
+          # objectVersion 56 == the pinned xcode14_0. An xcodegen that does not know the
+          # projectFormat key silently falls back to 77, which only surfaces as an
+          # xcodebuild error on an older Xcode — so assert it directly.
+          objver=$(grep -m1 objectVersion .goleo/ios/GoleoApp.xcodeproj/project.pbxproj | tr -dc 0-9)
+          echo "project objectVersion: $objver"
+          if [ "$objver" != "56" ]; then
+            echo "::error::generated project is objectVersion $objver, expected 56 (xcode14_0) —"
+            echo "::error::options.projectFormat did not take effect; this Xcode may not open it"
+            exit 1
+          fi
           test -d GoleoApp.app || { echo "::error::no GoleoApp.app"; ls -la; exit 1; }
           test -f GoleoApp.app/GoleoApp || { echo "::error::no executable inside the bundle"; ls -la GoleoApp.app; exit 1; }
 

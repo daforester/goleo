@@ -5,6 +5,7 @@ import (
 	"bytes"
 	_ "embed"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1009,11 +1010,15 @@ func buildForIOS(distDir string) error {
 	} else {
 		fmt.Println("  Compiling with xcodebuild...")
 	}
+	// Tee the output as well as streaming it: xcodebuild reports some failures only in
+	// prose and exits 74, so the exit status alone cannot be turned into a useful message.
+	// See explainXcodebuildFailure.
+	captured := &teeBuffer{max: 64 << 10}
 	xcodebuild := exec.Command("xcodebuild", append([]string{"build"}, args...)...)
-	xcodebuild.Stdout = os.Stdout
-	xcodebuild.Stderr = os.Stderr
+	xcodebuild.Stdout = io.MultiWriter(os.Stdout, captured)
+	xcodebuild.Stderr = io.MultiWriter(os.Stderr, captured)
 	if err := xcodebuild.Run(); err != nil {
-		return fmt.Errorf("xcodebuild failed: %w", err)
+		return explainXcodebuildFailure(captured.String(), err)
 	}
 
 	// Verify the app is actually there. This used to print outputPath unconditionally,

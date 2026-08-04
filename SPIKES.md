@@ -946,3 +946,43 @@ This is the same family as the `//go:embed` staleness already recorded above: **
 verification loop that can silently do nothing will eventually tell you something false.**
 Rule: every mutation must assert it applied (`assert s.count(old) == 1`) before the test is
 run, and must detect the file's own line ending rather than assuming `\n`.
+
+### iOS tier 1, first CI run: the generated project was unopenable (2026-08-04)
+
+**The load-bearing probe passed** — `gomobile bind -target=ios,iossimulator` does emit an
+`ios-arm64-simulator` slice, so the whole simulator approach is sound. The job then failed
+three steps later at `xcodebuild`:
+
+```
+xcodebuild: error: Unable to read project 'GoleoApp.xcodeproj'
+  Reason: The project cannot be opened because it is in a future Xcode project
+          file format (77).                                    exit status 74
+```
+
+**Cause: XcodeGen's default project format tracks the newest Xcode, not the user's.**
+`options.projectFormat` defaults to `xcode16_0`, which writes pbxproj `objectVersion` 77;
+anything older than Xcode 16.0 refuses to open it. `brew install xcodegen` on the runner
+gave a current XcodeGen while the `macos-14` image's Xcode is older. Verified against
+XcodeGen's own `ProjectFormat.swift`: `xcode14_0`=56, `xcode15_0`=60, `xcode15_3`=63,
+`xcode16_0`=77 (the default), `xcode16_3`=90 — and **an unrecognised value falls back to 77
+silently**, so a typo reintroduces the failure with no error of its own.
+
+**Not just a CI problem.** goleo tells users to open `.goleo/ios/` in Xcode for device
+builds, so the generated project has to be readable by the Xcode they have — and nothing in
+it needs a new format (they are plain build settings). Pinned to **`xcode14_0`**: newer
+Xcodes read older formats, so the oldest sufficient format is also the most compatible.
+
+Three things came out of this beyond the one-line pin:
+- **`explainXcodebuildFailure`** (`cli/cmd/xcodebuild_errors.go`) — `xcodebuild failed: exit
+  status 74` named neither xcodegen, nor the generated file, nor the Xcode version needed.
+  The failure is only in xcodebuild's prose, so its output is now tee'd through a capped
+  buffer and matched. Unknown objectVersions are still named but **not** mapped to an
+  invented Xcode version.
+- **CI records `xcodebuild -version` and `xcodegen --version`** before building, and asserts
+  the generated `project.pbxproj` really is objectVersion 56. Both halves of this mismatch
+  are moving targets supplied by the runner image, so the next one should be readable from
+  the log rather than guessed at.
+- **Lesson: a step that `brew install`s a tool has taken a dependency on that tool tracking
+  something other than the runner.** This is the same shape as the earlier finding that the
+  Ubuntu image ships a global `typescript` while the others do not — a toolchain the job did
+  not pin is a toolchain that will move.
