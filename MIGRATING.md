@@ -341,3 +341,30 @@ same guard. Both now go through one validator, so a third caller cannot diverge 
 relying on share to open a local file, use the filesystem plugin, or register your
 own scheme via `Config.URLScheme` and handle it in-app.
 
+---
+
+## Unreleased — Linux notifications and the Windows prompt handle text more faithfully
+
+**Affects:** Linux desktop notifications, and multi-line messages in
+`showPrompt` on Windows. No API change.
+
+`goleo:notify` is a default builtin, so its title and body come from the frontend.
+On Linux they were passed to `notify-send` as bare positional arguments, and
+notify-send uses GLib option parsing — so a title beginning with `--` was read as an
+option rather than as the summary. `--help` or `--version` made notify-send print and
+exit 0, meaning **the notification silently never appeared while the call reported
+success**, and `--icon=` / `--hint=` / `--expire-time=` let a frontend restyle or
+suppress notifications the app believed it controlled. Arguments are now passed after
+a `--` terminator. No shell was involved, so this was flag confusion, not RCE.
+
+Separately, `showPrompt` on Windows built its PowerShell script by replacing newlines
+with a backtick-`n` escape. That escape only means anything in a *double*-quoted
+PowerShell string; the values are interpolated into *single*-quoted literals, where it
+is taken literally — so every newline in a title or message reached the dialog as the
+two characters `` `n ``. Newlines are now preserved, and `
+` normalises to one
+line break instead of two.
+
+**What to do.** Nothing. If you had worked around the Windows prompt by pre-formatting
+messages without newlines, you can stop.
+

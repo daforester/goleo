@@ -69,9 +69,5 @@ func runPowerShell(script string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-func escapePS(s string) string {
-	s = strings.ReplaceAll(s, "'", "''")
-	s = strings.ReplaceAll(s, "\r", "")
-	s = strings.ReplaceAll(s, "\n", "`n")
-	return s
-}
+// escapePS lives in escapeps.go, without a build constraint, so it can be tested on
+// any host — it is a security-relevant escaper and had no tests at all.
