@@ -105,6 +105,38 @@ output, you are unaffected.
 
 ---
 
+## Unreleased — each app gets its own key/value store
+
+**Affects:** apps using `RegisterStore` / `@goleo/bridge`'s `storeGet`/`storeSet`.
+**No action needed** — existing data is migrated automatically. Read on only if you
+care what happens.
+
+Every goleo app on a machine previously shared **one** `store.json`, under
+`<UserConfigDir>/goleo-app/`. Two different goleo apps read and clobbered each
+other's keys. The store now lives under the app's own name
+(`Config.AppID`, falling back to `Config.Title`).
+
+On first run at the new path, the old shared store is **copied** into it, so nothing
+is lost. It is a copy rather than a move because other apps on the machine may still
+be reading the legacy file. An app that already has its own store is never
+overwritten.
+
+Two consequences worth knowing:
+
+- **You may inherit another app's keys once.** If several of your goleo apps shared
+  the legacy store, each one adopts a copy of the whole thing on first run. Delete
+  any keys that do not belong to that app, or clear them with `storeClear()`.
+- **The legacy file is left behind.** Once every app on the machine has migrated,
+  `<UserConfigDir>/goleo-app/store.json` can be deleted by hand.
+
+Also fixed here: writes now `fsync` before the rename (a crash could previously
+leave a zero-length store where a valid one had been), and each write uses a unique
+temp file — the old fixed `store.json.tmp` meant two writers, such as a second
+instance racing the primary, shared one temp path and could interleave into a
+corrupt store.
+
+---
+
 ## Unreleased — `goleo:openURL` only opens web schemes
 
 **Affects:** apps that pass anything other than `http`, `https`, `mailto` or `tel`

@@ -16,6 +16,7 @@ import (
 	"github.com/daforester/goleo/runtime/autostart"
 	"github.com/daforester/goleo/runtime/deeplink"
 	"github.com/daforester/goleo/runtime/singleinstance"
+	"github.com/daforester/goleo/runtime/store"
 )
 
 type App struct {
@@ -151,6 +152,12 @@ func New(cfg Config) *App {
 	// after the native shell calls SetHomeDir — resolving here would tie a
 	// security control to that init order.
 	app.bridge.SetFSAppID(appID)
+
+	// Give the key/value store its own directory too. Every goleo app previously
+	// shared one store.json under "goleo-app", so two apps on the same machine read
+	// and clobbered each other's keys. Set before the first store.Default(), which
+	// is what fixes the path for the process.
+	store.SetAppName(appID)
 	return app
 }
 
