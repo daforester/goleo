@@ -302,7 +302,12 @@ jobs:
   # A simulator build needs NO code signing, which is the whole reason this is possible
   # without a paid account. Anything beyond it — a signed .ipa, TestFlight, the App Store —
   # needs the account, but notably NOT Mac hardware: these runners are the Mac.
+  # iOS is not building yet (see SPIKES.md); the iteration happens on spike/ios-* via
+  # ios-spike.yml so that a macOS runner — billed at 10x — is not spent on every master
+  # push to re-learn a known failure. Kept here as the authoritative job, but opt-in until
+  # the spike lands: remove the `if` once `goleo build ios` succeeds.
   ios-simulator:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -335,41 +340,11 @@ jobs:
           echo "--- selected ---"
           xcode-select -p
 
-      # THE LOAD-BEARING CHECK, deliberately first and on its own.
-      #
-      # An app can only run on a simulator if the xcframework carries a SIMULATOR slice.
-      # goleo now binds `-target ios,iossimulator` for exactly that, but whether gomobile
-      # emits a usable ios-arm64-simulator slice was an assumption, and every later step
-      # depends on it. Failing here says "the approach is wrong" rather than leaving a
-      # confusing xcodebuild error to interpret.
-      - name: Probe — does gomobile emit a simulator slice?
-        run: |
-          set -euo pipefail
-          gomobile init
-          mkdir -p /tmp/probe && cd /tmp/probe
-          cat > go.mod <<'EOF'
-          module probe
-
-          go 1.24
-          EOF
-          mkdir -p p && cat > p/p.go <<'EOF'
-          package p
-
-          // Hello is exported so gobind has a surface to bind.
-          func Hello() string { return "hi" }
-          EOF
-          # gomobile bind needs golang.org/x/mobile's bind-support packages in the module
-          # graph and will not add them itself — it fails with "missing golang.org/x/mobile
-          # dependency" instead, which would read as the probe's answer being "no".
-          GOFLAGS=-mod=mod go get golang.org/x/mobile/bind
-          GOFLAGS=-mod=mod gomobile bind -target=ios,iossimulator -o /tmp/probe/P.xcframework ./p
-          echo "--- xcframework slices ---"
-          ls /tmp/probe/P.xcframework
-          if ! ls /tmp/probe/P.xcframework | grep -q simulator; then
-            echo "::error::gomobile produced no simulator slice — iOS cannot be tested on a simulator this way"
-            exit 1
-          fi
-          echo "simulator slice present"
+      # NOTE: the gomobile simulator-slice probe that used to sit here is gone. It ran a full
+      # throwaway `gomobile bind` (29s of macOS time, billed at 10x) to answer one question —
+      # does gomobile emit an ios-arm64-simulator slice — and the answer is yes, confirmed on
+      # this runner and recorded in SPIKES.md. The real build below now exercises the same
+      # thing, and the API-surface step prints the slices it produced.
 
       - name: Build the CLI and scaffold a project
         run: |
