@@ -799,3 +799,58 @@ extensionless relative imports); verified locally against published 0.8.8.
 Local reproduction of the whole user path, for future reference: build the CLI with
 `-ldflags "-X …/cli/cmd.Version=<published>"`, then run `goleo new` with
 `env -u GOLEO_ROOT`, `npm install`, and `goleo build`. That sequence found bug 3.
+
+---
+
+## Phase 4 — Android signed release, verified on a real emulator (2026-08-04) ✅ PASS
+
+`goleo build android --release` and the derived-permission manifest, checked end to end on
+an Android 36 x86_64 emulator with a signed release APK built from the demo scaffold.
+
+**What the device confirmed** (`adb shell dumpsys package com.goleo.app`):
+
+- **Signed:** `apkSigningVersion=2` with a real signature block. The signing path works —
+  build.gradle.kts reading the credentials from the environment, Gradle applying the
+  signingConfig, and the artifact coming out signed rather than as the `-unsigned` variant.
+- **Version wiring:** `versionCode=100`, `versionName=0.1.0`. Both were hardcoded `1` and
+  `"1.0"` in the template before Phase 4, so goleo.json's values were loaded and thrown
+  away. 0.1.0 → 100 is the derived `major*10000+minor*100+patch`.
+- **Permissions:** exactly the 14 the demo enables, each attributable to a feature. A
+  minimal scaffold gets 3.
+- **The `maxSdkVersion=30` bound works:** `BLUETOOTH` and `BLUETOOTH_ADMIN` are in the
+  generated manifest but ABSENT from the installed package on API 36 — the platform drops
+  them, which is precisely the "unnecessary permission" report the bound exists to avoid.
+
+**Where the extra device-side entries come from**, since the count does not match the 14
+and that looked wrong at first: `RECEIVE_BOOT_COMPLETED`, `BIND_JOB_SERVICE` and `DUMP`
+are declared by AndroidX (WorkManager) and arrive via manifest merging;
+`ACCESS_COARSE_LOCATION` is added by the platform itself when an app requests
+`ACCESS_FINE_LOCATION`. Nothing leaks from goleo's derivation — checked by diffing the
+generated manifest against `intermediates/merged_manifest/release/.../AndroidManifest.xml`
+against the installed package.
+
+**And the full runtime chain**, which is what a false-negative permission would break:
+launched the app, navigated to the Camera demo, tapped Start camera →
+`GrantPermissionsActivity` appeared with *"Allow permcheck to take pictures and record
+video?"* → granted → `CAMERA: granted=true` and a **live preview rendering the emulator's
+synthetic scene**, with the device label (`camera 0, facing front`) appearing only after
+the grant. So: derived manifest permission → Android prompt → grant →
+`WebChromeClient.onPermissionRequest` → `getUserMedia` → frames.
+
+**Two rough edges found by doing this rather than by testing:**
+- `keytool` is not on PATH even when `JAVA_HOME` is correct, because it lives in the JDK's
+  `bin/`. Added `goleo generate android-key`, which uses the JDK goleo already resolves for
+  Gradle. Writing it reintroduced the flag-confusion bug fixed twice elsewhere in this file:
+  a base64 password beginning with `-` was parsed by keytool as an option, producing a
+  keystore whose password was not the one printed. Passwords are hex now, and the keystore
+  is opened with the reported password before it is reported.
+- A trailing space in `GOLEO_ANDROID_KEYSTORE` (which `set VAR=path ` in cmd.exe keeps)
+  failed 37 seconds in at `:app:packageRelease` as `Trailing char < > at index 141`, naming
+  neither the variable nor the space. Now trimmed in the CLI and in build.gradle.kts, and
+  the path is checked for existence up front.
+
+**Still unverified:** a Play internal-track upload. That needs a developer account and is
+the only remaining confirmation that Play accepts the AAB and does not flag the permission
+set. CI (`mobile-verify`'s `android-release` job) covers the AAB build, jarsigner
+verification, the manifest being minimal, and that `--no-sign` really produces something
+unsigned.
