@@ -343,6 +343,10 @@ jobs:
           // Hello is exported so gobind has a surface to bind.
           func Hello() string { return "hi" }
           EOF
+          # gomobile bind needs golang.org/x/mobile's bind-support packages in the module
+          # graph and will not add them itself — it fails with "missing golang.org/x/mobile
+          # dependency" instead, which would read as the probe's answer being "no".
+          GOFLAGS=-mod=mod go get golang.org/x/mobile/bind
           GOFLAGS=-mod=mod gomobile bind -target=ios,iossimulator -o /tmp/probe/P.xcframework ./p
           echo "--- xcframework slices ---"
           ls /tmp/probe/P.xcframework
