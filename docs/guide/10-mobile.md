@@ -50,7 +50,7 @@ if none is present (it will not spin up an emulator).
 ## iOS
 
 ```bash
-npm run goleo:build-ios          # -> .xcframework (macOS + Xcode)
+npm run goleo:build-ios          # -> GoleoApp.app, a DEBUG build (macOS + Xcode)
 ```
 
 Integrate the `.xcframework` into an Xcode project and run/deploy through Xcode,

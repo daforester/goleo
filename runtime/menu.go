@@ -35,10 +35,11 @@ type MenuItem struct {
 	Separator   bool
 }
 
-// SetMenu installs the application menu bar. Native on macOS; returns an
-// errors.ErrUnsupported-wrapped error on Windows/Linux/mobile (no native menu
-// bar yet — use an in-page HTML menu there). Safe to call after Run has started
-// or from Config.Menu at startup.
+// SetMenu installs the application menu bar. Native on all three desktops —
+// NSMenu (macOS), user32 HMENU (Windows), GtkMenuBar/GtkPopoverMenuBar (Linux,
+// GTK3/GTK4) — and returns an errors.ErrUnsupported-wrapped error on mobile and
+// PWA, where MenuSupported() also reports false. Safe to call after Run has
+// started or from Config.Menu at startup.
 func (a *App) SetMenu(menu []MenuItem) error {
 	if !MenuSupported() {
 		return fmt.Errorf("goleo: native menu: %w", errors.ErrUnsupported)

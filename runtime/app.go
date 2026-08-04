@@ -46,9 +46,12 @@ type Config struct {
 	Port       int
 	WindowMode WindowMode
 	EmbedFS    any
-	// InProcessWindows opts additional windows into the in-process model
-	// (each on its own OS thread) instead of child processes. Windows only for
-	// now; ignored elsewhere (falls back to multi-process). See spikes/win-multiwindow.
+	// InProcessWindows opts additional windows into the in-process model instead of
+	// child processes. On Windows each window gets its own OS-thread message loop
+	// (inProcWindowManager); macOS and Linux are main-thread-only, so extra windows
+	// share the primary window's single run loop (mainLoopWindowManager). Ignored
+	// elsewhere (falls back to multi-process). See spikes/win-multiwindow and
+	// spikes/glaze-multiwindow.
 	InProcessWindows bool
 	// NativeIPC routes the primary window's frontend<->backend calls over the
 	// webview's in-process message channel (Bind/Eval) instead of the loopback
@@ -62,9 +65,11 @@ type Config struct {
 	// custom origin (AssetScheme://, default "goleo://") instead of the loopback
 	// HTTP server — so with NativeIPC on, that window opens no TCP port at all
 	// while keeping a secure context (localStorage/crypto.subtle/getUserMedia).
-	// Takes effect only in production (embedded FS, not DevMode) on backends that
-	// support it (macOS/Linux via glaze); elsewhere it transparently falls back to
-	// the loopback server. The server stays up as the fallback transport.
+	// Takes effect only in production (embedded FS, not DevMode). Supported on all
+	// three desktops via glaze: macOS and Linux serve the literal scheme, and Windows
+	// serves it over a secure https://<scheme>.localhost virtual host, since WebView2
+	// has no per-scheme secure flag. Elsewhere it transparently falls back to the
+	// loopback server, which stays up as the fallback transport either way.
 	SchemeAssets bool
 	// AssetScheme overrides the custom scheme name used by SchemeAssets
 	// (default "goleo"). Must be a plain scheme token, no "://".
@@ -103,10 +108,12 @@ type Config struct {
 	// When empty, init.js then backend/init.js are tried; if neither exists
 	// the window is created from this Config directly.
 	InitJS string
-	// Menu is the native application menu bar (macOS). When empty, macOS installs
-	// StandardMenu(Title) so webview keyboard shortcuts (Cmd+C/V/X/A/Z) work;
-	// Windows/Linux have no native menu bar yet (use an in-page HTML menu). See
-	// runtime/menu.go, App.SetMenu.
+	// Menu is the native application menu bar, supported on all three desktops:
+	// NSMenu on macOS, a user32 HMENU on Windows, and GtkMenuBar (GTK3) or
+	// GtkPopoverMenuBar (GTK4) on Linux. When empty, macOS installs
+	// StandardMenu(Title) so webview keyboard shortcuts (Cmd+C/V/X/A/Z) work.
+	// Unsupported on mobile and PWA, where SetMenu reports errors.ErrUnsupported.
+	// See runtime/menu.go, App.SetMenu.
 	Menu       []MenuItem
 	OnStartup  func(ctx context.Context)
 	OnShutdown func(ctx context.Context)

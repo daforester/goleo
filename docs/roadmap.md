@@ -377,6 +377,12 @@ static-manifest gap so future permission-gated features are a pure `scan.go` edi
 - **gomobile marshaling** — `gobind` bridges only primitives/strings; provider interfaces must
   be flat; structs/maps cross as JSON strings; callback features need an `emit*` + shell listener.
 
+  > **Currency note (2026-08-04):** this gotcha is history. `create-goleo-app/` and its
+  > `create-app.ts` were deleted on 2026-07-16 — scaffolding is now single-source
+  > (minimal in `cli/cmd/templates.go`, demo embedded under `cli/cmd/templates/demo/`),
+  > and `cli/npm/goleo/` is generated at publish time by `copy-source.js` rather than
+  > being a hand-mirrored tree. There is nothing left to mirror.
+
 ---
 
 ## 4. Unified execution order (serial)

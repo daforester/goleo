@@ -32,7 +32,10 @@ Windows backend (and "Windows SchemeAssets falls back to loopback") are dated hi
 that migration. **And (2026-07-20) the legacy cgo `webview_go` fallback was removed entirely** (dep,
 `runtime/webview.go`, the `goleo_cgo_webview` tag, and the webkit pkg-config shim all gone), so glaze
 is now the *sole* desktop webview and there is no cgo webview path — the only `cgo`-tagged code left
-is `runtime/camera`'s Linux V4L2 impl (with a pure-Go stub). Later mentions below of `webview_go`
+is `runtime/camera`'s Linux V4L2 impl (with a pure-Go stub). [Correction, 2026-08-04: there are
+**two**, not one — `runtime/nfc`'s libnfc impl (`nfc_libnfc_linux.go`) is also cgo, though it is
+additionally opt-in behind `-tags goleo_libnfc`, so a default `CGO_ENABLED=0` build is still
+unaffected. The conclusion stands; the count was wrong.] Later mentions below of `webview_go`
 being "retained one release, then removable" are that closed-out plan.
 
 ---

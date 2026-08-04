@@ -284,8 +284,8 @@ on('goleo:backgroundSync', ({ tag }) => flush(tag))
 | Sensors | — | Provider | Generic Sensor API |
 | Camera | getUserMedia | Provider | `getUserMedia` |
 | Bluetooth | Web Bluetooth | Provider | Web Bluetooth |
-| NFC | — | Provider | Web NFC |
-| Share | — | Native | Web Share |
+| NFC | Linux only, `-tags goleo_libnfc` | Provider | Web NFC |
+| Share | Native (URL hand-off) | Native | Web Share |
 | Store | Native | Native | `localStorage` |
 | Push | — | Provider | Push API + SW |
 | Background | — | Provider | SW Background Sync |

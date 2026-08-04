@@ -4,7 +4,7 @@ Goleo produces three kinds of output:
 
 - **Standalone binaries** — a single self-contained executable (frontend embedded).
 - **Native installers** — see [Packaging, icons & metadata](04-packaging-icons.md).
-- **Mobile packages** — an Android `.apk` or iOS `.xcframework`.
+- **Mobile packages** — an Android `.apk`/`.aab`, or an iOS `.app`.
 
 ## Standalone binaries
 
@@ -40,6 +40,28 @@ goleo build linux     # from Windows or macOS
 (Per-OS machines are still needed to *sign/notarize* and to build *installers*
 whose packager only runs on that OS — but not to compile.)
 
+The named targets pin `amd64`; `--arch` overrides it for any desktop target,
+including `current`:
+
+```bash
+goleo build linux --arch arm64      # arm64 Linux from an amd64 machine
+goleo build --arch arm64            # arm64 build of the host OS
+```
+
+`--arch` does not apply to `android`, `ios` or `pwa` and is refused there —
+Android ABIs are selected with `--android-abi` instead:
+
+```bash
+goleo build android --android-abi arm64-v8a     # one ABI: ~4x smaller than the default
+```
+
+By default all four ABIs are built (arm64-v8a, armeabi-v7a, x86_64, x86), which is
+what makes a default APK ~66 MB. GOARCH names are accepted too. Note an emulator
+needs `x86_64`, so a single-ABI `arm64-v8a` build will not install on one.
+
+`--no-sign` skips code signing on every platform even when credentials are
+configured — useful in CI for a build you only want to check compiles.
+
 ## PWA
 
 ```bash
@@ -54,7 +76,7 @@ calls that require Go return an error you can handle.
 
 ```bash
 npm run goleo:build-android    # -> app.apk (installable)
-npm run goleo:build-ios        # -> .xcframework (macOS + Xcode)
+npm run goleo:build-ios        # -> GoleoApp.app, a DEBUG build (macOS + Xcode)
 ```
 
 - **Android**: builds a gomobile AAR, generates an Android project, and compiles
@@ -77,7 +99,10 @@ npm run goleo:build-ios        # -> .xcframework (macOS + Xcode)
   The generated manifest declares only the permissions your app enables, and the build
   prints the list with the feature that asked for each one. If something is missing, add
   it to `mobile.android.extra_permissions` in `goleo.json`.
-- **iOS**: builds an `.xcframework` to integrate into an Xcode app. macOS only.
+- **iOS**: builds a **debug** `GoleoApp.app` with `xcodebuild`. macOS only. The
+  `.xcframework` gomobile produces is an intermediate that the build consumes and then
+  deletes, so there is nothing to integrate by hand. There is **no `.ipa`** yet — see
+  [the roadmap](../roadmap.md) — so App Store distribution is not wired up.
 
 To run on a real device during development, or to sideload the APK, see
 [Mobile](10-mobile.md).

@@ -54,7 +54,7 @@ host the built artifact + `manifest.json` at that URL.
     then `adb install`s + launches), or `goleo install android`.
   - For the Play Store, sign a release APK/AAB with your keystore per Android's
     standard process.
-- **iOS**: `goleo build ios` produces an `.xcframework`; distribute through Xcode /
+- **iOS**: `goleo build ios` produces a **debug** `GoleoApp.app` (no `.ipa` yet); distribute through Xcode /
   TestFlight / the App Store.
 
 See [Mobile](10-mobile.md) for device workflows.

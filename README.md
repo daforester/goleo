@@ -225,7 +225,7 @@ per-launch token). `goleo:openURL` only opens `http`/`https`/`mailto`/`tel` plus
 The CLI takes you from build to a self-updating installer:
 
 ```bash
-goleo build --bundle             # native installer: .msi/NSIS · .dmg · .deb/.rpm
+goleo build --bundle             # native installer: NSIS .exe · .dmg · .deb/.rpm
 goleo build --bundle --publish   # + write an ed25519-signed update manifest
 goleo generate updater-key       # keypair for signing updates
 ```

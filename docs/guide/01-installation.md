@@ -56,8 +56,10 @@ detected at build time. Install only the one(s) you target:
 | Linux `.deb` / `.rpm` | `nfpm` | `go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest` |
 
 > On Windows, NSIS is fetched automatically the first time you bundle (set
-> `GOLEO_NO_INSTALL=1` to opt out). The macOS/Linux packagers are best-effort
-> auto-installed too (Homebrew / apt / dnf / pacman) where available.
+> `GOLEO_NO_INSTALL=1` to opt out). It is the **only** packager goleo installs for
+> you — macOS needs no extra tool (`hdiutil` is built in), and `nfpm` for Linux is
+> detected only: if it is missing the bundle fails with the `go install` command to
+> run.
 
 The app icon + version metadata come from `goleo.json` and need no extra tools —
 see [Packaging, icons & metadata](04-packaging-icons.md).

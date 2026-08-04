@@ -196,6 +196,7 @@ The server auto-selects a port if the configured one is in use and sets CORS hea
 | goleo generate types | Generate frontend/src/goleo.d.ts (typed invoke() overloads) |
 | goleo generate updater-key | Generate an ed25519 keypair for signing update manifests |
 | goleo generate android-key | Generate an Android signing keystore (uses the JDK goleo resolves, so keytool need not be on PATH) |
+| goleo doctor android | Report whether the android build/emulate dependencies are present — discovery only, installs nothing and never prompts (so CI and editor tooling can check readiness safely) |
 | goleo version | Print version |
 
 ### Build Targets
@@ -207,7 +208,7 @@ The server auto-selects a port if the configured one is in use and sets CORS hea
 | linux | linux | amd64 | binary | none |
 | darwin | darwin | amd64 | binary | none |
 | android | android | arm64 | `app.apk` (debug) or `app.aab` (`--release`) | gomobile + NDK |
-| ios | ios | arm64 | .xcframework | gomobile + Xcode |
+| ios | ios | arm64 | `GoleoApp.app` (debug; the `.xcframework` is an intermediate and is deleted) | gomobile + Xcode |
 | pwa | js | wasm | dist-pwa/ | none |
 
 ## Frontend Bridge (@goleo/bridge)
@@ -420,10 +421,11 @@ unification, **all three desktops use ONE cgo-free binding by default**:
   assets, in-process multi-window, tray, native menu bar, permission grant, clean Quit).
 - **No webview fallback:** glaze is the only desktop webview backend. The legacy cgo
   `webview_go` backend and the Windows `go-webview2` backend have both been removed, so
-  there is no cgo webview path left. (The one remaining `cgo`-tagged code is
-  `runtime/camera`'s Linux V4L2 impl — `camera_linux.go`, with a pure-Go stub — so a
-  `CGO_ENABLED=0` build just uses the stub and camera routes to the WebView's
-  `getUserMedia`.)
+  there is no cgo webview path left. Two pieces of `cgo`-tagged code remain, both Linux
+  and both with a pure-Go fallback, so a `CGO_ENABLED=0` build is unaffected:
+  `runtime/camera`'s V4L2 impl (`camera_linux.go`, stubbed elsewhere — camera then routes
+  to the WebView's `getUserMedia`) and `runtime/nfc`'s libnfc impl
+  (`nfc_libnfc_linux.go`), which is additionally opt-in behind `-tags goleo_libnfc`.
 
 So **every desktop target is pure-Go and cross-compilable from one machine**, on a
 single binding. Shutdown unblocks the run loop via `endRunLoop()`
@@ -551,7 +553,12 @@ This is cgo-free and binding-agnostic (works with either webview backend).
 - Each feature is a `runtime/<feature>/` sub-package with platform-specific implementations behind build tags
 - Desktop features split from mobile via `runtime/desktop.go` (`//go:build !android && !ios`) calling `RegisterClipboard`, etc.
 - `RegisterBuiltins()` reduced to core-only (OS info, env, openURL, notifications); `RegisterDesktopFeatures()` for desktop extras
-- Mobile-only features use `goleo_*` build tags (e.g. `goleo_nfc`, `goleo_ble`) so Android manifest only declares what's actually used
+- Mobile-only features use `goleo_*` build tags (e.g. `goleo_nfc`, `goleo_ble`) so only the
+  bindings an app needs are compiled. The Android **manifest** is separate: its permissions
+  are derived from the `Register*` calls `detectFeatureUsage` finds, plus
+  `mobile.android.extra_permissions` (`cli/cmd/android_permissions.go`) — NOT from the
+  compiled tag set, which is deliberately a superset (`nativeShellProviderTags` forces eight
+  tags into every build so gobind emits the symbols the fixed Java shell references)
 - `cli/cmd/scan.go` — source scanner that detects `runtime.Register*()` calls and emits the corresponding build tags + manifest entries
 - `runtime/clipboard/` — implemented feature with read/write text via platform shell commands; re-exported via `runtime/clipboard_reexport.go`
 - `runtime/dialogs/` — native dialogs (file open/save, folder picker, message box, input prompt) via PowerShell (Windows), osascript (macOS), zenity (Linux)
@@ -583,7 +590,7 @@ Every feature package now exposes a `Provider` interface + `SetProvider`/`runtim
 | **Sensors** | `runtime/sensors/` | `goleo_sensors` | Unsupported (no portable desktop sensor API) | Provider | Generic Sensor API |
 | **Camera** | `runtime/camera/` | `goleo_camera` | Unsupported — intentionally routes to WebView `getUserMedia` | Provider | `getUserMedia` + canvas |
 | **Bluetooth** | `runtime/bluetooth/` | `goleo_ble` | Unsupported — intentionally routes to Web Bluetooth | Provider | Web Bluetooth API |
-| **NFC** | `runtime/nfc/` | `goleo_nfc` | Unsupported (no desktop NFC hardware path) | Provider | Web NFC API |
+| **NFC** | `runtime/nfc/` | `goleo_nfc` | Linux only, opt-in: a cgo libnfc backend behind `-tags goleo_libnfc` (needs libnfc-dev + a reader); unsupported on Windows/macOS | Provider | Web NFC API |
 | **Background** | `runtime/background/` | `goleo_background` | Unsupported — desktop process runs continuously, no OS scheduler needed | Provider | Service Worker Sync |
 | **Push** | `runtime/push/` | `goleo_push` | Unsupported — use the app's own WebSocket channel instead | Provider | Push API + Service Worker |
 
