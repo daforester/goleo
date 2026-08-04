@@ -310,7 +310,7 @@ var tmplFrontendPackageJSON = `{
     "preview": "vite preview"
   },
   "dependencies": {
-    "@goleo/bridge": "^0.2.1",
+    "@goleo/bridge": "{{.BridgeVersion}}",
     "vue": "^3.4.0"
   },
   "devDependencies": {

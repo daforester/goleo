@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -173,5 +174,199 @@ func TestScaffoldTemplatesCarryNoHardcodedVersion(t *testing.T) {
 		if m := hardcoded.FindString(body); m != "" {
 			t.Errorf("%s hardcodes a goleo version (%q); it must be injected instead", name, m)
 		}
+	}
+}
+
+// The npm side of the same rule. This is the bug the Go-side test above was
+// written for, still live one line away: tmplFrontendPackageJSON hardcoded
+// "@goleo/bridge": "^0.2.1" long after the Go require started tracking releases.
+//
+// A caret on a 0.x version locks the MINOR, so ^0.2.1 resolves to 0.2.9 — not
+// 0.8.x. Every scaffolded project therefore paired a v0.8.8 Go runtime with a
+// bridge six minors old, across the wire contract the two sides must agree on
+// (writeBinaryFile sent TextDecoder output where the runtime expects base64, so
+// binary writes were simply broken in new projects).
+func TestScaffoldTemplatesCarryNoHardcodedBridgeVersion(t *testing.T) {
+	rendered, err := renderTemplate(tmplFrontendPackageJSON, projectConfig{
+		Name: "x", ModuleName: "goleo/x", GoleoVersion: "v9.9.9", BridgeVersion: "^9.9.9",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rendered, `"@goleo/bridge": "^9.9.9"`) {
+		t.Errorf("minimal frontend template did not take the injected bridge version:\n%s", rendered)
+	}
+
+	demoPkg, err := mobileTemplates.ReadFile("templates/demo/frontend/package.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(demoPkg), demoBridgeVersionToken) {
+		t.Errorf("demo frontend/package.json should use %s, got:\n%s", demoBridgeVersionToken, demoPkg)
+	}
+
+	// Catch the class, not just this instance: no scaffold template may pin any
+	// @goleo/* package to a literal version.
+	hardcoded := regexp.MustCompile(`"@goleo/[a-z-]+":\s*"[~^]?\d+\.\d+\.\d+"`)
+	for name, body := range map[string]string{
+		"tmplFrontendPackageJSON":              tmplFrontendPackageJSON,
+		"templates/demo/frontend/package.json": string(demoPkg),
+	} {
+		if m := hardcoded.FindString(body); m != "" {
+			t.Errorf("%s hardcodes an @goleo/* version (%s); it must be injected instead", name, m)
+		}
+	}
+}
+
+// The two pins must resolve to the SAME release. Skew between them is the actual
+// failure mode: the Go runtime and the bridge implement two halves of one wire
+// contract, so a project must not get 0.8.8 of one and 0.2.9 of the other.
+func TestScaffoldGoAndBridgeVersionsAgree(t *testing.T) {
+	orig := Version
+	t.Cleanup(func() { Version = orig })
+
+	Version = "1.2.3"
+	if got, want := scaffoldGoleoVersion(), "v1.2.3"; got != want {
+		t.Errorf("scaffoldGoleoVersion() = %q, want %q", got, want)
+	}
+	if got, want := scaffoldBridgeVersion(), "^1.2.3"; got != want {
+		t.Errorf("scaffoldBridgeVersion() = %q, want %q", got, want)
+	}
+
+	// A dev build has no release to match. The Go side uses the v0.0.0 placeholder
+	// that a local replace can satisfy; npm has no equivalent, so `latest` is the
+	// honest answer (and `goleo new` npm-links the local bridge anyway).
+	Version = "dev"
+	if got := scaffoldBridgeVersion(); got != "latest" && !strings.HasPrefix(got, "^") {
+		t.Errorf("dev scaffoldBridgeVersion() = %q, want latest or a caret range", got)
+	}
+}
+
+// The glaze fork replace is written out in three places — the root go.mod and both
+// scaffold templates — and only a manual step in AGENTS.md's rebase instructions
+// keeps them together. A downstream project that inherits a stale pin silently
+// loses the Windows camera/mic/geolocation grant (the sole reason the fork exists),
+// and because Go replace directives don't transit, nothing else would flag it.
+//
+// The root go.mod is the source of truth here: it is what CI vendors against.
+func TestScaffoldTemplatesPinTheSameGlazeFork(t *testing.T) {
+	rootMod, err := os.ReadFile(filepath.Join("..", "..", "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	re := regexp.MustCompile(`replace\s+github\.com/crgimenes/glaze\s+=>\s+(\S+\s+\S+)`)
+	rootMatch := re.FindSubmatch(rootMod)
+	if rootMatch == nil {
+		t.Fatal("no glaze replace in the root go.mod — did the fork get dropped? " +
+			"if so this test and both scaffold templates need updating too")
+	}
+	want := string(rootMatch[1])
+
+	demoMod, err := mobileTemplates.ReadFile("templates/demo/go.mod.tmpl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{
+		"tmplGoMod":                  tmplGoMod,
+		"templates/demo/go.mod.tmpl": string(demoMod),
+	} {
+		m := re.FindStringSubmatch(body)
+		if m == nil {
+			t.Errorf("%s has no glaze replace; scaffolded projects need it to inherit "+
+				"the Windows permission grant (replace directives don't transit)", name)
+			continue
+		}
+		if m[1] != want {
+			t.Errorf("%s pins glaze at %q but the root go.mod uses %q — "+
+				"scaffolded projects would get a different fork build", name, m[1], want)
+		}
+	}
+}
+
+// warnStaleBridgePin must fire on the ranges that genuinely cannot resolve, and
+// stay quiet on everything a developer chose deliberately. The quiet cases matter
+// more than the loud one: a warning printed on every `goleo dev` for a perfectly
+// good pin trains people to ignore it.
+func TestMinorOfClassifiesNpmRanges(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"^0.8.8", "0.8"},
+		{"~0.8.8", "0.8"},
+		{"0.8.8", "0.8"},
+		{"v1.2.3", "1.2"},
+		{"^0.2.1", "0.2"}, // the stale pin
+		// Deliberate or non-comparable: must yield "" so no warning is emitted.
+		{"latest", ""},
+		{"*", ""},
+		{"0.x", ""},
+		{"^0", ""},
+		{">=0.8.0 <2.0.0", ""},
+		{"file:../bridge", ""},
+		{"github:daforester/goleo", ""},
+		{"", ""},
+	} {
+		if got := minorOf(tc.in); got != tc.want {
+			t.Errorf("minorOf(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestWarnStaleBridgePinOnlyForIncompatibleMinors(t *testing.T) {
+	orig := Version
+	t.Cleanup(func() { Version = orig })
+	Version = "0.8.8"
+
+	write := func(t *testing.T, pin string) string {
+		t.Helper()
+		dir := t.TempDir()
+		fe := filepath.Join(dir, "frontend")
+		if err := os.MkdirAll(fe, 0755); err != nil {
+			t.Fatal(err)
+		}
+		body := `{"dependencies":{"@goleo/bridge":"` + pin + `","vue":"^3.4.0"}}`
+		if err := os.WriteFile(filepath.Join(fe, "package.json"), []byte(body), 0644); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+
+	capture := func(t *testing.T, dir string) string {
+		t.Helper()
+		old := os.Stdout
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		os.Stdout = w
+		warnStaleBridgePin(dir)
+		w.Close()
+		os.Stdout = old
+		out, _ := io.ReadAll(r)
+		return string(out)
+	}
+
+	// The real stale pin: 0.2 cannot reach 0.8, so warn — and name the fix.
+	out := capture(t, write(t, "^0.2.1"))
+	if !strings.Contains(out, "@goleo/bridge") || !strings.Contains(out, "0.8.8") {
+		t.Errorf("expected a warning naming the correct version, got:\n%s", out)
+	}
+	if !strings.Contains(out, "npm install @goleo/bridge@0.8.8") {
+		t.Errorf("warning should give the exact command, got:\n%s", out)
+	}
+
+	for _, quiet := range []string{"^0.8.8", "^0.8.0", "0.8.8", "latest", "*", "file:../bridge"} {
+		if out := capture(t, write(t, quiet)); out != "" {
+			t.Errorf("pin %q should not warn, got:\n%s", quiet, out)
+		}
+	}
+
+	// No frontend at all (a PWA-less or unusual layout) must not warn.
+	if out := capture(t, t.TempDir()); out != "" {
+		t.Errorf("missing frontend/package.json should not warn, got:\n%s", out)
+	}
+
+	// A dev build of the CLI has no authoritative version to compare against.
+	Version = "dev"
+	if out := capture(t, write(t, "^0.2.1")); out != "" {
+		t.Errorf("dev CLI should not warn about pins, got:\n%s", out)
 	}
 }

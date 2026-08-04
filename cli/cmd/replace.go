@@ -220,6 +220,35 @@ func scaffoldGoleoVersion() string {
 	return scaffoldPlaceholderVersion
 }
 
+// scaffoldBridgeVersion returns the npm range a freshly scaffolded frontend should
+// depend on for @goleo/bridge.
+//
+// The Go require above was fixed to track the CLI's own version; this pin was
+// hardcoded `^0.2.1` and left behind, which is worse than it sounds. A caret on a
+// 0.x version locks the MINOR, so `^0.2.1` resolves to 0.2.9 — not 0.8.x. Every
+// scaffolded project therefore paired a v0.8.8 Go runtime with a bridge six minors
+// old, straddling exactly the wire contract the two sides have to agree on:
+// writeBinaryFile in 0.2.x sends TextDecoder output where the current Go side
+// expects base64, so binary file writes were broken in every new project. It also
+// missed the fs error passthrough (confinement errors read as "requires the Go
+// backend"), reconnect(), and the dialog/store/capability fixes.
+//
+// Nobody hit it while working ON goleo because linkBridge() npm-links the local
+// checkout over this dependency — the dev path silently papers over the stale pin
+// and only end users get it.
+//
+// Pinning the CLI's own version keeps bridge and runtime in lockstep, since they
+// are released together. The caret's minor-locking is desirable HERE: a project
+// scaffolded by 0.8.8 stays on bridge 0.8.x, matching its pinned runtime v0.8.8.
+func scaffoldBridgeVersion() string {
+	if v := resolveVersion(); releaseVersionRe.MatchString(v) {
+		return "^" + v
+	}
+	// A dev build of the CLI has no release to match. `latest` is the honest
+	// answer — and `goleo new` from a dev binary links the local bridge anyway.
+	return "latest"
+}
+
 // releaseVersionRe matches only an exact published release (`1.2.3`), which is
 // deliberately stricter than semverRe's prefix match.
 //
@@ -277,4 +306,82 @@ func containsReplace(modContent, module string) bool {
 		}
 	}
 	return false
+}
+
+// warnStaleBridgePin flags a frontend that pins @goleo/bridge to a version range
+// which cannot resolve to the runtime this CLI scaffolds against.
+//
+// Projects created before the pin was made to track releases carry a literal
+// "^0.2.1". A caret on a 0.x version locks the minor, so that resolves to 0.2.9 —
+// against a v0.8.x Go runtime. The two implement opposite halves of one wire
+// contract, and the mismatch is silent: writeBinaryFile in 0.2.x sends TextDecoder
+// output where the current runtime expects base64, so binary file writes fail (or
+// worse, corrupt) with nothing pointing at the cause. Confinement errors also
+// surface as "requires the Go backend" instead of the real message.
+//
+// This only warns. package.json is the developer's file and is bound to a
+// lockfile, so silently rewriting it during `dev`/`build` would be a surprising
+// edit to committed state — unlike vendor/, which is derived. Print the exact
+// command instead.
+func warnStaleBridgePin(dir string) {
+	want := scaffoldBridgeVersion()
+	if want == "latest" {
+		return // dev build of the CLI: nothing authoritative to compare against
+	}
+	path := filepath.Join(dir, "frontend", "package.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return // no frontend, or not a scaffolded layout
+	}
+	m := bridgePinRe.FindSubmatch(data)
+	if m == nil {
+		return
+	}
+	pinned := string(m[1])
+	if pinned == want {
+		return
+	}
+	// Only complain when the ranges cannot overlap, i.e. the pinned minor differs.
+	// A patch-level difference inside the same minor resolves compatibly, and a
+	// deliberate "latest"/"*"/git URL is the developer's call.
+	pinnedMinor := minorOf(pinned)
+	wantMinor := minorOf(want)
+	if pinnedMinor == "" || wantMinor == "" || pinnedMinor == wantMinor {
+		return
+	}
+	fmt.Printf("  Warning: frontend/package.json pins \"@goleo/bridge\": %q, which cannot\n", pinned)
+	fmt.Printf("  resolve to %s — the version matching this CLI's runtime. The bridge and the\n", want)
+	fmt.Printf("  Go runtime share a wire contract, so a mismatch breaks calls silently\n")
+	fmt.Printf("  (binary file I/O in particular). Fix with:\n")
+	fmt.Printf("      cd frontend && npm install @goleo/bridge@%s\n", strings.TrimPrefix(want, "^"))
+}
+
+// bridgePinRe pulls the @goleo/bridge range out of a package.json without a full
+// JSON parse, so a frontend package.json carrying anything unusual still works.
+var bridgePinRe = regexp.MustCompile(`"@goleo/bridge"\s*:\s*"([^"]*)"`)
+
+// minorOf returns the `major.minor` of an npm range like `^0.8.8`, or "" if the
+// range is not a plain version (a tag, a URL, a complex range — all deliberate).
+func minorOf(rangeStr string) string {
+	v := strings.TrimLeft(rangeStr, "^~=v ")
+	parts := strings.SplitN(v, ".", 3)
+	if len(parts) < 2 {
+		return ""
+	}
+	// Both components must be purely numeric. Anything else — a wildcard (`0.x`),
+	// a compound range (`>=0.8.0 <2.0.0`), a tag, a file:/git: specifier — is a
+	// deliberate choice this check has no business second-guessing. Being strict
+	// here is what keeps the warning quiet enough to be worth reading; a looser
+	// parse accepted ">=0.8" out of a compound range and warned about it.
+	for _, p := range parts[:2] {
+		if p == "" {
+			return ""
+		}
+		for _, r := range p {
+			if r < '0' || r > '9' {
+				return ""
+			}
+		}
+	}
+	return parts[0] + "." + parts[1]
 }

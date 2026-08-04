@@ -136,6 +136,12 @@ const demoAppNameToken = "__GOLEO_APP_NAME__"
 // caller's project.
 const demoVersionToken = "__GOLEO_VERSION__"
 
+// demoBridgeVersionToken is the placeholder for the @goleo/bridge npm range in the
+// demo frontend's package.json. Kept separate from demoVersionToken because the
+// two have different syntax — a `v`-prefixed Go version vs an npm caret range —
+// even though both resolve from this binary's version. See scaffoldBridgeVersion.
+const demoBridgeVersionToken = "__GOLEO_BRIDGE_VERSION__"
+
 // extractDemoTemplate writes the full-featured "demo" project (the goleo new
 // demo template, embedded under templates/demo) into destDir, substituting the
 // project name and restoring on-disk names the embed can't hold as-is: `*.tmpl`
@@ -164,6 +170,7 @@ func extractDemoTemplate(destDir, appName string) error {
 		}
 		content := strings.ReplaceAll(string(data), demoAppNameToken, appName)
 		content = strings.ReplaceAll(content, demoVersionToken, scaffoldGoleoVersion())
+		content = strings.ReplaceAll(content, demoBridgeVersionToken, scaffoldBridgeVersion())
 		target := filepath.Join(destDir, rel)
 		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
 			return err

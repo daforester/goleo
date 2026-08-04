@@ -82,6 +82,7 @@ func runDev(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("go mod tidy failed: %w", err)
 	}
 	keepVendorInSync(".")
+	warnStaleBridgePin(".")
 
 	if err := generateBackendEntrypoints("."); err != nil {
 		return fmt.Errorf("generating backend entry points: %w", err)

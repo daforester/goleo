@@ -68,6 +68,10 @@ type projectConfig struct {
 	// GoleoVersion is the `v`-prefixed goleo version the generated go.mod
 	// requires — the CLI's own version. See scaffoldGoleoVersion.
 	GoleoVersion string
+	// BridgeVersion is the npm range the generated frontend depends on for
+	// @goleo/bridge. Must stay in lockstep with GoleoVersion — the two sides
+	// share a wire contract. See scaffoldBridgeVersion.
+	BridgeVersion string
 }
 
 func runNew(cmd *cobra.Command, args []string) error {
@@ -79,9 +83,10 @@ func runNew(cmd *cobra.Command, args []string) error {
 	}
 
 	cfg := projectConfig{
-		Name:         name,
-		ModuleName:   fmt.Sprintf("goleo/%s", name),
-		GoleoVersion: scaffoldGoleoVersion(),
+		Name:          name,
+		ModuleName:    fmt.Sprintf("goleo/%s", name),
+		GoleoVersion:  scaffoldGoleoVersion(),
+		BridgeVersion: scaffoldBridgeVersion(),
 	}
 
 	template, err := chooseTemplate()

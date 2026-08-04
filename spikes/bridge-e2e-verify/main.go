@@ -1,7 +1,7 @@
 // End-to-end verification of the REAL @goleo/bridge npm package running inside a
 // REAL webview against a REAL Go backend.
 //
-// Why this exists. The TypeScript suite (bridge/src/*.test.ts, 52 tests) drives the
+// Why this exists. The TypeScript suite (bridge/src/*.test.ts, 55 tests) drives the
 // bridge against a FakeSocket, and the Go suite (runtime/ws_e2e_test.go,
 // nativeipc_test.go) drives the wire format from hand-written frames. Both are
 // green while neither has ever executed the two halves TOGETHER. Three things are
@@ -24,7 +24,9 @@
 // dist/ of @goleo/bridge as ES modules, and reports what actually happened.
 // Prints RESULT: PASS and exits 0 only when every check passes.
 //
-// Run: node prepare.mjs && go build && ./bridge-e2e-verify
+// Run: node prepare.mjs && ./bridge-e2e-verify
+// prepare.mjs does the go build itself, because the page is embedded into the
+// binary — copying new JS without recompiling verifies the PREVIOUS page.
 // CI:  .github/workflows/glaze-verify.yml (macos-14, ubuntu xvfb, windows)
 package main
 
@@ -56,13 +58,13 @@ var binaryPayload = []byte{
 }
 
 type report struct {
-	Native      bool   `json:"native"`
-	Origin      string `json:"origin"`
-	BinaryOK    bool   `json:"binaryOK"`
-	BinaryHex   string `json:"binaryHex"`
-	DeniedOK    bool   `json:"deniedOK"`
-	DeniedError string `json:"deniedError"`
-	AppDataOK   bool   `json:"appDataOK"`
+	Native      bool     `json:"native"`
+	Origin      string   `json:"origin"`
+	BinaryOK    bool     `json:"binaryOK"`
+	BinaryHex   string   `json:"binaryHex"`
+	DeniedOK    bool     `json:"deniedOK"`
+	DeniedError string   `json:"deniedError"`
+	AppDataOK   bool     `json:"appDataOK"`
 	Failures    []string `json:"failures"`
 }
 

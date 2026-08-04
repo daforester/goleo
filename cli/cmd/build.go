@@ -298,6 +298,7 @@ func buildForDesktop(target buildTarget, distDir string) error {
 		return fmt.Errorf("go mod tidy failed: %w", err)
 	}
 	keepVendorInSync(".")
+	warnStaleBridgePin(".")
 
 	fmt.Printf("  Compiling Go binary for %s/%s...\n", target.GOOS, target.GOARCH)
 	if err := build.Run(); err != nil {

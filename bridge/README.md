@@ -48,3 +48,6 @@ unsubscribe()
 - `openURL(url)` - Open URL in default browser
 - `disconnect()` - Disconnect from backend
 - `isConnected()` - Check connection status
+- `isNative()` - True when calls go over the desktop webview's in-process channel
+  (`Config.NativeIPC`) rather than a WebSocket or HTTP POST. The transport is chosen
+  automatically, so this is informational.

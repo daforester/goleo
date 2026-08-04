@@ -250,3 +250,49 @@ Three previously-ignored keys now take effect —
 now do; if you set them to something wrong, the build will change accordingly. The
 iOS bundle identifier previously fell back to the *Android* `package_name`, and
 still does when unset.
+
+---
+
+## Unreleased — existing projects must update their `@goleo/bridge` pin
+
+**Affects:** every project scaffolded by `goleo new` before this release. Check with:
+
+```
+grep '@goleo/bridge' frontend/package.json
+```
+
+If it says `"^0.2.1"`, you are affected. `goleo dev` and `goleo build` now warn
+about it too.
+
+**What was wrong.** The generated `frontend/package.json` hardcoded
+`"@goleo/bridge": "^0.2.1"`. A caret on a `0.x` version locks the *minor*, so that
+range resolves to **0.2.9** — it never picks up 0.3 or later. The Go side had
+already been changed to pin the CLI's own version, so a new project got a v0.8.x
+runtime alongside a bridge six minors old.
+
+That is a skew across a wire contract, not just an old dependency, and it fails
+quietly:
+
+- **binary file I/O was broken.** `writeBinaryFile` in 0.2.x sends
+  `TextDecoder` output where the current runtime expects base64, and
+  `readBinaryFile` expects a shape the runtime no longer returns.
+- **filesystem errors were misattributed.** Confinement errors surfaced as
+  `"… requires the Go backend"` instead of the real message naming the path.
+- Missing since 0.2.x: `reconnect()` (a slow backend stranded the app in
+  local-only mode for the whole session), `showMessage` throwing rather than
+  reporting a fake `'OK'`, per-call localStorage fallbacks in `store`, and the
+  cached-capabilities fix that made `openWindow` throw "not supported" forever.
+
+Nobody hit this while working on goleo itself because `goleo new` npm-links a local
+bridge checkout over the dependency — the development path masked it and only
+end users got the stale pin.
+
+**Fix — in your project:**
+
+```
+cd frontend && npm install @goleo/bridge@<your goleo version>
+```
+
+Use the version `goleo version` reports, so the bridge and runtime stay in
+lockstep. New projects now get this automatically: the pin is injected from the
+CLI's own version, exactly like the `go.mod` require.
