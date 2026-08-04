@@ -119,8 +119,30 @@ jobs:
         with:
           node-version: "20"
 
+      # `npm ci` at the ROOT must work on a fresh clone. It used to fail after every
+      # release: the version bump pinned @goleo/cli's optionalDependencies to a version
+      # not yet on the registry, npm could not write lockfile entries for it, and being
+      # OPTIONAL they were dropped silently — so package.json declared six platform
+      # packages the lockfile knew nothing about, and `npm ci` refuses on any such
+      # mismatch. It needed a manual `npm install` + commit after each release, and it
+      # stayed invisible because every workflow ran `npm install`, which re-resolves
+      # rather than verifies. The committed pins are now "latest" (see
+      # cli/npm/check-optional-deps.js) so there is nothing to repair — this guards that.
+      - name: Lockfile is installable (npm ci on a fresh clone)
+        run: npm ci
+
+      # And the published @goleo/cli must never carry those "latest" pins: end users
+      # would get a floating platform binary. build-platform-packages.js stamps the
+      # exact version before publishing and prepublishOnly refuses without it, so check
+      # the guard itself still rejects the committed state rather than passing vacuously.
+      - name: Publish guard rejects unpinned platform deps
+        run: |
+          if node cli/npm/check-optional-deps.js 2>/dev/null; then
+            echo "::error::check-optional-deps passed on the committed tree, where the pins are \"latest\" — the guard is not guarding anything"
+            exit 1
+          fi
+          echo "guard correctly refuses the committed \"latest\" pins"
+
       - name: Bridge tests (TypeScript)
         working-directory: bridge
-        run: |
-          npm ci || npm install
-          npm test
+        run: npm test
