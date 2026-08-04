@@ -39,3 +39,27 @@ func Share(data *ShareData) error {
 	}
 	return platformShare(data)
 }
+
+// osShareCommand returns the argv for handing a URL to the OS default handler.
+//
+// Built here, without a build constraint and taking goos as a parameter, so all
+// three desktops' argv can be asserted from any host. The property it protects is
+// invisible in a working share: the URL must be its own argv element with NO shell
+// in the pipeline. `cmd /c start <url>` used to be the Windows path, and cmd
+// re-parses its own command line — Go's syscall.EscapeArg quotes only
+// space/tab/newline/quote, not `&` — so a frontend URL of `http://x&calc` ran calc.
+// rundll32, open and xdg-open all take the URL as a plain argument.
+//
+// Callers must still validate the URL itself: runtime's goleo:share handler applies
+// the same scheme allow-list as goleo:openURL, because these handlers will act on
+// file:// and on paths to executables.
+func osShareCommand(goos, url string) (string, []string) {
+	switch goos {
+	case "windows":
+		return "rundll32", []string{"url.dll,FileProtocolHandler", url}
+	case "darwin":
+		return "open", []string{url}
+	default:
+		return "xdg-open", []string{url}
+	}
+}
