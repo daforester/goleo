@@ -568,8 +568,12 @@ func buildForAndroid(distDir string, deps *androidDeps) error {
 	fmt.Println("  Compiling APK with Gradle...")
 	gradlew := filepath.Join(buildDir, "gradlew")
 	if _, err := os.Stat(gradlew); os.IsNotExist(err) {
+		// Report this. It was `_ = err` here while the dev-build path and
+		// `goleo emulate` both return it — so a failed wrapper download (offline, a
+		// proxy, GitHub down) fell through to a Gradle invocation that could only fail
+		// more confusingly, or to the silent-success path below.
 		if err := downloadGradleWrapper(buildDir); err != nil {
-			_ = err
+			return fmt.Errorf("downloading Gradle wrapper: %w", err)
 		}
 	}
 
@@ -582,13 +586,20 @@ func buildForAndroid(distDir string, deps *androidDeps) error {
 		return fmt.Errorf("gradle build failed: %w", err)
 	}
 
+	// Gradle exited 0, so the APK must be where it says. If it is not, that is a
+	// failure — this used to print "APK built in: <dir>" and return nil, so
+	// `goleo build android` exited 0 having produced nothing at the path it just
+	// told the user about. A CI job or a script checking the exit code saw success.
 	apkPath := filepath.Join(buildDir, "app", "build", "outputs", "apk", "debug", "app-debug.apk")
-	if _, err := os.Stat(apkPath); err == nil {
-		copyFile(apkPath, outputPath)
-		fmt.Printf("  APK: %s\n", outputPath)
-	} else {
-		fmt.Println("  APK built in:", filepath.Join(buildDir, "app", "build", "outputs", "apk"))
+	if _, err := os.Stat(apkPath); err != nil {
+		return fmt.Errorf("gradle reported success but no APK at %s: %w\n"+
+			"  look under %s for what it did produce", apkPath, err,
+			filepath.Join(buildDir, "app", "build", "outputs"))
 	}
+	if err := copyFile(apkPath, outputPath); err != nil {
+		return fmt.Errorf("copying APK to %s: %w", outputPath, err)
+	}
+	fmt.Printf("  APK: %s\n", outputPath)
 
 	os.Remove(aanPath)
 	fmt.Printf("  Android build complete!\n")
@@ -901,7 +912,12 @@ java -Dorg.gradle.appname=gradlew -classpath "$DIRNAME/gradle/wrapper/gradle-wra
 `
 	os.WriteFile(shScript, []byte(shContent), 0755)
 
-	jarURL := "https://github.com/gradle/gradle/raw/v8.10.2/gradle/wrapper/gradle-wrapper.jar"
+	// Must match the distribution the template's gradle-wrapper.properties asks for
+	// (gradleWrapperVersion). These had drifted — the jar came from v8.10.2 while the
+	// properties file requested the 9.4.1 distribution — which is the kind of mismatch
+	// that works until it doesn't, then fails inside Gradle's own bootstrap where the
+	// cause is invisible.
+	jarURL := gradleWrapperJarURL()
 	fmt.Println("  Downloading Gradle wrapper JAR...")
 	resp, err := http.Get(jarURL)
 	if err != nil {
@@ -1037,4 +1053,17 @@ func androidBindTarget() (string, error) {
 		return "android", nil
 	}
 	return strings.Join(targets, ","), nil
+}
+
+// gradleWrapperVersion is the Gradle version the Android template targets. It is the
+// single source of truth for BOTH the wrapper jar downloaded by downloadGradleWrapper
+// and the distributionUrl in templates/android/gradle/wrapper/gradle-wrapper.properties;
+// a test asserts they agree, because they had silently drifted (jar 8.10.2 against a
+// 9.4.1 distribution).
+const gradleWrapperVersion = "9.4.1"
+
+// gradleWrapperJarURL is the wrapper jar matching gradleWrapperVersion. A function so a
+// test can assert it tracks the constant rather than re-hardcoding a version.
+func gradleWrapperJarURL() string {
+	return "https://github.com/gradle/gradle/raw/v" + gradleWrapperVersion + "/gradle/wrapper/gradle-wrapper.jar"
 }

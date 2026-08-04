@@ -84,7 +84,7 @@ func runBundle(target buildTarget, binaryPath string, cfg bundleConfig) error {
 	case "darwin":
 		return bundleDarwin(binaryPath, cfg, outDir, sc)
 	case "linux":
-		return bundleLinux(binaryPath, cfg, outDir, sc)
+		return bundleLinux(binaryPath, cfg, outDir, sc, target.GOARCH)
 	default:
 		return fmt.Errorf("bundle: unsupported target %s (desktop only)", target.GOOS)
 	}
@@ -260,7 +260,7 @@ func infoPlist(cfg bundleConfig, binBase string) string {
 
 // --- Linux (nfpm → .deb/.rpm) ---
 
-func bundleLinux(binaryPath string, cfg bundleConfig, outDir string, sc signConfig) error {
+func bundleLinux(binaryPath string, cfg bundleConfig, outDir string, sc signConfig, goarch string) error {
 	_ = sc // Linux package signing (dpkg-sig / rpm --addsign, GPG) is a follow-up
 	tool, err := requireTool("nfpm", "go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest")
 	if err != nil {
@@ -289,7 +289,7 @@ func bundleLinux(binaryPath string, cfg bundleConfig, outDir string, sc signConf
 	}
 	desktopPath, _ = filepath.Abs(desktopPath)
 
-	nfpmYAML := nfpmConfig(cfg, binaryPath, binBase, iconPath, desktopPath)
+	nfpmYAML := nfpmConfig(cfg, binaryPath, binBase, iconPath, desktopPath, goarch)
 	cfgPath := filepath.Join(outDir, "nfpm.yaml")
 	if err := os.WriteFile(cfgPath, []byte(nfpmYAML), 0o644); err != nil {
 		return err
@@ -306,7 +306,7 @@ func bundleLinux(binaryPath string, cfg bundleConfig, outDir string, sc signConf
 	return nil
 }
 
-func nfpmConfig(cfg bundleConfig, binaryPath, binBase, iconPath, desktopPath string) string {
+func nfpmConfig(cfg bundleConfig, binaryPath, binBase, iconPath, desktopPath, goarch string) string {
 	maintainer := cfg.Publisher
 	if maintainer == "" {
 		maintainer = "unknown <noreply@example.com>"
@@ -336,12 +336,12 @@ func nfpmConfig(cfg bundleConfig, binaryPath, binBase, iconPath, desktopPath str
 `, filepath.ToSlash(iconPath), slug(cfg.AppName))
 	}
 	return fmt.Sprintf(`name: "%s"
-arch: "amd64"
+arch: "%s"
 version: "%s"
 maintainer: "%s"
 description: "%s"
 %scontents:
-%s`, slug(cfg.AppName), cfg.Version, maintainer, desc, extra, contents)
+%s`, slug(cfg.AppName), nfpmArch(goarch), cfg.Version, maintainer, desc, extra, contents)
 }
 
 // desktopEntry builds a freedesktop .desktop launcher for the installed binary.
@@ -416,4 +416,27 @@ func slug(s string) string {
 		}
 	}
 	return strings.Trim(b.String(), "-")
+}
+
+// nfpmArch maps a GOARCH to the architecture name nfpm expects.
+//
+// This was hardcoded to "amd64", so `goleo build linux --arch arm64 --bundle` produced
+// a .deb/.rpm containing an arm64 binary but LABELLED amd64. dpkg then refuses it on an
+// arm64 machine ("package architecture does not match system"), and an amd64 machine
+// happily installs a binary it cannot run — a mislabelled package is worse than a
+// missing one, because the failure surfaces at first launch rather than at install.
+//
+// nfpm accepts Go's names for the architectures goleo targets, so this is mostly a
+// pass-through; it exists to be the single named place that mapping lives, and to fall
+// back to amd64 rather than emitting an empty arch if a target ever appears that nfpm
+// does not know.
+func nfpmArch(goarch string) string {
+	switch goarch {
+	case "amd64", "arm64", "386", "arm", "ppc64le", "s390x", "riscv64":
+		return goarch
+	case "":
+		return "amd64"
+	default:
+		return goarch
+	}
 }

@@ -38,7 +38,7 @@ func TestGeneratedArtifacts(t *testing.T) {
 		}
 	}
 
-	yaml := nfpmConfig(cfg, "/tmp/app", "app", "", "/tmp/my-app.desktop")
+	yaml := nfpmConfig(cfg, "/tmp/app", "app", "", "/tmp/my-app.desktop", "amd64")
 	for _, want := range []string{"name: \"my-app\"", "version: \"1.2.3\"", "Acme", "/usr/bin/app", "my-app.desktop"} {
 		if !contains(yaml, want) {
 			t.Errorf("nfpm config missing %q:\n%s", want, yaml)
@@ -189,5 +189,54 @@ func TestWindowsInstallerReferencesAnExecutable(t *testing.T) {
 	// And the uninstaller must delete the same name it installed.
 	if !contains(nsi, `Delete "$INSTDIR\app.exe"`) {
 		t.Errorf("NSIS uninstall does not remove app.exe:\n%s", nsi)
+	}
+}
+
+// nfpm's arch was hardcoded to "amd64", so `goleo build linux --arch arm64 --bundle`
+// produced a package containing an arm64 binary but LABELLED amd64. dpkg refuses that
+// on an arm64 machine, and an amd64 machine installs a binary it cannot run — a
+// mislabelled package is worse than a missing one, because it fails at first launch
+// rather than at install time.
+func TestNfpmArchFollowsTheTarget(t *testing.T) {
+	cfg := bundleConfig{AppName: "My App", Version: "1.2.3"}
+
+	for _, goarch := range []string{"amd64", "arm64", "386", "arm"} {
+		yaml := nfpmConfig(cfg, "/tmp/app", "app", "", "", goarch)
+		want := "arch: \"" + goarch + "\""
+		if !contains(yaml, want) {
+			t.Errorf("goarch %q produced no %q:\n%s", goarch, want, yaml)
+		}
+		// And must not still carry the hardcoded value when targeting something else.
+		if goarch != "amd64" && contains(yaml, `arch: "amd64"`) {
+			t.Errorf("goarch %q still emitted arch: \"amd64\"", goarch)
+		}
+	}
+
+	// An empty arch must not emit an empty field — nfpm would reject or mislabel it.
+	if got := nfpmArch(""); got != "amd64" {
+		t.Errorf("nfpmArch(\"\") = %q, want a concrete default", got)
+	}
+}
+
+// The wrapper jar and the distribution the template requests must be the same Gradle
+// version. They had drifted — jar from v8.10.2, distributionUrl asking for 9.4.1 — the
+// kind of mismatch that works until it doesn't, and then fails inside Gradle's own
+// bootstrap where the cause is invisible.
+func TestGradleWrapperJarMatchesTheTemplateDistribution(t *testing.T) {
+	props, err := mobileTemplates.ReadFile("templates/android/gradle/wrapper/gradle-wrapper.properties")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "gradle-" + gradleWrapperVersion + "-bin.zip"
+	if !contains(string(props), want) {
+		t.Errorf("gradle-wrapper.properties does not request %s (gradleWrapperVersion=%s):\n%s",
+			want, gradleWrapperVersion, props)
+	}
+	// Guard against a literal version creeping back into the download URL.
+	if contains(gradleWrapperJarURL(), "8.10.2") && gradleWrapperVersion != "8.10.2" {
+		t.Errorf("the wrapper jar URL is pinned to 8.10.2 while the template wants %s", gradleWrapperVersion)
+	}
+	if !contains(gradleWrapperJarURL(), gradleWrapperVersion) {
+		t.Errorf("the wrapper jar URL %q does not reference %s", gradleWrapperJarURL(), gradleWrapperVersion)
 	}
 }
