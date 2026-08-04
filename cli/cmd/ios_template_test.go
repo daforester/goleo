@@ -1,0 +1,89 @@
+package cmd
+
+import (
+	"strings"
+	"testing"
+	"text/template"
+)
+
+// The iOS templates had four defects that only a real build surfaces, so they are asserted
+// here where a `go test` can catch a regression on any host — this repo builds iOS only on
+// a macOS runner, and only in one job.
+func TestIOSTemplatesTakeTheirValuesFromConfig(t *testing.T) {
+	cfg := mobileConfig{
+		PackageName:         "com.example.android",
+		AppName:             "My iOS App",
+		VersionName:         "2.5.7",
+		VersionCode:         20507,
+		IOSBundleID:         "com.example.ios",
+		IOSDeploymentTarget: "16.2",
+	}
+
+	render := func(path string) string {
+		t.Helper()
+		raw, err := mobileTemplates.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tmpl, err := template.New("t").Parse(string(raw))
+		if err != nil {
+			t.Fatalf("%s does not parse as a template: %v", path, err)
+		}
+		var out strings.Builder
+		if err := tmpl.Execute(&out, cfg); err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		return out.String()
+	}
+
+	plist := render("templates/ios/App/Info.plist")
+	for _, want := range []string{
+		"<string>My iOS App</string>", // CFBundleName, was hardcoded "Goleo App"
+		"<string>2.5.7</string>",      // CFBundleShortVersionString, was "1.0"
+		"<string>20507</string>",      // CFBundleVersion, was "1"
+	} {
+		if !strings.Contains(plist, want) {
+			t.Errorf("Info.plist is missing %s:\n%s", want, plist)
+		}
+	}
+	for _, gone := range []string{"<string>Goleo App</string>", "<string>1.0</string>"} {
+		if strings.Contains(plist, gone) {
+			t.Errorf("Info.plist still hardcodes %s", gone)
+		}
+	}
+
+	// The bundle id must come from mobile.ios.bundle_identifier, NOT the Android package
+	// name. Using PackageName for both made the two apps indistinguishable to Apple.
+	proj := render("templates/ios/xcodegen.yml")
+	if !strings.Contains(proj, "com.example.ios") {
+		t.Errorf("xcodegen.yml does not use the iOS bundle id:\n%s", proj)
+	}
+	if strings.Contains(proj, "com.example.android") {
+		t.Errorf("xcodegen.yml is still using the ANDROID package name:\n%s", proj)
+	}
+	if !strings.Contains(proj, `iOS: "16.2"`) {
+		t.Errorf("xcodegen.yml does not use mobile.ios.deployment_target:\n%s", proj)
+	}
+	// Without PRODUCT_NAME the product is named after the target ("App.app") while the CLI
+	// reports GoleoApp.app — a path it never writes.
+	if !strings.Contains(proj, "PRODUCT_NAME: GoleoApp") {
+		t.Errorf("xcodegen.yml must pin PRODUCT_NAME:\n%s", proj)
+	}
+}
+
+// Info.plist points UILaunchStoryboardName at "LaunchScreen". A build whose referenced
+// launch storyboard is missing shows a black launch screen and is rejected by App Store
+// review — and the file did not exist at all until now.
+func TestLaunchScreenStoryboardExists(t *testing.T) {
+	plist, err := mobileTemplates.ReadFile("templates/ios/App/Info.plist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(plist), "UILaunchStoryboardName") {
+		t.Skip("Info.plist no longer references a launch storyboard")
+	}
+	if _, err := mobileTemplates.ReadFile("templates/ios/App/LaunchScreen.storyboard"); err != nil {
+		t.Fatalf("Info.plist references UILaunchStoryboardName but LaunchScreen.storyboard "+
+			"is not in the template: %v", err)
+	}
+}

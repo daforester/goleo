@@ -55,6 +55,7 @@ var (
 	buildAndroidFormat string
 	buildVersionCode   int
 	buildWindowsFormat string
+	buildSimulator     bool
 )
 
 func init() {
@@ -72,6 +73,7 @@ func init() {
 	buildCmd.Flags().StringVar(&buildAndroidFormat, "android-format", "", "Android artifact: aab or apk (default: aab with --release, apk otherwise)")
 	buildCmd.Flags().IntVar(&buildVersionCode, "version-code", 0, "Override the Android versionCode (default: mobile.android.version_code, else derived from version)")
 	buildCmd.Flags().StringVar(&buildWindowsFormat, "windows-format", "", "With --bundle on Windows: nsis, msix, or both (default: nsis)")
+	buildCmd.Flags().BoolVar(&buildSimulator, "simulator", false, "iOS: build for the Simulator (needs no signing certificate, so it works without an Apple Developer account)")
 }
 
 // androidArtifactFormat is the Android output kind.
@@ -215,6 +217,11 @@ func runBuild(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("%s does not apply to the %s target — %s", flag, targetName, hint)
 		}
 	}
+	// --simulator is iOS-only; accepting it elsewhere would silently do nothing.
+	if buildSimulator && targetName != "ios" {
+		return fmt.Errorf("--simulator only applies to the ios target")
+	}
+
 	// --windows-format is meaningless unless a Windows installer is actually being built.
 	if buildWindowsFormat != "" {
 		if !buildBundle {
@@ -912,7 +919,11 @@ func buildForIOS(distDir string) error {
 		"bind", "-v",
 		"-tags", bindTags,
 		"-o", xcfPath,
-		"-target", "ios",
+		// Both slices: an xcframework exists precisely so one artifact serves device and
+		// simulator, and a simulator slice is what makes the app runnable without any
+		// signing certificate — which is the only way to test iOS on CI, or at all
+		// without an Apple Developer account.
+		"-target", "ios,iossimulator",
 		"-iosversion", iosDeployTarget,
 		gomobilePkgDir(),
 	}
@@ -994,12 +1005,52 @@ func buildForIOS(distDir string) error {
 		return fmt.Errorf("xcodegen failed: %w", err)
 	}
 
-	fmt.Println("  Compiling with xcodebuild...")
-	xcodebuild := exec.Command("xcodebuild", "-project", filepath.Join(buildDir, "GoleoApp.xcodeproj"), "-scheme", "App", "-configuration", "Debug", "CONFIGURATION_BUILD_DIR="+cwd)
+	args := []string{
+		"-project", filepath.Join(buildDir, "GoleoApp.xcodeproj"),
+		"-scheme", "App",
+		"-configuration", "Debug",
+		"CONFIGURATION_BUILD_DIR=" + cwd,
+	}
+	if buildSimulator {
+		// A simulator build needs NO code signing, which is what makes it usable without
+		// an Apple Developer account — on CI, or on any machine without a certificate.
+		fmt.Println("  Compiling for the iOS Simulator with xcodebuild...")
+		args = append(args,
+			"-sdk", "iphonesimulator",
+			"-destination", "generic/platform=iOS Simulator",
+			"CODE_SIGNING_ALLOWED=NO",
+		)
+	} else {
+		fmt.Println("  Compiling with xcodebuild...")
+	}
+	xcodebuild := exec.Command("xcodebuild", append([]string{"build"}, args...)...)
 	xcodebuild.Stdout = os.Stdout
 	xcodebuild.Stderr = os.Stderr
 	if err := xcodebuild.Run(); err != nil {
 		return fmt.Errorf("xcodebuild failed: %w", err)
+	}
+
+	// Verify the app is actually there. This used to print outputPath unconditionally,
+	// but the xcodegen target is named "App", so xcodebuild produced App.app while the
+	// CLI reported GoleoApp.app — a path it never wrote. PRODUCT_NAME now pins the name;
+	// this makes a mismatch a failure rather than a misleading success line.
+	built := filepath.Join(cwd, "GoleoApp.app")
+	if _, err := os.Stat(built); err != nil {
+		entries, _ := os.ReadDir(cwd)
+		var apps []string
+		for _, e := range entries {
+			if strings.HasSuffix(e.Name(), ".app") {
+				apps = append(apps, e.Name())
+			}
+		}
+		return fmt.Errorf("xcodebuild reported success but no GoleoApp.app in %s "+
+			"(found: %v): %w", cwd, apps, err)
+	}
+	if built != outputPath {
+		os.RemoveAll(outputPath)
+		if err := os.Rename(built, outputPath); err != nil {
+			return fmt.Errorf("naming the app bundle %s: %w", outputPath, err)
+		}
 	}
 
 	os.RemoveAll(xcfPath)

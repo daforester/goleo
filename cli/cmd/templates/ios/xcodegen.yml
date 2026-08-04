@@ -1,8 +1,13 @@
 name: GoleoApp
 options:
-  bundleIdPrefix: {{.PackageName}}
+  # The bundle id comes from mobile.ios.bundle_identifier, NOT the Android package_name.
+  # It used to use PackageName for both, so setting bundle_identifier in goleo.json did
+  # nothing and every iOS build reused the Android id — which makes the two apps
+  # indistinguishable to Apple and to TestFlight.
+  bundleIdPrefix: {{.IOSBundleID}}
   deploymentTarget:
-    iOS: "15.0"
+    # From mobile.ios.deployment_target; was hardcoded 15.0 regardless of config.
+    iOS: "{{.IOSDeploymentTarget}}"
 settings:
   base:
     SWIFT_VERSION: "5.0"
@@ -18,5 +23,15 @@ targets:
     settings:
       base:
         INFOPLIST_FILE: App/Info.plist
-        PRODUCT_BUNDLE_IDENTIFIER: {{.PackageName}}
+        # Without this the product is named after the TARGET ("App.app"), while the CLI
+        # reported GoleoApp.app — a path it never wrote.
+        PRODUCT_NAME: GoleoApp
+        PRODUCT_BUNDLE_IDENTIFIER: {{.IOSBundleID}}
+        MARKETING_VERSION: "{{.VersionName}}"
+        CURRENT_PROJECT_VERSION: "{{.VersionCode}}"
         {{if .HasIcon}}ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon{{end}}
+    # An explicit scheme is required by `xcodebuild -scheme` for archiving and for
+    # simulator builds; xcodegen generates one implicitly, but naming it here keeps the
+    # name stable so the build commands do not depend on that default.
+    scheme:
+      testTargets: []
