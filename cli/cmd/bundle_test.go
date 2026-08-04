@@ -153,3 +153,41 @@ func TestCurrentTargetProducesARunnableNameOnWindows(t *testing.T) {
 		t.Errorf("`goleo build` on %s names the binary %q, want \"app\"", runtime.GOOS, got)
 	}
 }
+
+// The installer is the second, worse consequence of the missing .exe, and nothing
+// caught it: TestGeneratedArtifacts calls nsisScript with a hardcoded "app.exe"
+// while production passed filepath.Base of the built binary — which for the
+// `current` target on Windows was `app`. So `goleo build --bundle` (what the
+// goleo:bundle script runs) produced an installer that installed a file with no
+// extension and a Start Menu shortcut pointing at it. It installs fine and the
+// shortcut does nothing.
+//
+// Derive the name the way bundleWindows does instead of restating it.
+func TestWindowsInstallerReferencesAnExecutable(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the current target only yields a Windows installer on Windows")
+	}
+	buildOutput = ""
+	t.Cleanup(func() { buildOutput = "" })
+
+	binaryPath, err := filepath.Abs(binaryOutputName(targets["current"]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	binBase := filepath.Base(binaryPath)
+	if filepath.Ext(binBase) != ".exe" {
+		t.Fatalf("bundling would install %q, which Windows cannot execute", binBase)
+	}
+
+	cfg := bundleConfig{AppName: "My App", Version: "1.2.3", Identifier: "com.example.app"}
+	nsi := nsisScript(cfg, binaryPath, binBase, `C:\out\setup.exe`)
+
+	// The shortcut is the bit a user clicks; it must target the executable.
+	if !contains(nsi, `CreateShortcut "$SMPROGRAMS\My App.lnk" "$INSTDIR\app.exe"`) {
+		t.Errorf("NSIS shortcut does not point at app.exe:\n%s", nsi)
+	}
+	// And the uninstaller must delete the same name it installed.
+	if !contains(nsi, `Delete "$INSTDIR\app.exe"`) {
+		t.Errorf("NSIS uninstall does not remove app.exe:\n%s", nsi)
+	}
+}

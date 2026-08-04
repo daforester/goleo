@@ -146,20 +146,6 @@ jobs:
           [ "${got%.*}" = "${SMOKE_VERSION%.*}" ] || {
             echo "::error::bridge $got does not share a minor with the CLI $SMOKE_VERSION"; exit 1; }
 
-      # The published bridge must be loadable without a bundler. tsc used to emit
-      # extensionless relative imports, which no browser and no Node ESM loader can
-      # resolve; Vite hid it from template users. spikes/bridge-e2e-verify covers
-      # this pre-release, but only against the local build — this checks the
-      # artifact that actually shipped.
-      #
-      # NOTE: 0.8.8 and earlier FAIL this step, correctly — they were published with
-      # the extensionless imports. Verified locally against the published 0.8.8:
-      # "Cannot find module .../dist/bridge imported from .../dist/index.js". So a
-      # failure here on an old version is the check working, not a broken check.
-      - name: Check the published bridge loads as ESM with no bundler
-        working-directory: ${{ runner.temp }}/smoke/smokeapp/frontend
-        run: node -e "import('@goleo/bridge').then(m => console.log('ESM load ok,', Object.keys(m).length, 'exports')).catch(e => { console.error('::error::published bridge is not loadable:', e.message); process.exit(1) })"
-
       - name: Build the project
         working-directory: ${{ runner.temp }}/smoke/smokeapp
         run: goleo build
@@ -215,3 +201,17 @@ jobs:
           grep -q "\"@goleo/bridge\": \"\^$SMOKE_VERSION\"" frontend/package.json || {
             echo "::error::demo frontend/package.json does not pin @goleo/bridge ^$SMOKE_VERSION"; exit 1; }
           go list ./... > /dev/null
+
+      # The published bridge must be loadable without a bundler. tsc used to emit
+      # extensionless relative imports, which no browser and no Node ESM loader can
+      # resolve; Vite hid it from template users. spikes/bridge-e2e-verify covers
+      # this pre-release, but only against the local build — this checks the
+      # artifact that actually shipped.
+      #
+      # NOTE: 0.8.8 and earlier FAIL this step, correctly — they were published with
+      # the extensionless imports. Verified locally against the published 0.8.8:
+      # "Cannot find module .../dist/bridge imported from .../dist/index.js". So a
+      # failure here on an old version is the check working, not a broken check.
+      - name: Check the published bridge loads as ESM with no bundler
+        working-directory: ${{ runner.temp }}/smoke/smokeapp/frontend
+        run: node -e "import('@goleo/bridge').then(m => console.log('ESM load ok,', Object.keys(m).length, 'exports')).catch(e => { console.error('::error::published bridge is not loadable:', e.message); process.exit(1) })"
