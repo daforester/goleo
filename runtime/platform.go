@@ -139,27 +139,43 @@ func allowedURLScheme(scheme string) bool {
 	return openURLExtraSchemes[scheme]
 }
 
-func OpenURL(rawURL string) error {
+// checkOutboundURL is the guard for every path that hands a frontend-supplied URL
+// to an OS default handler.
+//
+// It exists as its own function because there is more than one such path and the
+// second one was missed: goleo:openURL was hardened while goleo:share — which ends
+// up at the same rundll32/open/xdg-open call — kept passing whatever the frontend
+// sent. `{"url":"file:///C:/Windows/System32/calc.exe"}` was arbitrary execution
+// from any script in the webview. Anything new that opens a URL must call this.
+func checkOutboundURL(op, rawURL string) error {
 	url := strings.TrimSpace(rawURL)
 	// Reject UNC paths (\\server\share) up front: they carry no scheme, so the
 	// parse below would treat them as opaque and they are a live SMB-credential
 	// leak on Windows.
 	if strings.HasPrefix(url, `\\`) || strings.HasPrefix(url, "//") {
-		return fmt.Errorf("openURL: refusing to open UNC path %q", rawURL)
+		return fmt.Errorf("%s: refusing to open UNC path %q", op, rawURL)
 	}
 	parsed, err := neturl.Parse(url)
 	if err != nil {
-		return fmt.Errorf("openURL: %w", err)
+		return fmt.Errorf("%s: %w", op, err)
 	}
 	// A bare path ("C:\x\y.exe", "/tmp/x") parses with an empty scheme. Never
 	// hand those to the OS handler.
 	if parsed.Scheme == "" {
-		return fmt.Errorf("openURL: refusing to open %q (no URL scheme; only %s are allowed)",
-			rawURL, strings.Join(sortedAllowedSchemes(), ", "))
+		return fmt.Errorf("%s: refusing to open %q (no URL scheme; only %s are allowed)",
+			op, rawURL, strings.Join(sortedAllowedSchemes(), ", "))
 	}
 	if !allowedURLScheme(parsed.Scheme) {
-		return fmt.Errorf("openURL: scheme %q is not allowed (permitted: %s; add your own with Config.URLScheme)",
-			parsed.Scheme, strings.Join(sortedAllowedSchemes(), ", "))
+		return fmt.Errorf("%s: scheme %q is not allowed (permitted: %s; add your own with Config.URLScheme)",
+			op, parsed.Scheme, strings.Join(sortedAllowedSchemes(), ", "))
+	}
+	return nil
+}
+
+func OpenURL(rawURL string) error {
+	url := strings.TrimSpace(rawURL)
+	if err := checkOutboundURL("openURL", url); err != nil {
+		return err
 	}
 
 	var cmd string

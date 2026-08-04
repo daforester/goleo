@@ -315,3 +315,29 @@ empty extension.
 `-o myapp` becomes `myapp.exe`, and `-o myapp.exe` is left alone (no doubling).
 
 If you had worked around this by renaming the output yourself, drop the rename.
+
+---
+
+## Unreleased — `goleo:share` only accepts web URLs
+
+**Affects:** apps calling `runtime.RegisterShare` (the demo scaffold does) that passed
+`goleo:share` anything other than an `http`/`https`/`mailto`/`tel` URL or their own
+registered `Config.URLScheme`.
+
+On desktop, share hands `data.URL` to the OS default handler — `rundll32
+url.dll,FileProtocolHandler` on Windows, `open` on macOS, `xdg-open` on Linux. It did
+so without validating the URL, so a `file://` URL, a UNC path, or a bare path to an
+executable was **arbitrary execution from any script in the webview**:
+
+```js
+invoke('goleo:share', { url: 'file:///C:/Windows/System32/calc.exe' })
+```
+
+`goleo:openURL` was given a scheme allow-list for exactly this reason. Share reaches
+the same handlers and was missed — it was written from the same mechanism but not the
+same guard. Both now go through one validator, so a third caller cannot diverge again.
+
+**What to do.** Nothing for ordinary use: sharing a link still works. If you were
+relying on share to open a local file, use the filesystem plugin, or register your
+own scheme via `Config.URLScheme` and handle it in-app.
+

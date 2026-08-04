@@ -17,6 +17,16 @@ func RegisterShare(b *Bridge) {
 				return nil, err
 			}
 		}
+		// Same guard as goleo:openURL. On desktop, share hands data.URL to the OS
+		// default handler (rundll32 url.dll / open / xdg-open), so without this a
+		// file:// URL, a UNC path or a bare path to an executable is arbitrary
+		// execution from any script in the webview. openURL was hardened for
+		// exactly this and share was missed — it reaches the same handlers.
+		if data.URL != "" {
+			if err := checkOutboundURL("share", data.URL); err != nil {
+				return nil, err
+			}
+		}
 		return nil, share.Share(&data)
 	})
 }
