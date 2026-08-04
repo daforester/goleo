@@ -43,7 +43,11 @@ var (
 )
 
 func init() {
-	emulateCmd.Flags().StringVarP(&buildOutput, "output", "o", "", "Output APK name")
+	// NOTE: no -o/--output here. It used to be declared ("Output APK name") into the
+	// `build` command's buildOutput global and read by nothing: `goleo emulate` builds the
+	// dev APK inside .goleo/android-dev/ and adb-installs it straight from there, so there
+	// is no artifact for a name to apply to. Accepting the flag and ignoring it was worse
+	// than not having it — now it is an unknown-flag error.
 	emulateCmd.Flags().StringVarP(&buildAndroid, "android-ndk", "", "", "Path to Android NDK")
 	emulateCmd.Flags().IntVarP(&devPort, "port", "p", 9842, "Port for the Go backend server")
 	emulateCmd.Flags().BoolVar(&emulateHeadless, "headless", false, "Start the emulator without a window (for CI)")

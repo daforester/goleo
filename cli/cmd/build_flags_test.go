@@ -3,6 +3,8 @@ package cmd
 import (
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 // resetBuildFlags puts every build flag back to its zero value. The flags are package
@@ -175,6 +177,41 @@ func TestNoSignIsAcceptedEverywhere(t *testing.T) {
 	for name, target := range targets {
 		if err := validateTargetFlags(name, target); err != nil {
 			t.Errorf("--no-sign on %s was refused: %v", name, err)
+		}
+	}
+}
+
+// Flags that were declared and read by nothing. Each was accepted silently, so a script
+// passing it believed it had an effect. Kept as a list because the failure mode is
+// re-adding one "for symmetry" with another command.
+func TestRemovedDeadFlagsStayRemoved(t *testing.T) {
+	cases := []struct {
+		cmd    string
+		flag   string
+		reason string
+	}{
+		{"emulate", "output", "the dev APK is installed from .goleo/ and never copied out, " +
+			"so there is no artifact for a name to apply to"},
+	}
+	commands := map[string]*cobra.Command{"emulate": emulateCmd, "build": buildCmd}
+	for _, c := range cases {
+		cmd, ok := commands[c.cmd]
+		if !ok {
+			t.Fatalf("no such command in the test map: %s", c.cmd)
+		}
+		if f := cmd.Flags().Lookup(c.flag); f != nil {
+			t.Errorf("`goleo %s --%s` was removed because %s; if it is back, it must actually "+
+				"be read", c.cmd, c.flag, c.reason)
+		}
+	}
+}
+
+// And the ones that ARE declared must be honoured. --android-ndk is the cautionary case:
+// declared on both build and emulate, documented, read by nothing.
+func TestAndroidNDKFlagIsDeclaredOnBothCommands(t *testing.T) {
+	for name, cmd := range map[string]*cobra.Command{"build": buildCmd, "emulate": emulateCmd} {
+		if cmd.Flags().Lookup("android-ndk") == nil {
+			t.Errorf("`goleo %s` no longer declares --android-ndk", name)
 		}
 	}
 }

@@ -478,3 +478,33 @@ Simulator, which is the only iOS target that needs no Apple Developer account �
 [Mobile](docs/guide/10-mobile.md). And `Info.plist` referenced a `LaunchScreen` storyboard that
 was missing from the template altogether (a black launch screen, and an App Store rejection);
 it is now present.
+
+**Flags that were accepted and ignored are now refused or honoured.** Each did nothing,
+so a script passing one already was not getting what it asked for; the change is that you
+now find out.
+
+| Flag | Was | Now |
+|---|---|---|
+| `goleo build ios --release` | accepted, ignored — you got a debug build and a success message | refused, and says there is no `.ipa` path yet |
+| `--android-abi` on a non-Android target | accepted, ignored | refused (`--arch` is the desktop equivalent) |
+| `--android-ndk` | accepted, ignored **everywhere** — resolution went straight to `ANDROID_NDK_HOME` and autodiscovery | honoured, ahead of the environment; an error if the path is not an NDK |
+| `goleo emulate android -o NAME` | accepted, ignored | removed — the dev APK is installed out of `.goleo/` and never copied, so there was nothing to name |
+
+If you were passing `--android-ndk` and relying on `ANDROID_NDK_HOME` winning, the flag now
+takes precedence. If it pointed somewhere stale, the build stops rather than quietly using a
+different NDK.
+
+**`goleo emulate android` now honours `mobile.android.min_sdk` / `target_sdk`.** The dev
+Android project hardcoded `compileSdk 36 / minSdk 24 / targetSdk 36` while release builds
+read the config. Raising `min_sdk` above 24 used to fail only under `goleo emulate` (Gradle
+rejects a library whose `minSdk` exceeds the app's); lowering it meant dev ran on devices the
+release build did not support. The dev build's launcher label is now your app name rather
+than a shared "Goleo (Dev)", and its `versionName` carries your real version with a `-dev`
+suffix.
+
+**Mobile artifacts got smaller.** The frontend was copied into the native project
+(`app/src/main/assets`, `App/Assets`) *as well as* being embedded in the Go library, which
+is the copy the WebView actually loads over loopback. Nothing read the native copy, so every
+APK, AAB and `.app` carried the whole frontend twice. If you added code that reads
+`file:///android_asset/…` or a bundle resource, it will no longer find those files — load
+over `http://127.0.0.1:<port>` as the shells do.
