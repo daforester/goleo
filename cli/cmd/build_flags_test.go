@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -213,5 +215,81 @@ func TestAndroidNDKFlagIsDeclaredOnBothCommands(t *testing.T) {
 		if cmd.Flags().Lookup("android-ndk") == nil {
 			t.Errorf("`goleo %s` no longer declares --android-ndk", name)
 		}
+	}
+}
+
+// snapshotModFiles is the guard against the "inconsistent vendoring" failure that shipped
+// in v0.8.1-0.8.8 and was found by a user in production: the mobile path adds build-only
+// golang.org/x/mobile deps to go.mod under -mod=mod and never re-vendors, so without a
+// restore the next desktop build (-mod=vendor, because the scaffold commits vendor/) fails
+// with a vendoring message that names neither the mobile build nor the polluted file.
+func TestSnapshotModFilesRestoresWhatTheMobileBuildChanges(t *testing.T) {
+	dir := t.TempDir()
+	gomod := filepath.Join(dir, "go.mod")
+	gosum := filepath.Join(dir, "go.sum")
+	const originalMod = "module example.com/app\n\ngo 1.24\n"
+	const originalSum = "example.com/dep v1.0.0 h1:abc=\n"
+	if err := os.WriteFile(gomod, []byte(originalMod), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(gosum, []byte(originalSum), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	restore := snapshotModFiles(dir)
+
+	// Stand in for what `go get -tool` + `gomobile bind` do.
+	polluted := originalMod + "\nrequire golang.org/x/mobile v0.0.0-20240101000000-abcdef123456\n"
+	if err := os.WriteFile(gomod, []byte(polluted), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(gosum, []byte(originalSum+"golang.org/x/mobile v0.0.0 h1:xyz=\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	restore()
+
+	for path, want := range map[string]string{gomod: originalMod, gosum: originalSum} {
+		got, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != want {
+			t.Errorf("%s was not restored:\n got: %q\nwant: %q", filepath.Base(path), got, want)
+		}
+		if strings.Contains(string(got), "golang.org/x/mobile") {
+			t.Errorf("%s still lists golang.org/x/mobile — vendor/ is now inconsistent and the "+
+				"next desktop build will fail", filepath.Base(path))
+		}
+	}
+}
+
+// A file that did not exist before the mobile build must not be created by the restore.
+// go.sum is absent in a fresh project until the first build, and writing an empty one
+// would itself be a change.
+func TestSnapshotModFilesDoesNotCreateFilesThatWereAbsent(t *testing.T) {
+	dir := t.TempDir()
+	gomod := filepath.Join(dir, "go.mod")
+	if err := os.WriteFile(gomod, []byte("module x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	restore := snapshotModFiles(dir) // no go.sum present
+	if err := os.WriteFile(filepath.Join(dir, "go.sum"), []byte("added by the build\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	restore()
+
+	// The build's own go.sum is left alone rather than replaced with an empty file: there
+	// was no previous content to restore, and truncating it would break the build that
+	// just created it. Checking the CONTENT, not just existence — snapshotting an absent
+	// file as nil bytes and writing that back leaves a zero-length file, which stats fine.
+	got, err := os.ReadFile(filepath.Join(dir, "go.sum"))
+	if err != nil {
+		t.Fatalf("restore removed a go.sum it never snapshotted: %v", err)
+	}
+	if string(got) != "added by the build\n" {
+		t.Errorf("restore overwrote a go.sum it never snapshotted with %q — an absent file "+
+			"must not be 'restored' to empty", got)
 	}
 }

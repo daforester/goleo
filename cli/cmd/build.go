@@ -809,7 +809,22 @@ func snapshotModFiles(projectDir string) func() {
 	}
 	return func() {
 		for p, data := range saved {
-			_ = os.WriteFile(p, data, 0o644)
+			if err := os.WriteFile(p, data, 0o644); err != nil {
+				// This restore is the guard against the "inconsistent vendoring" failure
+				// that shipped in v0.8.1-0.8.8 and was found by a user in production. A
+				// silent failure here recreates it: go.mod keeps the build-only
+				// golang.org/x/mobile deps, vendor/ no longer matches, and the NEXT
+				// desktop build fails with a message about vendoring that names neither
+				// this mobile build nor the file that was left behind.
+				//
+				// It runs deferred, so it cannot return an error — but it must not be
+				// quiet about it either.
+				fmt.Fprintf(os.Stderr,
+					"\n  WARNING: could not restore %s after the mobile build: %v\n"+
+						"  It may still list golang.org/x/mobile build-only dependencies, which\n"+
+						"  makes vendor/ inconsistent and breaks the next desktop build. Fix with:\n"+
+						"    go mod tidy && go mod vendor\n", p, err)
+			}
 		}
 	}
 }
