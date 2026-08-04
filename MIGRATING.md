@@ -370,7 +370,7 @@ messages without newlines, you can stop.
 
 ---
 
-## Unreleased — Android permissions are derived from the features you enable
+## 0.10.0 — Android permissions are derived from the features you enable
 
 **Affects:** every Android build. Check the permission list `goleo build android` now prints
 before you ship.
