@@ -325,35 +325,44 @@ func TestFSHandlersRefuseOutOfScopeAccess(t *testing.T) {
 // AppDelegate.swift). That currently runs before app.New, but resolving eagerly
 // would silently leave the plugin with no root if anyone reordered those calls —
 // a security control should not depend on init order.
+// setUserConfigDir points os.UserConfigDir at dir and returns what it now reports.
+//
+// The variable differs per platform and getting it wrong makes the redirect a
+// silent no-op: this test originally set %LocalAppData% on Windows, which is what
+// os.UserCacheDir reads — os.UserConfigDir reads %AppData%. The test then measured
+// the developer's REAL config directory and passed without exercising laziness at
+// all. It now fails loudly if the redirect did not take effect.
+func setUserConfigDir(t *testing.T, dir string) string {
+	t.Helper()
+	switch runtime.GOOS {
+	case "windows":
+		t.Setenv("APPDATA", dir) // os.UserConfigDir -> %AppData%, NOT %LocalAppData%
+	case "darwin":
+		t.Setenv("HOME", dir) // -> $HOME/Library/Application Support
+	default:
+		t.Setenv("XDG_CONFIG_HOME", dir)
+	}
+	got, err := os.UserConfigDir()
+	if err != nil {
+		t.Fatalf("os.UserConfigDir after redirect to %q: %v", dir, err)
+	}
+	if !strings.HasPrefix(normalizeFSPath(got), normalizeFSPath(dir)) {
+		t.Fatalf("redirect did not take effect: os.UserConfigDir() = %q, expected it under %q", got, dir)
+	}
+	return got
+}
+
 func TestAppDataRootResolvesLazily(t *testing.T) {
 	// Point os.UserConfigDir somewhere that does not exist yet, mimicking a host
 	// with no usable $HOME at construction time.
 	base := t.TempDir()
-	switch runtime.GOOS {
-	case "windows":
-		t.Setenv("LocalAppData", filepath.Join(base, "missing"))
-	case "darwin":
-		t.Setenv("HOME", filepath.Join(base, "missing"))
-	default:
-		t.Setenv("XDG_CONFIG_HOME", filepath.Join(base, "missing"))
-	}
+	setUserConfigDir(t, filepath.Join(base, "missing"))
 
 	app := New(Config{Title: "LazyApp", AppID: "lazy-app"})
 
 	// NOW make the config dir available — the "SetHomeDir arrives late" case.
-	switch runtime.GOOS {
-	case "windows":
-		t.Setenv("LocalAppData", base)
-	case "darwin":
-		t.Setenv("HOME", base)
-	default:
-		t.Setenv("XDG_CONFIG_HOME", base)
-	}
+	cfgBase := setUserConfigDir(t, base)
 
-	cfgBase, err := os.UserConfigDir()
-	if err != nil {
-		t.Skipf("cannot direct os.UserConfigDir on this platform: %v", err)
-	}
 	target := filepath.Join(cfgBase, "lazy-app", "state.json")
 	if _, err := app.Bridge().checkFSPath(target, fsWrite); err != nil {
 		t.Errorf("app data dir must be in scope once resolvable, got %v", err)
