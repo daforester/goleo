@@ -717,8 +717,10 @@ func buildForAndroid(distDir string, deps *androidDeps) error {
 	}
 	// Gradle reads the keystore itself from the environment (build.gradle.kts), so with
 	// --no-sign the variable has to be taken away from it, or it would sign anyway.
-	gradleEnvOverrides := []string(nil)
+	gradleEnvOverrides := androidSigningEnv()
 	if buildRelease && buildNoSign {
+		// Blank it last so it wins: Gradle reads the keystore itself, so --no-sign has to
+		// take it away or Gradle would sign regardless.
 		gradleEnvOverrides = append(gradleEnvOverrides, "GOLEO_ANDROID_KEYSTORE=")
 	}
 
@@ -1270,10 +1272,48 @@ func validateAndroidRelease() error {
 	if _, err := resolveAndroidFormat(buildAndroidFormat, buildRelease); err != nil {
 		return err
 	}
-	if buildRelease && !buildNoSign && !androidSigningConfigured() {
-		return errAndroidKeystoreMissing
+	if buildRelease && !buildNoSign {
+		if !androidSigningConfigured() {
+			return errAndroidKeystoreMissing
+		}
+		// Check the keystore is actually there. Without this a typo, a relative path from
+		// the wrong directory, or a stray trailing space failed inside Gradle at
+		// :app:packageRelease after a full build — reported as
+		// "Trailing char < > at index 141", which names neither the variable nor the
+		// space. `set VAR=path ` in cmd.exe keeps that space, and Windows is where these
+		// get set by hand.
+		ks := strings.TrimSpace(os.Getenv("GOLEO_ANDROID_KEYSTORE"))
+		if _, err := os.Stat(ks); err != nil {
+			hint := ""
+			if raw := os.Getenv("GOLEO_ANDROID_KEYSTORE"); raw != ks {
+				hint = "\n  NOTE: the variable has leading or trailing whitespace — quote the whole\n" +
+					`  assignment, e.g. set "GOLEO_ANDROID_KEYSTORE=C:\path\to\release.jks"`
+			}
+			return fmt.Errorf("GOLEO_ANDROID_KEYSTORE points at %q, which cannot be opened: %w%s\n"+
+				"  Use an absolute path, or create one with `goleo generate android-key`.", ks, err, hint)
+		}
 	}
 	return nil
+}
+
+// androidSigningEnv returns TRIMMED signing variables to hand to Gradle.
+//
+// The values are re-exported rather than inherited so Gradle always sees clean ones: the
+// build.gradle.kts template trims defensively too, but a value that is wrong before it
+// gets there is better fixed once, here, than relied upon to be tolerated downstream.
+func androidSigningEnv() []string {
+	var out []string
+	for _, k := range []string{
+		"GOLEO_ANDROID_KEYSTORE",
+		"GOLEO_ANDROID_KEYSTORE_PASSWORD",
+		"GOLEO_ANDROID_KEY_ALIAS",
+		"GOLEO_ANDROID_KEY_PASSWORD",
+	} {
+		if raw, ok := os.LookupEnv(k); ok {
+			out = append(out, k+"="+strings.TrimSpace(raw))
+		}
+	}
+	return out
 }
 
 // errAndroidKeystoreMissing is returned when --release has no signing configuration.

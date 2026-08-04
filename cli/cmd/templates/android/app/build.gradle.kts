@@ -12,7 +12,15 @@ plugins {
 // When GOLEO_ANDROID_KEYSTORE is unset there is simply no release signingConfig, so
 // Gradle produces an unsigned release artifact — the CLI refuses that unless you pass
 // --no-sign, because an unsigned release AAB cannot be uploaded anywhere.
-val goleoKeystore: String? = System.getenv("GOLEO_ANDROID_KEYSTORE")
+// Every value is trimmed. `set VAR=path ` in cmd.exe keeps the trailing space, and
+// Windows is exactly where people set these by hand — an untrimmed path failed the
+// release build deep inside Gradle with "Trailing char < > at index N", which names
+// neither the variable nor the space. A trailing space in a password is worse still: it
+// fails authentication with no hint as to why.
+val goleoKeystore: String? = System.getenv("GOLEO_ANDROID_KEYSTORE")?.trim()
+val goleoStorePass: String? = System.getenv("GOLEO_ANDROID_KEYSTORE_PASSWORD")?.trim()
+val goleoKeyAlias: String? = System.getenv("GOLEO_ANDROID_KEY_ALIAS")?.trim()
+val goleoKeyPass: String? = System.getenv("GOLEO_ANDROID_KEY_PASSWORD")?.trim()
 val goleoSigningEnabled = !goleoKeystore.isNullOrBlank()
 
 android {
@@ -34,9 +42,9 @@ android {
         signingConfigs {
             create("release") {
                 storeFile = file(goleoKeystore!!)
-                storePassword = System.getenv("GOLEO_ANDROID_KEYSTORE_PASSWORD")
-                keyAlias = System.getenv("GOLEO_ANDROID_KEY_ALIAS")
-                keyPassword = System.getenv("GOLEO_ANDROID_KEY_PASSWORD")
+                storePassword = goleoStorePass
+                keyAlias = goleoKeyAlias
+                keyPassword = goleoKeyPass
             }
         }
     }

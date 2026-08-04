@@ -258,9 +258,15 @@ func TestReleaseWithoutKeystoreIsRefusedUnlessNoSign(t *testing.T) {
 		t.Errorf("--release --no-sign should be allowed without a keystore: %v", err)
 	}
 
-	// A configured keystore is accepted.
+	// A configured keystore is accepted. It has to be a real file: validateAndroidRelease
+	// now checks the path opens, so that a typo fails in the first second instead of
+	// inside Gradle after a full build.
 	buildNoSign = false
-	os.Setenv("GOLEO_ANDROID_KEYSTORE", "/tmp/release.jks")
+	ks := filepath.Join(t.TempDir(), "release.jks")
+	if err := os.WriteFile(ks, []byte("keystore"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	os.Setenv("GOLEO_ANDROID_KEYSTORE", ks)
 	if err := validateAndroidRelease(); err != nil {
 		t.Errorf("a configured keystore should validate: %v", err)
 	}
