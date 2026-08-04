@@ -25,6 +25,14 @@ name: release-smoke
 # the point. It is a smoke test of a release, not a gate on a commit; a failure
 # here means "yank or patch", and it is far better to learn that from CI minutes
 # after publishing than from an issue days later.
+#
+# Validating changes to this file without dispatch rights: install the published
+# CLI into an isolated prefix (`npm install --prefix <tmp> @goleo/cli@<version>`,
+# NOT `-g`, so a developer's global install survives), put <tmp>/node_modules/.bin
+# on PATH, and run each `run:` block below in bash with RUNNER_TEMP and GITHUB_ENV
+# pointed at scratch paths. Read the blocks out of this YAML rather than copying
+# them, or you validate the copy. Done that way against 0.8.8 on Windows, every
+# step executes and the six real defects in that release are reported.
 on:
   workflow_dispatch:
     inputs:
