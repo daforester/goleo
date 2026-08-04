@@ -1,14 +1,14 @@
-export { Bridge, getBridge } from './bridge'
+export { Bridge, getBridge } from './bridge.js'
 export {
   sendNotification,
   isPermissionGranted,
   requestPermission,
-} from './notification'
-export type { NotificationOptions, NotificationPermission } from './notification'
+} from './notification.js'
+export type { NotificationOptions, NotificationPermission } from './notification.js'
 export {
   readText as clipboardReadText,
   writeText as clipboardWriteText,
-} from './clipboard'
+} from './clipboard.js'
 export {
   openFile,
   openFiles,
@@ -16,8 +16,8 @@ export {
   selectFolder,
   showMessage,
   showPrompt,
-} from './dialogs'
-export type { FileFilter, FileDialogOptions, MessageBoxOptions, PromptOptions } from './dialogs'
+} from './dialogs.js'
+export type { FileFilter, FileDialogOptions, MessageBoxOptions, PromptOptions } from './dialogs.js'
 export {
   readTextFile,
   writeTextFile,
@@ -27,83 +27,83 @@ export {
   deleteFile,
   appDataDir,
   homeDir,
-} from './fs'
-export type { FileEntry } from './fs'
+} from './fs.js'
+export type { FileEntry } from './fs.js'
 export {
   getCurrentPosition,
-} from './geolocation'
-export type { Position, PositionOptions } from './geolocation'
+} from './geolocation.js'
+export type { Position, PositionOptions } from './geolocation.js'
 export {
   getBatteryInfo,
-} from './battery'
-export type { BatteryInfo } from './battery'
+} from './battery.js'
+export type { BatteryInfo } from './battery.js'
 export {
   wakeLockRequest,
   wakeLockRelease,
-} from './wakelock'
+} from './wakelock.js'
 export {
   vibrate,
-} from './vibration'
+} from './vibration.js'
 export {
   startSensor,
   stopSensor,
   startBrowserSensor,
   startNativeSensor,
-} from './sensors'
-export type { SensorData } from './sensors'
+} from './sensors.js'
+export type { SensorData } from './sensors.js'
 export {
   capturePhoto,
-} from './camera'
-export type { PhotoData } from './camera'
+} from './camera.js'
+export type { PhotoData } from './camera.js'
 export {
   requestDevice,
   connect as bleConnect,
   disconnect as bleDisconnect,
-} from './bluetooth'
-export type { BLEDevice } from './bluetooth'
+} from './bluetooth.js'
+export type { BLEDevice } from './bluetooth.js'
 export {
   startScan,
   stopScan,
   write as nfcWrite,
-} from './nfc'
-export type { NFCRecord, NFCMessage } from './nfc'
+} from './nfc.js'
+export type { NFCRecord, NFCMessage } from './nfc.js'
 export {
   registerSync,
   isPermissionGranted as isBackgroundPermissionGranted,
   requestPermission as requestBackgroundPermission,
-} from './background'
+} from './background.js'
 export {
   subscribe as pushSubscribe,
   unsubscribe as pushUnsubscribe,
   getSubscription as pushGetSubscription,
-} from './push'
-export type { PushSubscriptionData } from './push'
+} from './push.js'
+export type { PushSubscriptionData } from './push.js'
 export {
   share,
-} from './share'
-export type { ShareData } from './share'
+} from './share.js'
+export type { ShareData } from './share.js'
 export {
   storeGet,
   storeSet,
   storeDelete,
   storeKeys,
   storeClear,
-} from './store'
+} from './store.js'
 export {
   checkForUpdate,
   applyUpdate,
   onUpdateProgress,
-} from './updater'
+} from './updater.js'
 export {
   enableAutostart,
   disableAutostart,
   isAutostartEnabled,
-} from './autostart'
+} from './autostart.js'
 export {
   getInitialURL,
   onDeepLink,
-} from './deeplink'
-export type { UpdateInfo, UpdateProgress } from './updater'
+} from './deeplink.js'
+export type { UpdateInfo, UpdateProgress } from './updater.js'
 export {
   openWindow,
   closeWindow,
@@ -112,10 +112,10 @@ export {
   getCapabilities,
   isWindowingSupported,
   isTraySupported,
-} from './window'
-export type { WindowOptions, Capabilities } from './window'
-export { setMenu, onMenu, menuSupported } from './menu'
-export type { MenuItemSpec } from './menu'
+} from './window.js'
+export type { WindowOptions, Capabilities } from './window.js'
+export { setMenu, onMenu, menuSupported } from './menu.js'
+export type { MenuItemSpec } from './menu.js'
 export type {
   OSInfo,
   PlatformInfo,
@@ -125,10 +125,10 @@ export type {
   InvokeHandler,
   EventCallback,
   BridgeConfig,
-} from './types'
+} from './types.js'
 
-import { getBridge } from './bridge'
-import type { BridgeConfig, OSInfo, PlatformInfo } from './types'
+import { getBridge } from './bridge.js'
+import type { BridgeConfig, OSInfo, PlatformInfo } from './types.js'
 
 let initialized = false
 
@@ -183,6 +183,15 @@ export function disconnect(): void {
 export function isConnected(): boolean {
   const bridge = getBridge()
   return bridge.isConnected()
+}
+
+/**
+ * True when the bridge is using the desktop webview's in-process channel
+ * (Config.NativeIPC) rather than a WebSocket or HTTP POST.
+ */
+export function isNative(): boolean {
+  const bridge = getBridge()
+  return bridge.isNative()
 }
 
 /**

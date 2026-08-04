@@ -236,6 +236,7 @@ await initBridge({
 | openURL(url) | Promise<void> | Open URL in browser |
 | disconnect() | void | Disconnect from backend |
 | isConnected() | boolean | Check connection status |
+| isNative() | boolean | True when calls go over the in-process native channel rather than WebSocket/HTTP |
 
 ### Events
 

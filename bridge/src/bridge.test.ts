@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { Bridge } from './index'
+import { Bridge } from './index.js'
 
 // Every other suite mocks ./bridge away, so the Bridge class itself — including
 // everything Phase 3 added to it (reconnect, rejectPending, the backoff) — had no
@@ -187,6 +187,62 @@ describe('reconnect backoff', () => {
     // And it is capped, so a long outage does not schedule a retry hours away.
     attempts.reconnectAttempts = 20
     expect(delay()).toBeLessThanOrEqual(8000)
+  })
+})
+
+describe('native transport', () => {
+  // The native branch is the DEFAULT for a desktop window with Config.NativeIPC,
+  // and until isNative() existed nothing could observe which transport won — so
+  // these tests, which stub global WebSocket, were silently only ever exercising
+  // the fallback. spikes/bridge-e2e-verify asserts the real thing in a real
+  // webview; this pins the selection logic itself.
+  afterEach(() => {
+    const w = window as unknown as Record<string, unknown>
+    delete w.__GOLEO_NATIVE__
+    delete w.__goleoSend
+    delete w.__goleoOnMessage
+    delete w.__goleoDrain
+  })
+
+  it('prefers the injected native channel over a WebSocket', async () => {
+    const sent: string[] = []
+    const w = window as unknown as Record<string, unknown>
+    w.__GOLEO_NATIVE__ = true
+    w.__goleoSend = (p: string) => sent.push(p)
+
+    const b = newBridge()
+    await b.connect()
+
+    expect(b.isNative()).toBe(true)
+    expect(b.isConnected()).toBe(true)
+    // No socket was opened at all — the host channel is used instead.
+    expect(FakeSocket.instances.length).toBe(0)
+
+    void b.invoke('goleo:fsReadTextFile', { path: '/x' })
+    await flush()
+    const frame = JSON.parse(sent[0])
+    expect(frame.type).toBe('invoke')
+    expect(frame.data.method).toBe('goleo:fsReadTextFile')
+  })
+
+  // fs.ts asks isConnected() to decide whether a failure means "no backend" or is
+  // a real backend error it must rethrow. Over native IPC there is no socket, so
+  // if this were false every filesystem error in a native-IPC desktop app would be
+  // masked as "requires the Go backend" — including the confinement messages.
+  it('reports connected, which fs.ts depends on to not mask real errors', async () => {
+    const w = window as unknown as Record<string, unknown>
+    w.__GOLEO_NATIVE__ = true
+    w.__goleoSend = () => {}
+
+    const b = newBridge()
+    await b.connect()
+
+    expect(b.isConnected()).toBe(true)
+  })
+
+  it('is not native when no channel was injected', async () => {
+    const { b } = await connected()
+    expect(b.isNative()).toBe(false)
   })
 })
 

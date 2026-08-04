@@ -1,4 +1,4 @@
-import { invoke } from './index'
+import { invoke } from './index.js'
 
 /** Options for opening an additional native window. */
 export interface WindowOptions {

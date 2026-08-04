@@ -126,6 +126,36 @@ jobs:
             ./fsscope
           fi
 
+      # The REAL @goleo/bridge npm package, loaded as ES modules into a real
+      # webview, talking to a real Go backend. Everything else verifies one side:
+      # the vitest suite drives the bridge against a fake socket, and the Go tests
+      # drive the wire format from hand-written frames. Both stay green even if the
+      # two halves disagree. This is the only thing that runs them together, so it
+      # is what actually pins the base64 binary encoding, the native transport
+      # selection, and a backend error arriving at the page as its own text.
+      #
+      # Needs Node because it loads the package's own tsc output — deliberately
+      # with no bundler, so an import a browser cannot resolve fails here.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Prepare bridge e2e verify (build @goleo/bridge, embed it, build spike)
+        working-directory: spikes/bridge-e2e-verify
+        env:
+          CGO_ENABLED: "0"
+        run: node prepare.mjs
+
+      - name: Run bridge e2e verify (real @goleo/bridge over native IPC)
+        working-directory: spikes/bridge-e2e-verify
+        timeout-minutes: 3
+        run: |
+          if [ "${{ matrix.display }}" = "true" ]; then
+            xvfb-run -a ./bridge-e2e-verify
+          else
+            ./bridge-e2e-verify
+          fi
+
       # System tray: macOS uses the purego/objc NSStatusItem backend (must link
       # alongside glaze without the goffi/purego fakecgo collision); Linux uses
       # gogpu/systray. A Background app builds a tray, runs the loop, self-quits.
@@ -235,6 +265,26 @@ jobs:
         working-directory: spikes/glaze-scheme-secure
         timeout-minutes: 3
         run: ./glazescheme.exe
+
+      # Same real-bridge-in-a-real-webview check as the mac/Linux arm. Worth running
+      # on Windows specifically because WebView2 serves the scheme over the
+      # https://goleo.localhost virtual host rather than the literal goleo://
+      # origin, so the page reaches its modules by a different route than
+      # WKWebView/WebKitGTK do.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Prepare bridge e2e verify (build @goleo/bridge, embed it, build spike)
+        working-directory: spikes/bridge-e2e-verify
+        env:
+          CGO_ENABLED: "0"
+        run: node prepare.mjs
+
+      - name: Run bridge e2e verify (real @goleo/bridge over native IPC)
+        working-directory: spikes/bridge-e2e-verify
+        timeout-minutes: 3
+        run: ./bridge-e2e-verify.exe
 
   # GTK4 / webkitgtk-6.0: glaze selects the GTK4 backend when 6.0 is present,
   # exercising menu_linux.go's GMenu/GtkPopoverMenuBar path (GtkMenuBar is gone

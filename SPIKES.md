@@ -677,3 +677,62 @@ absent from the dep tree on each. That link check matters here specifically beca
 `gogpu/systray`'s `goffi` on Mach-O. It does not collide. Real-GUI behavior (the grant actually
 firing on WebView2) is unchanged code on an unchanged path, but has **not** been re-driven on
 hardware in this pass.
+
+---
+
+## Spike — the REAL `@goleo/bridge` in a REAL webview (2026-08-04) ✅ PASS on Windows/WebView2
+
+**The gap.** `bridge/src/*.test.ts` (55 tests) drives the bridge against a `FakeSocket`;
+`runtime/ws_e2e_test.go` + `nativeipc_test.go` drive the wire format from hand-written Go frames.
+Both suites are green **while neither has ever executed the two halves together**, so three things
+had no coverage at all:
+
+1. **Native transport selection.** `bridge.ts` prefers `window.__GOLEO_NATIVE__` and falls back to
+   WebSocket. Every TS test stubs global `WebSocket`, so they *always* took the fallback branch —
+   the native path, which is the **default** for a desktop window with `Config.NativeIPC`, was
+   never run by a test.
+2. **That the base64 binary encoding agrees.** Go uses `base64.StdEncoding`; `fs.ts` uses its own
+   chunked `bytesToBase64`/`base64ToBytes`. Each side's tests assert its own half. Nothing checked
+   they share an alphabet, padding and chunking — and this was broken *in both directions* before
+   Phase 3, which is exactly the bug class two green suites cannot see.
+3. **That a backend error reaches the page as its own text.** The `fs.ts` rethrow (real error when
+   connected, "requires the Go backend" only when absent) shipped unexecuted.
+
+**`spikes/bridge-e2e-verify/`** closes it: one goleo app with `NativeIPC` + `SchemeAssets` (so **no
+TCP port**), whose page loads the package's actual `tsc` output as **ES modules with no bundler**.
+Checks: the native channel was chosen; a 23-byte payload that is deliberately **not valid UTF-8**
+(PNG magic, `0xFE 0xFF 0x80 0x7F`, a lone surrogate half) survives page→Go→page byte-exact; a write
+outside the FS roots is refused **and leaves no file**; the page receives the *backend's* confinement
+message; `appDataDir()`'s grant makes a write succeed.
+
+**Mutation-verified (four, each restored):** masking errors in `fs.ts` → "fs.ts masked a real backend
+error"; `bytesToBase64` returning `TextDecoder` output (the literal pre-Phase-3 bug) → `illegal base64
+data at input byte 0`; unpadded base64 → `illegal base64 data at input byte 28`; `checkFSPath`
+short-circuited → *"the denied write actually created …"*. Breaking native detection → `native:false`
+plus `backend not connected`, which also proved the page's raw-`__goleoSend` escape hatch works when
+the bridge itself is unusable.
+
+**Two real defects found by building it:**
+- **The published `@goleo/bridge` was not loadable without a bundler.** `tsc` (`moduleResolution:
+  bundler`) emitted extensionless relative imports (`from './bridge'`), which no browser and no Node
+  ESM loader can resolve — Vite papered over it for template users. All 63 specifiers across 28 files
+  now carry `.js`; `node -e "import('./dist/index.js')"` works, and the spike loads it over
+  `<script type="module">` with no bundler. Keeping it bundler-free is deliberate: if that ever
+  regresses, the spike fails.
+- **No way to observe which transport won.** `Bridge.native` is private, so the native path could not
+  be asserted from outside — a plausible reason it went untested. Added `isNative()` (+ a top-level
+  export and three unit tests, mutation-checked).
+
+**Cross-cutting lesson — `//go:embed` makes verification loops lie.** `main.go` embeds
+`frontend/dist`, so rebuilding the page **without recompiling the binary** leaves the old page inside
+the old executable and the run silently verifies stale code. This produced three false PASSes while
+mutation-testing, each indistinguishable from success. Two shell traps compounded it: `tsc` failing
+on a now-unused symbol meant the mutation never got built (silenced by `>/dev/null`), and
+`node prepare.mjs | tail -1` masked a non-zero exit so `&&` continued with a stale artifact — use
+`set -o pipefail` and don't silence builds inside a verification loop. `prepare.mjs` now runs
+`go build` itself, making the staleness structurally impossible rather than something to remember.
+
+**CI:** added to `glaze-verify.yml` on the mac/Linux matrix arm *and* the Windows job — worth both
+because WebView2 serves the assets over the `https://goleo.localhost` vhost while WKWebView/WebKitGTK
+serve the literal `goleo://`, so the page reaches its modules by different routes. Verified locally on
+real WebView2; the mac/Linux arms are **pending their first hardware run**.

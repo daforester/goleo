@@ -1,4 +1,4 @@
-import { getBridge } from './bridge'
+import { getBridge } from './bridge.js'
 
 const bridge = () => getBridge()
 

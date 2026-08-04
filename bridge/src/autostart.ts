@@ -1,4 +1,4 @@
-import { invoke } from './index'
+import { invoke } from './index.js'
 
 /** Register the app to launch on login (desktop only). */
 export async function enableAutostart(): Promise<void> {

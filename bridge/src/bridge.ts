@@ -1,4 +1,4 @@
-import type { BridgeConfig, InvokeRequest, InvokeResponse, EventMessage, EventCallback } from './types'
+import type { BridgeConfig, InvokeRequest, InvokeResponse, EventMessage, EventCallback } from './types.js'
 
 class Bridge {
   private ws: WebSocket | null = null
@@ -444,6 +444,18 @@ class Bridge {
 
   isConnected(): boolean {
     return this.connected
+  }
+
+  /**
+   * True when calls are going over the desktop webview's in-process channel
+   * rather than a WebSocket or HTTP POST.
+   *
+   * The transport is chosen automatically, so this is purely informational —
+   * but there was previously no way to ask, which made the native path
+   * impossible to assert from the outside (and so it went untested).
+   */
+  isNative(): boolean {
+    return this.native && this.nativeSend !== null
   }
 
   isReady(): boolean {

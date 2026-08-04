@@ -1,4 +1,4 @@
-import { getBridge } from './bridge'
+import { getBridge } from './bridge.js'
 
 export interface NotificationOptions {
   title: string

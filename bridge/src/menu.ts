@@ -1,5 +1,5 @@
-import { getBridge } from './bridge'
-import { getCapabilities } from './window'
+import { getBridge } from './bridge.js'
+import { getCapabilities } from './window.js'
 
 /** One entry in a native menu (see App.SetMenu / Config.Menu on the Go side). */
 export interface MenuItemSpec {
