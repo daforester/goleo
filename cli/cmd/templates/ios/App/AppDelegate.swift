@@ -33,16 +33,16 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // Go's os.UserConfigDir/os.UserHomeDir (used by the FS feature's
         // AppDataDir/HomeDir) need $HOME, which the gomobile host process
         // never sets on its own — must run before startServer.
-        Goleo.setHomeDir(NSHomeDirectory())
-        Goleo.setNotifier(notifier)
-        Goleo.setBatteryProvider(batteryProvider)
-        Goleo.setWakeLockProvider(wakeLockProvider)
-        Goleo.setSensorsProvider(sensorsProvider)
-        Goleo.setBackgroundProvider(backgroundProvider)
-        Goleo.setClipboardProvider(clipboardProvider)
-        Goleo.setShareProvider(shareProvider)
+        GomobileSetHomeDir(NSHomeDirectory())
+        GomobileSetNotifier(notifier)
+        GomobileSetBatteryProvider(batteryProvider)
+        GomobileSetWakeLockProvider(wakeLockProvider)
+        GomobileSetSensorsProvider(sensorsProvider)
+        GomobileSetBackgroundProvider(backgroundProvider)
+        GomobileSetClipboardProvider(clipboardProvider)
+        GomobileSetShareProvider(shareProvider)
 
-        let port = Goleo.startServer(devMode: false)
+        let port = GomobileStartServer(false)
         let url = URL(string: "http://127.0.0.1:\(port)")!
 
         let config = WKWebViewConfiguration()
@@ -63,7 +63,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
     func applicationWillTerminate(_ application: UIApplication) {
-        Goleo.stopServer()
+        GomobileStopServer()
     }
 
     private func makeViewController() -> UIViewController {
@@ -103,7 +103,7 @@ class GoleoWebPermissionDelegate: NSObject, WKUIDelegate {
 
 /// Reports real battery state via UIDevice. Implements the
 /// gomobile-generated BatteryProvider interface.
-class GoleoBatteryStatus: NSObject, GoleoBatteryProviderProtocol {
+class GoleoBatteryStatus: NSObject, GomobileBatteryProviderProtocol {
     override init() {
         super.init()
         UIDevice.current.isBatteryMonitoringEnabled = true
@@ -126,7 +126,7 @@ class GoleoBatteryStatus: NSObject, GoleoBatteryProviderProtocol {
 
 /// Keeps the screen awake via UIApplication's idle timer. Implements the
 /// gomobile-generated WakeLockProvider interface.
-class GoleoWakeLock: NSObject, GoleoWakeLockProviderProtocol {
+class GoleoWakeLock: NSObject, GomobileWakeLockProviderProtocol {
     func request(_ typeName: String?) throws {
         DispatchQueue.main.async {
             UIApplication.shared.isIdleTimerDisabled = true
@@ -142,9 +142,9 @@ class GoleoWakeLock: NSObject, GoleoWakeLockProviderProtocol {
 
 /// Reads/writes the system clipboard via UIPasteboard. Implements the
 /// gomobile-generated ClipboardProvider interface.
-/// NOTE: iOS is unverified (no Xcode/device available here); gomobile's exact
-/// Swift method/argument-label generation may need adjusting.
-class GoleoClipboardImpl: NSObject, GoleoClipboardProviderProtocol {
+/// Method shapes checked against the generated Gomobile.objc.h:
+/// `-(NSString*)readText` and `-(void)writeText:(NSString*)text`.
+class GoleoClipboardImpl: NSObject, GomobileClipboardProviderProtocol {
     func readText() -> String {
         if Thread.isMainThread {
             return UIPasteboard.general.string ?? ""
@@ -165,9 +165,9 @@ class GoleoClipboardImpl: NSObject, GoleoClipboardProviderProtocol {
 
 /// Opens the system share sheet via UIActivityViewController. Implements the
 /// gomobile-generated ShareProvider interface.
-/// NOTE: iOS is unverified; the arg-label syntax gomobile generates for a
-/// multi-arg method may differ from this and need adjusting.
-class GoleoShareImpl: NSObject, GoleoShareProviderProtocol {
+/// Checked against the header: `-(void)share:(NSString*)title
+/// text:(NSString*)text url:(NSString*)url`, so Swift sees share(_:text:url:).
+class GoleoShareImpl: NSObject, GomobileShareProviderProtocol {
     func share(_ title: String?, text: String?, url: String?) {
         DispatchQueue.main.async {
             var items: [Any] = []
@@ -182,16 +182,21 @@ class GoleoShareImpl: NSObject, GoleoShareProviderProtocol {
 }
 
 /// Streams accelerometer/gyroscope/magnetometer readings from CoreMotion to
-/// the frontend via Goleo.emitSensorReading, which turns into a
+/// the frontend via GomobileEmitSensorReading, which turns into a
 /// goleo:sensorReading event (see SensorsDemo.vue). Implements the
 /// gomobile-generated SensorsProvider interface.
 ///
-/// NOTE: the exact Swift argument-label syntax gomobile generates for a
-/// multi-parameter Go function like EmitSensorReading is unverified here
-/// (no Xcode/macOS available) — if `Goleo.emitSensorReading(...)` doesn't
-/// compile as written, check the generated Goleo.swiftmodule/header for the
-/// real label names and adjust.
-class GoleoSensors: NSObject, GoleoSensorsProviderProtocol {
+/// NOTE on naming, because two different names are in play and neither is
+/// guessable from this file: the Swift MODULE is `Goleo` (gomobile titlecases
+/// the -o basename, Goleo.xcframework) but every SYMBOL carries the titlecased
+/// Go PACKAGE name, `Gomobile`. So it is `import Goleo` plus
+/// `GomobileSetHomeDir(...)`. Package-level Go funcs become C functions, which
+/// take no argument labels: `GomobileEmitSensorReading(t, x, y, z, ts)`, not
+/// `emitSensorReading(x:y:z:timestamp:)`. Each Go interface generates both a
+/// protocol and a same-named wrapper class, so Swift appends `Protocol` to the
+/// protocol name: `GomobileSensorsProviderProtocol`. Verified against the
+/// generated Gomobile.objc.h on a macos-14 runner — mobile-verify prints it.
+class GoleoSensors: NSObject, GomobileSensorsProviderProtocol {
     private let motionManager = CMMotionManager()
 
     private func fail(_ message: String) -> NSError {
@@ -206,21 +211,21 @@ class GoleoSensors: NSObject, GoleoSensorsProviderProtocol {
             motionManager.accelerometerUpdateInterval = 1.0 / 60.0
             motionManager.startAccelerometerUpdates(to: .main) { data, _ in
                 guard let a = data?.acceleration else { return }
-                Goleo.emitSensorReading("accelerometer", x: a.x, y: a.y, z: a.z, timestamp: now())
+                GomobileEmitSensorReading("accelerometer", a.x, a.y, a.z, now())
             }
         case "gyroscope":
             guard motionManager.isGyroAvailable else { throw fail("gyroscope not available") }
             motionManager.gyroUpdateInterval = 1.0 / 60.0
             motionManager.startGyroUpdates(to: .main) { data, _ in
                 guard let r = data?.rotationRate else { return }
-                Goleo.emitSensorReading("gyroscope", x: r.x, y: r.y, z: r.z, timestamp: now())
+                GomobileEmitSensorReading("gyroscope", r.x, r.y, r.z, now())
             }
         case "magnetometer":
             guard motionManager.isMagnetometerAvailable else { throw fail("magnetometer not available") }
             motionManager.magnetometerUpdateInterval = 1.0 / 60.0
             motionManager.startMagnetometerUpdates(to: .main) { data, _ in
                 guard let m = data?.magneticField else { return }
-                Goleo.emitSensorReading("magnetometer", x: m.x, y: m.y, z: m.z, timestamp: now())
+                GomobileEmitSensorReading("magnetometer", m.x, m.y, m.z, now())
             }
         default:
             throw fail("unsupported sensor: \(sensorType ?? "")")
@@ -239,17 +244,17 @@ class GoleoSensors: NSObject, GoleoSensorsProviderProtocol {
 
 /// Runs a registered sync tag as a BGProcessingTask, deferred until
 /// connectivity is available; the task handler reports back via
-/// Goleo.emitBackgroundSync when it actually runs. Implements the
+/// GomobileEmitBackgroundSync when it actually runs. Implements the
 /// gomobile-generated BackgroundProvider interface.
 ///
 /// BGTaskScheduler identifies tasks by a fixed identifier (declared in
 /// Info.plist's BGTaskSchedulerPermittedIdentifiers), not a dynamic tag, so
 /// the tag is stashed in UserDefaults and read back when the task fires.
-class GoleoBackground: NSObject, GoleoBackgroundProviderProtocol {
+class GoleoBackground: NSObject, GomobileBackgroundProviderProtocol {
     static func registerTask() {
         BGTaskScheduler.shared.register(forTaskWithIdentifier: backgroundSyncTaskID, using: nil) { task in
             let tag = UserDefaults.standard.string(forKey: "goleo.pendingSyncTag") ?? ""
-            Goleo.emitBackgroundSync(tag)
+            GomobileEmitBackgroundSync(tag)
             task.setTaskCompleted(success: true)
         }
     }
@@ -269,7 +274,7 @@ class GoleoBackground: NSObject, GoleoBackgroundProviderProtocol {
 
 /// Delivers notifications from the Go runtime through UNUserNotificationCenter.
 /// Implements the gomobile-generated Notifier interface.
-class GoleoNotifier: NSObject, GoleoNotifierProtocol {
+class GoleoNotifier: NSObject, GomobileNotifierProtocol {
     func show(_ title: String?, body: String?) {
         let content = UNMutableNotificationContent()
         content.title = title ?? "Goleo"

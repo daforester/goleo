@@ -986,3 +986,45 @@ Three things came out of this beyond the one-line pin:
   something other than the runner.** This is the same shape as the earlier finding that the
   Ubuntu image ships a global `typescript` while the others do not — a toolchain the job did
   not pin is a toolchain that will move.
+
+### The generated-header dump: two names, and neither was guessable (2026-08-04/05)
+
+Third macOS run. The project-format and framework-name fixes held — `xcodebuild` read the
+project, found `Goleo.xcframework` (both `ios-arm64` and `ios-arm64_x86_64-simulator` slices
+present, confirming the probe on a real build) — and the Swift compile failed, as expected.
+
+The job printed the generated `Gomobile.objc.h`, which settled what no amount of reading
+`AppDelegate.swift` could:
+
+- **The Swift MODULE is `Goleo`** — gomobile titlecases the `-o` basename
+  (`bind_iosapp.go`: `name = base minus ".xcframework"; title = strings.Title(name)`;
+  `Module: title`). So `import Goleo` was right all along.
+- **Every SYMBOL is prefixed `Gomobile`** — gobind derives the Objective-C prefix from the Go
+  **package** name (`backend/gomobile`), not the module: `GomobileSetHomeDir`,
+  `GomobileStartServer`, `GomobileSetBatteryProvider`, `GomobileNotifierProtocol`.
+- **Package-level Go funcs become C functions**, so they take no argument labels:
+  `GomobileEmitSensorReading(t, x, y, z, ts)`, not `emitSensorReading(x:y:z:timestamp:)`.
+  `AppDelegate.swift` had `Goleo.emitSensorReading("accelerometer", x: …, y: …, z: …,
+  timestamp: …)` — wrong on the prefix, the namespace *and* the labels.
+- **Each Go interface generates a protocol AND a same-named wrapper class**, which is why
+  Swift appends `Protocol` to the protocol. That half of the original guess was correct.
+
+So the shell used the module name as if it were both the prefix and a namespace. Every method
+*shape* it declared (`show(_:body:)`, `share(_:text:url:)`, `startSensor(_:) throws`,
+`readText() -> String`) matched the header exactly — only the naming was wrong.
+
+**A truncation that read as a finding.** The dump capped at `head -80`, which cut the
+`@interface` list after the fourth entry — alphabetically `BLEProvider, BackgroundProvider,
+BatteryProvider, ClipboardProvider`. That looks exactly like "only four interfaces have a
+wrapper class", which would mean five of the nine protocols do *not* get the `Protocol` suffix
+in Swift. Caught by noticing the output was exactly 80 lines and stopped at header line 266,
+then confirming both the forward declarations and the `@interface` blocks are alphabetical and
+cut at the cap. The step now prints the declaration **count** before truncating, so the next
+run states the number instead of implying it. Same lesson as elsewhere in this file: a silent
+cap looks like complete coverage.
+
+**And a test that passed vacuously.** `TestIOSShellUsesTheGeneratedBindingNames` checked
+`strings.Contains(src, "import Goleo")` — but the explanatory comment added to
+`AppDelegate.swift` in the same change also contains those words, so deleting the real import
+left the test green. Found by mutating the import away and getting no failure. It now matches
+the import **statement** with `(?m)^\s*import Goleo\s*$`.

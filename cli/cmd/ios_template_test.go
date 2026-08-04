@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 	"text/template"
@@ -132,6 +133,77 @@ func TestGeneratedXcodeProjectFormatIsPinnedToTheMostCompatible(t *testing.T) {
 		if !valid[v] {
 			t.Errorf("projectFormat %q is not one of XcodeGen's formats; an unrecognised "+
 				"value falls back to xcode16_0 (objectVersion 77) silently", v)
+		}
+	}
+}
+
+// importGoleoLineRe matches the import STATEMENT, not the words. AppDelegate.swift's own
+// explanatory comment contains "import Goleo", so a substring check passed even with the
+// real import deleted — found by mutating it away and watching this test stay green.
+var importGoleoLineRe = regexp.MustCompile(`(?m)^\s*import Goleo\s*$`)
+
+// The iOS shell's binding names come from TWO different places, and getting them from the
+// wrong one is what kept iOS from compiling at all:
+//
+//   - the Swift MODULE is the titlecased -o basename (Goleo.xcframework -> "Goleo"), so
+//     `import Goleo`;
+//   - every SYMBOL is prefixed with the titlecased Go PACKAGE name (package gomobile ->
+//     "Gomobile"), so GomobileSetHomeDir, GomobileNotifierProtocol.
+//
+// AppDelegate.swift used "Goleo" for both, so it referenced symbols that do not exist.
+// Verified against the generated Gomobile.objc.h on a macos-14 runner.
+func TestIOSShellUsesTheGeneratedBindingNames(t *testing.T) {
+	raw, err := mobileTemplates.ReadFile("templates/ios/App/AppDelegate.swift")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(raw)
+
+	// Match the IMPORT LINE, not the substring: the explanatory comment in AppDelegate.swift
+	// also contains the words "import Goleo", so a Contains check passes even with the real
+	// import deleted. Found by mutating the import away and seeing this test still pass.
+	hasImport := importGoleoLineRe.MatchString(src)
+	if !hasImport {
+		t.Error("the Swift module is Goleo (from the .xcframework basename), so `import Goleo` " +
+			"is required — and it is NOT the symbol prefix")
+	}
+
+	// Every symbol the shell needs, exactly as the generated header declares it.
+	for _, sym := range []string{
+		"GomobileSetHomeDir(", "GomobileSetNotifier(", "GomobileSetBatteryProvider(",
+		"GomobileSetWakeLockProvider(", "GomobileSetSensorsProvider(",
+		"GomobileSetBackgroundProvider(", "GomobileSetClipboardProvider(",
+		"GomobileSetShareProvider(", "GomobileStartServer(", "GomobileStopServer(",
+		"GomobileEmitSensorReading(", "GomobileEmitBackgroundSync(",
+		"GomobileNotifierProtocol", "GomobileBatteryProviderProtocol",
+		"GomobileWakeLockProviderProtocol", "GomobileSensorsProviderProtocol",
+		"GomobileBackgroundProviderProtocol", "GomobileClipboardProviderProtocol",
+		"GomobileShareProviderProtocol",
+	} {
+		if !strings.Contains(src, sym) {
+			t.Errorf("AppDelegate.swift does not reference %s, which the generated "+
+				"Gomobile.objc.h declares", sym)
+		}
+	}
+
+	// And it must not go back to treating the module name as a namespace. `Goleo.setX(...)`
+	// does not exist: package-level Go funcs become C functions, not methods.
+	for _, bad := range []string{
+		"Goleo.setHomeDir", "Goleo.startServer", "Goleo.stopServer",
+		"Goleo.emitSensorReading", "Goleo.setNotifier",
+	} {
+		if strings.Contains(src, bad) {
+			t.Errorf("AppDelegate.swift uses %s — the module name is not a namespace; "+
+				"package-level Go funcs are C functions prefixed Gomobile", bad)
+		}
+	}
+
+	// A C function takes no argument labels. `GomobileEmitSensorReading(t, x, y, z, ts)`,
+	// never `(_, x:, y:, z:, timestamp:)`.
+	for _, bad := range []string{"x: a.x", "y: a.y", "z: a.z", "timestamp: now()", "devMode: false"} {
+		if strings.Contains(src, bad) {
+			t.Errorf("AppDelegate.swift passes %q as a labelled argument; the gomobile "+
+				"entry points are C functions and take none", bad)
 		}
 	}
 }

@@ -409,7 +409,12 @@ jobs:
           find .goleo/ios -name "*.h" -path "*Headers*" -print 2>/dev/null | head -20
           for h in $(find .goleo/ios -name "*.h" -path "*Headers*" 2>/dev/null | head -20); do
             echo "===== $h ====="
-            grep -nE "@protocol|@interface|FOUNDATION_EXPORT|^-|^\+" "$h" | head -80 || true
+            # Report the total BEFORE truncating. The first run capped at 80 and cut the
+            # @interface list mid-alphabet, which reads exactly like "there are only four"
+            # — a silent truncation that looks like complete coverage.
+            total=$(grep -cE "@protocol|@interface|FOUNDATION_EXPORT" "$h" || true)
+            echo "($total declarations)"
+            grep -nE "@protocol|@interface|FOUNDATION_EXPORT" "$h" | head -200 || true
           done
 
       - name: Fail if the iOS build failed
