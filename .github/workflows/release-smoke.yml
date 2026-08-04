@@ -88,6 +88,8 @@ jobs:
       # already have refused to run — this makes that explicit rather than relying
       # on a later step failing oddly.
       - name: Check the CLI reports the version we installed
+        id: cli_version
+        continue-on-error: true
         run: |
           set -euo pipefail
           got=$(goleo version | tr -d '\r' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
@@ -116,6 +118,8 @@ jobs:
       # the Go one produced the inconsistent-vendoring failures, the npm one paired
       # a current runtime with a bridge six minors old.
       - name: Check the scaffold pinned this release
+        id: pins
+        continue-on-error: true
         working-directory: ${{ runner.temp }}/smoke/smokeapp
         run: |
           set -euo pipefail
@@ -136,6 +140,8 @@ jobs:
         run: npm install --no-audit --no-fund
 
       - name: Check npm resolved a matching bridge
+        id: bridge_version
+        continue-on-error: true
         working-directory: ${{ runner.temp }}/smoke/smokeapp/frontend
         run: |
           set -euo pipefail
@@ -154,6 +160,8 @@ jobs:
       # catches the missing .exe: the build "succeeded" and printed a path, so
       # anything looser than naming the expected file would have passed.
       - name: Check the built artifact is named correctly for this OS
+        id: artifact_name
+        continue-on-error: true
         working-directory: ${{ runner.temp }}/smoke/smokeapp
         run: |
           set -euo pipefail
@@ -170,6 +178,8 @@ jobs:
       # content is a valid PE, so the name check above is necessary but not
       # sufficient.
       - name: Check the artifact is executable
+        id: executable
+        continue-on-error: true
         working-directory: ${{ runner.temp }}/smoke/smokeapp
         run: |
           set -euo pipefail
@@ -191,6 +201,8 @@ jobs:
       # people. It broke independently before, so build it too — just the Go side,
       # since the frontend deps are the same resolution already proven above.
       - name: Scaffold and build the demo template too
+        id: demo
+        continue-on-error: true
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP/smoke"
@@ -213,5 +225,31 @@ jobs:
       # "Cannot find module .../dist/bridge imported from .../dist/index.js". So a
       # failure here on an old version is the check working, not a broken check.
       - name: Check the published bridge loads as ESM with no bundler
+        id: esm
+        continue-on-error: true
         working-directory: ${{ runner.temp }}/smoke/smokeapp/frontend
         run: node -e "import('@goleo/bridge').then(m => console.log('ESM load ok,', Object.keys(m).length, 'exports')).catch(e => { console.error('::error::published bridge is not loadable:', e.message); process.exit(1) })"
+
+      # Report every check together. Each assertion above runs even when an
+      # earlier one failed (continue-on-error), so one run tells you everything
+      # wrong with a release instead of one problem per re-run — which matters
+      # most here, because this job exists to decide "yank or patch".
+      - name: Verdict
+        if: always()
+        run: |
+          failed=""
+          for c in             "CLI version:${{ steps.cli_version.outcome }}"             "scaffold pins:${{ steps.pins.outcome }}"             "bridge version:${{ steps.bridge_version.outcome }}"             "artifact name:${{ steps.artifact_name.outcome }}"             "artifact executable:${{ steps.executable.outcome }}"             "demo template:${{ steps.demo.outcome }}"             "bridge loads as ESM:${{ steps.esm.outcome }}"; do
+            name="${c%:*}"; outcome="${c##*:}"
+            case "$outcome" in
+              success) echo "  ok       $name" ;;
+              # A hard step (install, scaffold, npm, build) failed, so this never
+              # ran. Say so rather than reporting it as a failed assertion.
+              skipped) echo "  skipped  $name (an earlier step failed)"; failed="$failed$name; " ;;
+              *)       echo "  FAILED   $name"; failed="$failed$name; " ;;
+            esac
+          done
+          if [ -n "$failed" ]; then
+            echo "::error::release ${SMOKE_VERSION} failed: $failed"
+            exit 1
+          fi
+          echo "release ${SMOKE_VERSION} is good on ${{ matrix.os }}"
