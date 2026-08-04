@@ -1,0 +1,109 @@
+name: mobile-verify
+
+# Builds a REAL mobile artifact, which nothing else in CI does.
+#
+# ci.yml's "Mobile guard" steps only cross-compile the runtime for GOOS=android/ios.
+# That is a useful smoke test but it cannot catch the failures this path actually
+# has, because `gomobile bind` does two things a plain build never does: it resolves
+# golang.org/x/mobile's bind-support packages, and it GENERATES Java/ObjC bindings
+# from the exported Go surface. Both have broken before (see SPIKES.md):
+#
+#   * a scaffolded project commits vendor/, so Go selects -mod=vendor, but the
+#     bind-support packages are not in vendor/ — the build failed with
+#     "gomobile: missing golang.org/x/mobile dependency" until the mobile path
+#     started forcing GOFLAGS=-mod=mod;
+#   * the native shell wires every provider unconditionally, so a feature tag left
+#     out produced "cannot find symbol gomobile.BatteryProvider" at Java compile
+#     time — from Go code that cross-compiled perfectly.
+#
+# Neither is visible to `go build`. This job exists so a runtime change that breaks
+# the binding fails here rather than in someone's `goleo build android`.
+on:
+  push:
+    branches: [ "master" ]
+    paths:
+      - "runtime/**"
+      - "cli/cmd/**"
+      - ".github/workflows/mobile-verify.yml"
+  pull_request:
+    paths:
+      - "runtime/**"
+      - "cli/cmd/**"
+  workflow_dispatch:
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      # gomobile shells out to gobind, so both must be on PATH.
+      - name: Install gomobile
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          go install golang.org/x/mobile/cmd/gobind@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Build the CLI
+        run: go build -o /tmp/goleo ./cli/goleo
+
+      # Scaffold the way a user would. This matters: the scaffold commits a
+      # vendor/ directory, which is precisely the condition that broke the mobile
+      # build before, and it generates backend/gomobile from the current templates.
+      - name: Scaffold a project
+        run: |
+          mkdir -p /tmp/mob && cd /tmp/mob
+          GOLEO_ROOT="$GITHUB_WORKSPACE" /tmp/goleo new mobapp --no-install
+
+      # Resolve the NDK in the shell, not via ${{ env.* }}: that context holds only
+      # workflow-defined variables, so a runner-provided ANDROID_NDK_LATEST_HOME
+      # would expand to an empty string and gomobile would fail obscurely. Fail here
+      # with a clear message instead if no NDK is present.
+      - name: Locate the Android NDK
+        run: |
+          ndk="${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_ROOT:-${ANDROID_NDK_HOME:-}}}"
+          if [ -z "$ndk" ] && [ -d "$ANDROID_HOME/ndk" ]; then
+            ndk="$ANDROID_HOME/ndk/$(ls "$ANDROID_HOME/ndk" | sort -V | tail -1)"
+          fi
+          if [ -z "$ndk" ] || [ ! -d "$ndk" ]; then
+            echo "::error::no Android NDK on this runner (looked at ANDROID_NDK_LATEST_HOME, ANDROID_NDK_ROOT, ANDROID_NDK_HOME, \$ANDROID_HOME/ndk)"
+            exit 1
+          fi
+          echo "ANDROID_NDK_HOME=$ndk" >> "$GITHUB_ENV"
+          echo "using NDK: $ndk"
+
+      - name: gomobile init
+        run: gomobile init
+
+      # The real bind. -mod=mod is required: the scaffold's vendor/ does not carry
+      # x/mobile's bind-support packages, which are only reached through gomobile's
+      # generated code.
+      - name: gomobile bind (android/arm64)
+        working-directory: /tmp/mob/mobapp
+        env:
+          GOFLAGS: -mod=mod
+        run: |
+          gomobile bind \
+            -target=android/arm64 \
+            -androidapi 24 \
+            -tags "mobilebuild goleo_fs goleo_clipboard" \
+            -o /tmp/mob/goleo.aar \
+            ./backend/gomobile
+
+      # Assert a real artifact, not just a zero exit. A bind that silently produced
+      # nothing would otherwise look like success.
+      - name: Verify the AAR
+        run: |
+          test -f /tmp/mob/goleo.aar || { echo "::error::no AAR produced"; exit 1; }
+          unzip -l /tmp/mob/goleo.aar > /tmp/aar.txt
+          grep -q "classes.jar" /tmp/aar.txt || { echo "::error::AAR has no classes.jar — bindings were not generated"; cat /tmp/aar.txt; exit 1; }
+          grep -q "jni/arm64-v8a/libgojni.so" /tmp/aar.txt || { echo "::error::AAR has no native library"; cat /tmp/aar.txt; exit 1; }
+          echo "AAR ok: $(stat -c%s /tmp/mob/goleo.aar) bytes"
