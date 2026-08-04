@@ -187,7 +187,8 @@ The server auto-selects a port if the configured one is in use and sets CORS hea
 | goleo build darwin | Cross-compile for macOS amd64 |
 | goleo build android | Build an unsigned debug .apk (gomobile AAR + Gradle) |
 | goleo build android --release | Build a **signed .aab** for Play (`--android-format apk` for a signed APK) |
-| goleo build ios | Build iOS .xcframework via gomobile |
+| goleo build ios | Build a debug iOS `GoleoApp.app` (gomobile xcframework + xcodegen + xcodebuild) |
+| goleo build ios --simulator | Build an **unsigned Simulator** app — the only iOS path that needs no Apple Developer account |
 | goleo build pwa | Build Progressive Web App (no Go backend) |
 | goleo build --bundle | Also package the desktop app into a native installer (dist/bundle/) |
 | goleo build --publish | Also write an ed25519-signed update manifest (needs GOLEO_UPDATE_PRIVKEY) |
@@ -208,7 +209,7 @@ The server auto-selects a port if the configured one is in use and sets CORS hea
 | linux | linux | amd64 | binary | none |
 | darwin | darwin | amd64 | binary | none |
 | android | android | arm64 | `app.apk` (debug) or `app.aab` (`--release`) | gomobile + NDK |
-| ios | ios | arm64 | `GoleoApp.app` (debug; the `.xcframework` is an intermediate and is deleted) | gomobile + Xcode |
+| ios | ios | arm64 + arm64-simulator | `GoleoApp.app` (debug; the `.xcframework` is an intermediate and is deleted) | gomobile + Xcode |
 | pwa | js | wasm | dist-pwa/ | none |
 
 ## Frontend Bridge (@goleo/bridge)
@@ -810,3 +811,44 @@ Two pre-existing defects surfaced by driving `Quit()` end-to-end:
   SensorManager), share. Camera/BLE/NFC need real peripherals (not on the emulator) but their
   bindings compile + are wired and permissions are present. NSIS bundle verified end-to-end on
   Windows (real installer, no path doubling) via `nsis_integration_test.go`.
+
+## Session Summary (Aug 4, 2026) — iOS tier 1 (Simulator, no Apple account)
+
+iOS was the only target with no verification of any kind. "Tier 1" is everything reachable
+**without a paid Apple Developer account and without Mac hardware**, i.e. on a GitHub
+`macos-14` runner: build for the Simulator, install, launch, prove it runs.
+
+- **`goleo build ios --simulator`** — compiles against the Simulator SDK with
+  `CODE_SIGNING_ALLOWED=NO`, so it needs no certificate. gomobile now binds
+  `-target ios,iossimulator` so the `.xcframework` carries a simulator slice at all (the
+  load-bearing assumption; it is the first step of the CI job for that reason). `--simulator`
+  is refused on non-iOS targets.
+- **Four iOS template defects fixed**, each of which only a real build or a real submission
+  would surface (asserted in `cli/cmd/ios_template_test.go` so they cannot regress on a host
+  without Xcode):
+  1. `xcodegen.yml` took `PRODUCT_BUNDLE_IDENTIFIER` from the **Android** `package_name`, so
+     `mobile.ios.bundle_identifier` was dead config and both apps shared one identity.
+  2. `Info.plist` hardcoded `CFBundleName` "Goleo App", version `1.0`, build `1` — every app
+     shipped under the framework's name and no version bump reached the bundle.
+  3. `Info.plist` set `UILaunchStoryboardName` to a `LaunchScreen` that **did not exist in the
+     template** — a black launch screen and an App Store rejection.
+  4. No `PRODUCT_NAME`, so the product was named after the target (`App.app`) while the CLI
+     printed `GoleoApp.app`, a path it never wrote. `buildForIOS` now verifies the bundle
+     exists and lists what it found instead of printing a fixed success line.
+- **One source of truth for each platform's minimum OS version** (`cli/cmd/mobile_minversion.go`).
+  gomobile builds the Go library against a minimum (`-iosversion`/`-androidapi`) and the native
+  project declares its own (`deploymentTarget`, `minSdk`); these had independent sources — a CLI
+  flag versus `goleo.json` — and on iOS they **disagreed with no configuration at all**
+  (`--ios-target` defaulted to 14.0, `mobile.ios.deployment_target` to 15.0). A library minimum
+  *above* the app's fails to link, naming a version the user never chose. `--ios-target` /
+  `--android-api` now default to empty and override the config rather than competing with it.
+- **CI: an `ios-simulator` job** in `mobile-verify.yml` — probe the simulator slice, scaffold,
+  build, verify the bundle (name, executable, LaunchScreen, `CFBundleName` is not the
+  placeholder), boot a simulator with `xcrun simctl`, install, launch, assert still running,
+  upload a screenshot.
+
+**Tier 2 (not done, and not blocked on hardware):** signed `.ipa` via `archive` +
+`-exportArchive`, `ExportOptions.plist`, entitlements, TestFlight upload. All of that needs a
+paid Apple Developer account, which a GitHub runner cannot substitute for. Mac App Store stays
+gated behind the acceptance spike (`docs/roadmap.md`) — the App Sandbox forbids the
+self-replacing updater outright.

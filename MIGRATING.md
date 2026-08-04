@@ -251,6 +251,11 @@ now do; if you set them to something wrong, the build will change accordingly. T
 iOS bundle identifier previously fell back to the *Android* `package_name`, and
 still does when unset.
 
+> **Correction (0.10.2):** that was only true of `min_sdk`. The two iOS keys were
+> read out of `goleo.json` in 0.9.0 but then discarded — `xcodegen.yml` still took
+> the bundle id from the Android `package_name` and hardcoded the deployment
+> target. They genuinely take effect from 0.10.2; see that entry below.
+
 ---
 
 ## 0.9.0 — existing projects must update their `@goleo/bridge` pin
@@ -435,3 +440,41 @@ Bare names and fully-qualified ones both work.
   silently ignored. Neither had a meaning there: the APK/AAB is already the distributable,
   and mobile apps update through the store rather than goleo's self-updater.
 
+
+---
+
+## 0.10.2 — the iOS build honours your `goleo.json`
+
+`mobile.ios.bundle_identifier` and `mobile.ios.deployment_target` now reach the generated
+Xcode project. Until this release they were parsed and then discarded: the bundle id came
+from the **Android** `package_name` and the deployment target was hardcoded to 15.0. (The
+0.9.0 note above claimed otherwise; that was wrong for these two keys.)
+
+**What changes for you.** If you set `mobile.ios.bundle_identifier`, your next iOS build
+carries that identifier instead of the Android one. To iOS, TestFlight and the App Store a
+bundle id *is* the app's identity, so this is the same app under a new name: an already-installed
+build will not upgrade in place, and an App Store record registered under the Android id will
+not accept the new build. If you want the old behaviour, set `bundle_identifier` to your
+`package_name` explicitly. Leaving it unset still falls back to `package_name`, so a project
+that never set it is unaffected.
+
+`CFBundleName` and `CFBundleDisplayName` now come from your app name rather than being
+hardcoded "Goleo App", and `CFBundleShortVersionString`/`CFBundleVersion` come from the project
+`version` rather than always being `1.0`/`1`. If you were relying on every build reporting
+version 1.0, it now reports the real one.
+
+**`--ios-target` and `--android-api` no longer have version defaults of their own.** They used
+to default to iOS 14.0 / API 24 and drive gomobile, while the *project's* minimum came from
+`goleo.json` — two independent sources that could disagree, and on iOS did so out of the box
+(14.0 versus 15.0). A Go library built for a *higher* minimum than the app fails to link, so
+lowering `mobile.ios.deployment_target` below 14.0 used to produce an error naming a version
+you never set. Both flags now default to the config value and exist only as a per-build
+override. If you were passing `--ios-target`/`--android-api` to *raise* the minimum, move that
+value into `mobile.ios.deployment_target` / `mobile.android.min_sdk` so the native project
+agrees with it.
+
+**Also in this release:** `goleo build ios --simulator` builds an unsigned app for the iOS
+Simulator, which is the only iOS target that needs no Apple Developer account — see
+[Mobile](docs/guide/10-mobile.md). And `Info.plist` referenced a `LaunchScreen` storyboard that
+was missing from the template altogether (a black launch screen, and an App Store rejection);
+it is now present.

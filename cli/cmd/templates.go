@@ -735,7 +735,7 @@ var tmplGoleoJSON = `{
       "package_name": "com.goleo.app"
     },
     "ios": {
-      "deployment_target": "14.0",
+      "deployment_target": "15.0",
       "bundle_identifier": "com.goleo.app"
     }
   }

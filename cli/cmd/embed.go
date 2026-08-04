@@ -51,8 +51,11 @@ const (
 	defaultIOSDeployTarget  = "15.0"
 )
 
-func loadMobileConfig(projectDir string) mobileConfig {
-	cfg := mobileConfig{
+// defaultMobileConfig is the config a project with no mobile settings gets. Extracted from
+// loadMobileConfig so tests assert against the real defaults instead of a hand-written
+// copy of them — a copy is exactly how a wrong default survives a green test suite.
+func defaultMobileConfig() mobileConfig {
+	return mobileConfig{
 		PackageName:         "com.goleo.app",
 		AppName:             "Goleo App",
 		DevPort:             5173,
@@ -62,6 +65,10 @@ func loadMobileConfig(projectDir string) mobileConfig {
 		TargetSDK:           defaultAndroidTargetSDK,
 		IOSDeploymentTarget: defaultIOSDeployTarget,
 	}
+}
+
+func loadMobileConfig(projectDir string) mobileConfig {
+	cfg := defaultMobileConfig()
 	raw := loadGoleoJSON(projectDir)
 	if raw.AppName != "" {
 		cfg.AppName = raw.AppName

@@ -51,11 +51,34 @@ if none is present (it will not spin up an emulator).
 
 ```bash
 npm run goleo:build-ios          # -> GoleoApp.app, a DEBUG build (macOS + Xcode)
+goleo build ios --simulator      # -> GoleoApp.app for the Simulator, unsigned
 ```
 
-Integrate the `.xcframework` into an Xcode project and run/deploy through Xcode,
-the Simulator, TestFlight, or the App Store. (`goleo emulate`/`install` are
-Android-only today.)
+`goleo build ios` produces a finished `GoleoApp.app`; the `.xcframework` gomobile
+generates is an intermediate that the build consumes and deletes, so there is
+nothing for you to integrate by hand.
+
+**Without an Apple Developer account**, use `--simulator`. It builds against the
+Simulator SDK with code signing disabled, which is the only iOS path that needs no
+certificate at all:
+
+```bash
+goleo build ios --simulator
+xcrun simctl list devices available          # pick one
+xcrun simctl boot "iPhone 16"
+open -a Simulator
+xcrun simctl install booted GoleoApp.app
+xcrun simctl launch booted com.example.myapp # your mobile.ios.bundle_identifier
+```
+
+`xcrun simctl spawn booted log stream --predicate 'processImagePath CONTAINS "GoleoApp"'`
+tails the app's logs, which is the closest equivalent to `adb logcat`.
+
+**On a device**, open the generated project in Xcode and run it from there — a device
+build needs a signing certificate and a provisioning profile. There is no `.ipa`
+export yet, so TestFlight and App Store submission are not wired up.
+
+(`goleo emulate`/`goleo install` are Android-only.)
 
 ## Permissions
 
@@ -96,7 +119,7 @@ Set the package name / bundle id and launcher icon per
     // cannot see — a capability used only through a frontend browser API — goes here.
     "extra_permissions": ["RECORD_AUDIO"]
   },
-  "ios": { "deployment_target": "14.0", "bundle_identifier": "com.example.myapp" }
+  "ios": { "deployment_target": "15.0", "bundle_identifier": "com.example.myapp" }
 }
 ```
 

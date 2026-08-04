@@ -88,7 +88,7 @@ The project manifest. Key sections:
   },
   "mobile": {
     "android": { "min_sdk": 24, "package_name": "com.example.myapp" },
-    "ios":     { "deployment_target": "14.0", "bundle_identifier": "com.example.myapp" }
+    "ios":     { "deployment_target": "15.0", "bundle_identifier": "com.example.myapp" }
   }
 }
 ```

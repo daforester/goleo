@@ -62,6 +62,13 @@ needs `x86_64`, so a single-ABI `arm64-v8a` build will not install on one.
 `--no-sign` skips code signing on every platform even when credentials are
 configured — useful in CI for a build you only want to check compiles.
 
+`--android-api` and `--ios-target` set the minimum OS version the **Go library** is
+compiled against. Leave them alone unless you have a reason: they default to
+`mobile.android.min_sdk` / `mobile.ios.deployment_target` from `goleo.json`, which is also
+what the native project declares. The two must agree — a Go library with a *higher*
+minimum than the app fails to link — so overriding one flag without changing the config
+is how you break that.
+
 ## PWA
 
 ```bash
@@ -101,8 +108,30 @@ npm run goleo:build-ios        # -> GoleoApp.app, a DEBUG build (macOS + Xcode)
   it to `mobile.android.extra_permissions` in `goleo.json`.
 - **iOS**: builds a **debug** `GoleoApp.app` with `xcodebuild`. macOS only. The
   `.xcframework` gomobile produces is an intermediate that the build consumes and then
-  deletes, so there is nothing to integrate by hand. There is **no `.ipa`** yet — see
-  [the roadmap](../roadmap.md) — so App Store distribution is not wired up.
+  deletes, so there is nothing to integrate by hand.
+
+  ```bash
+  goleo build ios                 # device build; needs a signing certificate
+  goleo build ios --simulator     # Simulator build; needs NO Apple account
+  ```
+
+  `--simulator` is the path that works without an Apple Developer account: it compiles
+  against the iOS Simulator SDK with code signing off, so you can run the app in the
+  Simulator on any Mac with Xcode. Install and launch it with:
+
+  ```bash
+  xcrun simctl boot "iPhone 16"          # or any device in `xcrun simctl list devices`
+  xcrun simctl install booted GoleoApp.app
+  xcrun simctl launch booted <your bundle id>
+  ```
+
+  The bundle identifier comes from `mobile.ios.bundle_identifier`, the minimum OS version
+  from `mobile.ios.deployment_target`, and the version/build numbers from the project
+  `version` — see [Setup](02-setup.md). `--ios-target` overrides the deployment target for
+  one build.
+
+  There is still **no `.ipa`** — see [the roadmap](../roadmap.md) — so TestFlight and App
+  Store distribution are not wired up. Both need a paid Apple Developer account.
 
 To run on a real device during development, or to sideload the APK, see
 [Mobile](10-mobile.md).
