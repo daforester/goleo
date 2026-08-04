@@ -28,7 +28,7 @@
 
     <application
         android:allowBackup="true"
-        android:label="Goleo (Dev)"
+        android:label="{{.AppName}} (Dev)"
         {{if .HasIcon}}android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         {{end}}android:supportsRtl="true"

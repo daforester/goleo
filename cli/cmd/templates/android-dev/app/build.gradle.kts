@@ -4,13 +4,22 @@ plugins {
 
 android {
     namespace = "{{.PackageName}}"
-    compileSdk = 36
+    // These MUST track goleo.json the same way the release template does. They were
+    // hardcoded 36/24/36 while the release project used mobile.android.{min_sdk,target_sdk},
+    // so a project raising min_sdk above 24 failed only on the `goleo emulate` path:
+    // gomobile builds the AAR against the configured minimum, and Gradle rejects a library
+    // whose minSdk exceeds the app's ("cannot be smaller than version N declared in
+    // library"). Below 24 it was the quieter kind of wrong — dev ran on devices the
+    // release build did not support.
+    compileSdk = {{.TargetSDK}}
     defaultConfig {
         applicationId = "{{.PackageName}}"
-        minSdk = 24
-        targetSdk = 36
+        minSdk = {{.MinSDK}}
+        targetSdk = {{.TargetSDK}}
+        // A dev build is never uploaded, so versionCode stays 1; versionName carries the
+        // real version so "what am I running" has an answer on the device.
         versionCode = 1
-        versionName = "1.0-dev"
+        versionName = "{{.VersionName}}-dev"
     }
     buildTypes {
         release {

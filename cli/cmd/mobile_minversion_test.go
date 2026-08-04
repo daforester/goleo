@@ -196,3 +196,75 @@ func readDemoGoleoJSON(t *testing.T) string {
 	}
 	return string(b)
 }
+
+// The DEV Android project and the RELEASE one must declare the same SDK levels.
+//
+// android-dev hardcoded compileSdk 36 / minSdk 24 / targetSdk 36 while android used
+// mobile.android.{min_sdk,target_sdk}. That is invisible until a project raises min_sdk
+// above 24, and then it fails only on the `goleo emulate` path: gomobile builds the AAR
+// against the configured minimum and Gradle rejects a library whose minSdk exceeds the
+// app's. Making -androidapi follow the config (see resolveAndroidMinAPI) is what turned
+// this from a latent inconsistency into a build failure.
+func TestDevAndReleaseAndroidProjectsDeclareTheSameSDKLevels(t *testing.T) {
+	cfg := defaultMobileConfig()
+	cfg.MinSDK = 29
+	cfg.TargetSDK = 35
+	cfg.PackageName = "com.example.app"
+	cfg.VersionName = "2.1.0"
+
+	get := func(path, key string) string {
+		t.Helper()
+		raw, err := mobileTemplates.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tmpl, err := template.New("g").Parse(string(raw))
+		if err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		var out strings.Builder
+		if err := tmpl.Execute(&out, cfg); err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		for _, line := range strings.Split(out.String(), "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "//") {
+				continue // the explanatory comments mention the old literals
+			}
+			if strings.HasPrefix(line, key+" ") || strings.HasPrefix(line, key+"=") {
+				_, v, _ := strings.Cut(line, "=")
+				return strings.TrimSpace(v)
+			}
+		}
+		t.Fatalf("%s declares no %s:\n%s", path, key, out.String())
+		return ""
+	}
+
+	const dev = "templates/android-dev/app/build.gradle.kts"
+	const rel = "templates/android/app/build.gradle.kts"
+	for _, key := range []string{"compileSdk", "minSdk", "targetSdk"} {
+		d, r := get(dev, key), get(rel, key)
+		if d != r {
+			t.Errorf("%s: dev project declares %s, release declares %s — the dev build would "+
+				"target a different platform than the one you ship", key, d, r)
+		}
+		// And it must be the configured value, not a literal that happens to match.
+		if key == "minSdk" && d != "29" {
+			t.Errorf("minSdk is %s, not the configured 29 — it is hardcoded", d)
+		}
+		if key == "targetSdk" && d != "35" {
+			t.Errorf("targetSdk is %s, not the configured 35 — it is hardcoded", d)
+		}
+	}
+
+	// The dev build must be identifiable per project. Every goleo dev build was labelled
+	// "Goleo (Dev)", so two of them on one device were indistinguishable in the launcher.
+	manifest, err := mobileTemplates.ReadFile("templates/android-dev/app/src/main/AndroidManifest.xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(manifest), `android:label="Goleo (Dev)"`) {
+		t.Error("the dev manifest hardcodes the launcher label, so every goleo project's dev " +
+			"build looks the same on the device")
+	}
+}
