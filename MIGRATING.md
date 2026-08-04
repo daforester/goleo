@@ -6,7 +6,7 @@ you and what to do.
 
 ---
 
-## Unreleased — filesystem access is confined by default
+## 0.9.0 — filesystem access is confined by default
 
 **Affects:** apps that call `runtime.RegisterFS` (which `RegisterDesktopFeatures`
 does, so both scaffolds enable it) **and** pass absolute paths from outside the
@@ -105,7 +105,7 @@ output, you are unaffected.
 
 ---
 
-## Unreleased — `@goleo/bridge` reports failures instead of inventing values
+## 0.9.0 — `@goleo/bridge` reports failures instead of inventing values
 
 **Affects:** any code that relied on a bridge call *succeeding* when it had actually
 failed. If your callers already `try/catch` (or `.catch()`), you are unaffected.
@@ -153,7 +153,7 @@ through `invoke()` **directly** rather than through the wrappers — in which ca
 
 ---
 
-## Unreleased — each app gets its own key/value store
+## 0.9.0 — each app gets its own key/value store
 
 **Affects:** apps using `RegisterStore` / `@goleo/bridge`'s `storeGet`/`storeSet`.
 **No action needed** — existing data is migrated automatically. Read on only if you
@@ -185,7 +185,7 @@ corrupt store.
 
 ---
 
-## Unreleased — `goleo:openURL` only opens web schemes
+## 0.9.0 — `goleo:openURL` only opens web schemes
 
 **Affects:** apps that pass anything other than `http`, `https`, `mailto` or `tel`
 to `openURL` / `goleo:openURL`.
@@ -206,7 +206,7 @@ Opening a local file is intentionally not supported through `openURL` — use th
 
 ---
 
-## Unreleased — dev-mode bridge rejects public origins
+## 0.9.0 — dev-mode bridge rejects public origins
 
 **Affects:** development setups served from a public hostname (a tunnel such as
 ngrok, or a hosted preview) — not local Vite, not `goleo emulate android`, not LAN
@@ -229,7 +229,7 @@ Comma-separate multiple origins. Production behaviour is unchanged.
 
 ---
 
-## Unreleased — a malformed `goleo.json` now fails the build
+## 0.9.0 — a malformed `goleo.json` now fails the build
 
 **Affects:** projects whose `goleo.json` does not parse, or has a key of the wrong
 type (`"version": 2.0` instead of `"2.0"`).
@@ -253,7 +253,7 @@ still does when unset.
 
 ---
 
-## Unreleased — existing projects must update their `@goleo/bridge` pin
+## 0.9.0 — existing projects must update their `@goleo/bridge` pin
 
 **Affects:** every project scaffolded by `goleo new` before this release. Check with:
 
@@ -299,7 +299,7 @@ CLI's own version, exactly like the `go.mod` require.
 
 ---
 
-## Unreleased — `goleo build` on Windows now produces `app.exe`
+## 0.9.0 — `goleo build` on Windows now produces `app.exe`
 
 **Affects:** Windows only, and only scripts that referred to the built file by name.
 
