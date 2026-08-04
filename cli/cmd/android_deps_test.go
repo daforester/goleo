@@ -587,3 +587,78 @@ func TestResolveSDKFallsBackToLegacyProjectLocalDir(t *testing.T) {
 		t.Errorf("resolveSDK() SDKRoot = %q, want legacy project-local dir %q", d.SDKRoot, want)
 	}
 }
+
+// --android-ndk must win over ANDROID_NDK_HOME and over autodiscovery.
+//
+// It did neither: the flag was declared on `goleo build` and `goleo emulate`, documented
+// in --help as "Path to Android NDK", and read by absolutely nothing. Naming an NDK
+// silently built against a different one, and when none was found the error said to "Set
+// ANDROID_NDK_HOME manually" while the flag sat unused in the help output.
+func TestAndroidNDKFlagWinsOverTheEnvironment(t *testing.T) {
+	// A convincing NDK is a directory containing toolchains/.
+	makeNDK := func(name string) string {
+		dir := filepath.Join(t.TempDir(), name)
+		if err := os.MkdirAll(filepath.Join(dir, "toolchains"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+	flagNDK := makeNDK("from-flag")
+	envNDK := makeNDK("from-env")
+
+	t.Setenv("ANDROID_NDK_HOME", envNDK)
+	saved := buildAndroid
+	t.Cleanup(func() { buildAndroid = saved })
+
+	buildAndroid = flagNDK
+	d := &androidDeps{}
+	if err := d.resolveNDK(); err != nil {
+		t.Fatalf("resolveNDK with --android-ndk %q: %v", flagNDK, err)
+	}
+	if d.NDKDir != flagNDK {
+		t.Errorf("resolved NDK %q, want the one from --android-ndk %q — the flag is being "+
+			"ignored, so the build uses an NDK the user did not name", d.NDKDir, flagNDK)
+	}
+
+	// With the flag unset, the environment is still honoured.
+	buildAndroid = ""
+	d = &androidDeps{}
+	if err := d.resolveNDK(); err != nil {
+		t.Fatalf("resolveNDK with only ANDROID_NDK_HOME: %v", err)
+	}
+	if d.NDKDir != envNDK {
+		t.Errorf("resolved NDK %q, want ANDROID_NDK_HOME %q", d.NDKDir, envNDK)
+	}
+}
+
+// A path given explicitly must be an error when it is wrong, not something to silently
+// fall back from — using a different NDK than the one named is how a build works on one
+// machine and nowhere else.
+func TestAndroidNDKFlagErrorsWhenWrong(t *testing.T) {
+	envNDK := filepath.Join(t.TempDir(), "real")
+	if err := os.MkdirAll(filepath.Join(envNDK, "toolchains"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ANDROID_NDK_HOME", envNDK)
+	saved := buildAndroid
+	t.Cleanup(func() { buildAndroid = saved })
+
+	buildAndroid = filepath.Join(t.TempDir(), "does-not-exist")
+	d := &androidDeps{}
+	err := d.resolveNDK()
+	if err == nil {
+		t.Fatalf("a nonexistent --android-ndk should be an error, but resolveNDK fell back "+
+			"to %q", d.NDKDir)
+	}
+	if !strings.Contains(err.Error(), "--android-ndk") {
+		t.Errorf("the error should name the flag:\n%v", err)
+	}
+
+	// A directory that exists but is not an NDK is the likelier mistake — pointing at the
+	// SDK root, or at the ndk/ parent instead of a versioned subdirectory.
+	notAnNDK := t.TempDir()
+	buildAndroid = notAnNDK
+	if err := (&androidDeps{}).resolveNDK(); err == nil {
+		t.Error("a directory with no toolchains/ should be refused as an NDK")
+	}
+}

@@ -197,55 +197,8 @@ func runBuild(cmd *cobra.Command, args []string) error {
 
 	buildFrontend = resolveFrontendDir(cmd, buildFrontend, ".")
 
-	// Reject flags this target cannot honour, rather than accepting them and doing
-	// nothing. The mobile and pwa paths return before the bundle/publish block, so
-	// --bundle and --publish were silently ignored: you asked for an installer and a
-	// signed update manifest, got neither, and the build reported success.
-	//
-	// They are refused rather than implemented because neither has a meaning here.
-	// --bundle makes a native desktop installer, but on Android the APK/AAB IS the
-	// installable artifact (--release --android-format aab is what you want), and on
-	// PWA the output is a directory to host. --publish writes a manifest for goleo's
-	// own self-updater, which mobile apps do not use — Play and the App Store handle
-	// updates, and a sideloaded APK cannot replace its own running binary.
-	if targetName == "android" || targetName == "ios" || targetName == "pwa" {
-		for flag, set := range map[string]bool{"--bundle": buildBundle, "--publish": buildPublish} {
-			if !set {
-				continue
-			}
-			hint := "the built artifact is already the distributable one"
-			if targetName == "android" {
-				hint = "use --release (and --android-format aab|apk) for a store-ready artifact"
-			}
-			return fmt.Errorf("%s does not apply to the %s target — %s", flag, targetName, hint)
-		}
-	}
-	// --simulator is iOS-only; accepting it elsewhere would silently do nothing.
-	if buildSimulator && targetName != "ios" {
-		return fmt.Errorf("--simulator only applies to the ios target")
-	}
-
-	// --windows-format is meaningless unless a Windows installer is actually being built.
-	if buildWindowsFormat != "" {
-		if !buildBundle {
-			return fmt.Errorf("--windows-format only applies with --bundle")
-		}
-		if target.GOOS != "windows" {
-			return fmt.Errorf("--windows-format only applies to a Windows target (this is %s)", target.GOOS)
-		}
-	}
-
-	// The Android-only flags should not look effective on a desktop build either.
-	if targetName != "android" {
-		if buildAndroidFormat != "" {
-			return fmt.Errorf("--android-format only applies to the android target")
-		}
-		if buildVersionCode > 0 {
-			return fmt.Errorf("--version-code only applies to the android target")
-		}
-		if buildRelease && targetName != "ios" {
-			return fmt.Errorf("--release only applies to mobile targets; desktop builds use --bundle and the GOLEO_* signing variables")
-		}
+	if err := validateTargetFlags(targetName, target); err != nil {
+		return err
 	}
 
 	if targetName == "android" {
@@ -727,13 +680,12 @@ func buildForAndroid(distDir string, deps *androidDeps) error {
 		return fmt.Errorf("copying .aar: %w", err)
 	}
 
-	if distExists(distDir) {
-		assetsDir := filepath.Join(buildDir, "app", "src", "main", "assets")
-		os.RemoveAll(assetsDir)
-		if err := copyDir(distDir, assetsDir); err != nil {
-			return fmt.Errorf("copying frontend assets: %w", err)
-		}
-	}
+	// NOTE: the frontend is deliberately NOT copied into app/src/main/assets.
+	// It is embedded in the Go library (backend/gomobile's //go:embed all:frontend/dist,
+	// passed as EmbedFS) and served over http://127.0.0.1:<port>, which the WebView loads —
+	// a loopback origin is a secure context, which file:///android_asset is not, so the
+	// asset copy could not be used for the UI even if something wanted to. Nothing reads it:
+	// it was a second copy of the whole frontend in every APK and AAB.
 
 	format, err := resolveAndroidFormat(buildAndroidFormat, buildRelease)
 	if err != nil {
@@ -1001,12 +953,10 @@ func buildForIOS(distDir string) error {
 		return fmt.Errorf("copying .xcframework: %w", err)
 	}
 
-	if distExists(distDir) {
-		appAssets := filepath.Join(buildDir, "App", "Assets")
-		if err := copyDir(distDir, appAssets); err != nil {
-			return fmt.Errorf("copying frontend assets: %w", err)
-		}
-	}
+	// As on Android, the frontend is NOT copied into the app bundle: it is embedded in the
+	// Go framework and served over http://127.0.0.1:<port>, which is what WKWebView loads.
+	// xcodegen's `sources: - App` would have swept the copy in as flat bundle resources
+	// nothing referenced.
 
 	outputName := buildOutput
 	if outputName == "" {
@@ -1272,6 +1222,11 @@ func validateGoleoJSON(cfg goleoJSON) error {
 	if id := cfg.Mobile.IOS.BundleIdentifier; id != "" && !strings.Contains(id, ".") {
 		return fmt.Errorf("goleo.json: mobile.ios.bundle_identifier %q must be reverse-DNS (e.g. com.example.app)", id)
 	}
+	if dt := strings.TrimSpace(cfg.Mobile.IOS.DeploymentTarget); dt != "" {
+		if err := validIOSVersion(dt); err != nil {
+			return fmt.Errorf("goleo.json: mobile.ios.deployment_target %q: %w", dt, err)
+		}
+	}
 	if v := cfg.Mobile.Android.VersionCode; v < 0 {
 		return fmt.Errorf("goleo.json: mobile.android.version_code must be positive, got %d", v)
 	}
@@ -1366,6 +1321,88 @@ func androidBindTarget() (string, error) {
 // a test asserts they agree, because they had silently drifted (jar 8.10.2 against a
 // 9.4.1 distribution).
 const gradleWrapperVersion = "9.4.1"
+
+// validateTargetFlags rejects flags the given target cannot honour.
+//
+// Extracted from runBuild so it can be tested. It was inline and had no test at all,
+// which is how `--release` came to be exempted on iOS: accepted by this block and then
+// never read by buildForIOS, so the flag silently did nothing. The table test asserts
+// every flag against every target, so an unhandled combination is a failure rather
+// than a silent no-op.
+func validateTargetFlags(targetName string, target buildTarget) error {
+	// Reject flags this target cannot honour, rather than accepting them and doing
+	// nothing. The mobile and pwa paths return before the bundle/publish block, so
+	// --bundle and --publish were silently ignored: you asked for an installer and a
+	// signed update manifest, got neither, and the build reported success.
+	//
+	// They are refused rather than implemented because neither has a meaning here.
+	// --bundle makes a native desktop installer, but on Android the APK/AAB IS the
+	// installable artifact (--release --android-format aab is what you want), and on
+	// PWA the output is a directory to host. --publish writes a manifest for goleo's
+	// own self-updater, which mobile apps do not use — Play and the App Store handle
+	// updates, and a sideloaded APK cannot replace its own running binary.
+	if targetName == "android" || targetName == "ios" || targetName == "pwa" {
+		for flag, set := range map[string]bool{"--bundle": buildBundle, "--publish": buildPublish} {
+			if !set {
+				continue
+			}
+			hint := "the built artifact is already the distributable one"
+			if targetName == "android" {
+				hint = "use --release (and --android-format aab|apk) for a store-ready artifact"
+			}
+			return fmt.Errorf("%s does not apply to the %s target — %s", flag, targetName, hint)
+		}
+	}
+	// --simulator is iOS-only; accepting it elsewhere would silently do nothing.
+	if buildSimulator && targetName != "ios" {
+		return fmt.Errorf("--simulator only applies to the ios target")
+	}
+
+	// --windows-format is meaningless unless a Windows installer is actually being built.
+	if buildWindowsFormat != "" {
+		if !buildBundle {
+			return fmt.Errorf("--windows-format only applies with --bundle")
+		}
+		if target.GOOS != "windows" {
+			return fmt.Errorf("--windows-format only applies to a Windows target (this is %s)", target.GOOS)
+		}
+	}
+
+	// --release used to be exempted on iOS in anticipation of an .ipa export that does not
+	// exist yet, so `goleo build ios --release` was ACCEPTED and then completely ignored:
+	// buildForIOS never reads the flag. You asked for a release artifact, got a debug
+	// build, and the build reported success — the same defect the --bundle/--publish
+	// rejection above exists to prevent. Checked before the generic message below so the
+	// reason is the iOS one, not "only applies to android".
+	if buildRelease && targetName == "ios" {
+		return fmt.Errorf("--release is not implemented for iOS: there is no .ipa export yet, " +
+			"so goleo cannot produce a distributable build.\n" +
+			"  For a Simulator build that needs no Apple account: goleo build ios --simulator\n" +
+			"  To ship: build without --release, then archive the generated Xcode project " +
+			"under .goleo/ios/ from Xcode.")
+	}
+
+	// The Android-only flags should not look effective on a desktop build either.
+	if targetName != "android" {
+		if buildAndroidFormat != "" {
+			return fmt.Errorf("--android-format only applies to the android target")
+		}
+		if buildVersionCode > 0 {
+			return fmt.Errorf("--version-code only applies to the android target")
+		}
+		if buildAndroidABI != "" {
+			return fmt.Errorf("--android-abi only applies to the android target (use --arch for desktop targets)")
+		}
+		if buildAndroid != "" {
+			return fmt.Errorf("--android-ndk only applies to the android target")
+		}
+		if buildRelease {
+			return fmt.Errorf("--release only applies to the android target; desktop builds use --bundle and the GOLEO_* signing variables")
+		}
+	}
+
+	return nil
+}
 
 // validateAndroidRelease checks the release/signing flags before any expensive work.
 //

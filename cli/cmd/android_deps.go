@@ -688,6 +688,25 @@ func winQuote(s string) string {
 }
 
 func (d *androidDeps) resolveNDK() error {
+	// --android-ndk wins over everything. It was declared on both `goleo build` and
+	// `goleo emulate`, documented in --help as "Path to Android NDK", and then never read
+	// by anything: resolution went straight to ANDROID_NDK_HOME and autodiscovery. So
+	// pointing it at a specific NDK silently used a different one, and when none was found
+	// the error told you to "Set ANDROID_NDK_HOME manually" with the flag sitting unused
+	// in the help output.
+	//
+	// A path given explicitly is an error if it is wrong, not something to fall back from:
+	// silently using a different NDK than the one you named is how you get a build that
+	// works on your machine and nowhere else.
+	if flagNDK := strings.TrimSpace(buildAndroid); flagNDK != "" {
+		if _, err := os.Stat(filepath.Join(flagNDK, "toolchains")); err != nil {
+			return fmt.Errorf("--android-ndk %q does not look like an NDK "+
+				"(no toolchains/ directory inside it): %w", flagNDK, err)
+		}
+		d.NDKDir = flagNDK
+		return nil
+	}
+
 	ndkDir := os.Getenv("ANDROID_NDK_HOME")
 	if ndkDir != "" {
 		if _, err := os.Stat(filepath.Join(ndkDir, "toolchains")); err == nil {
