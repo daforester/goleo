@@ -38,7 +38,8 @@ goleo/
 │       ├── index.ts       # Public API exports
 │       ├── bridge.ts      # WebSocket/HTTP bridge implementation
 │       └── types.ts       # TypeScript type definitions
-├── templates/app/         # User project templates (consumed by goleo new)
+├── templates/           # (empty; the scaffold lives in cli/cmd — minimal in
+│                        # templates.go, demo embedded under cli/cmd/templates/demo)
 ├── docs/
 │   └── guide/             # Developer Guide (multi-page): install, setup, build,
 │                          # packaging/icons, deploy, wiring, RPC, menus, tray, mobile
@@ -82,25 +83,24 @@ Events flow from backend to frontend (push) via WebSocket, or from frontend to b
 
 ### Production Build
 
-1. Frontend is built with Vite into rontend/dist/
+1. Frontend is built with Vite into frontend/dist/
 2. The dist/ directory is embedded into Go binary via //go:embed
 3. Go binary serves embedded static files along with API on the same port
 4. A single self-contained executable is produced
 
-## Go Runtime Library (
-untime/)
+## Go Runtime Library (runtime/)
 
 The runtime package is imported by user applications.
 
 ### App Lifecycle
 
-`go
+```go
 app := runtime.New(runtime.Config{
     Title:      "My App",
     Width:      1024,
     Height:     768,
     DevMode:    false,
-    Port:       0,       // 0 = random available port
+    Port:       0,       // 0 means "use the default", which New() maps to 9842
     EmbedFS:    frontendFS,
     OnStartup:  func(ctx context.Context) { },
     OnShutdown: func(ctx context.Context) { },
@@ -108,7 +108,7 @@ app := runtime.New(runtime.Config{
 runtime.RegisterBuiltins(app.Bridge())
 app.Bridge().Handle("myCommand", myHandler)
 app.Run() // blocks until SIGINT/SIGTERM
-`
+```
 
 ### Config Fields
 
@@ -119,7 +119,7 @@ app.Run() // blocks until SIGINT/SIGTERM
 | Height | int | 768 | Window height |
 | DevMode | bool | false | Enable dev mode (CORS, no embedded files) |
 | DevServer | string | "" | Frontend dev server URL |
-| Port | int | 9842 | Server port (0 = random) |
+| Port | int | 9842 | Server port. 0 means "use the default": `New()` maps it to 9842 (`runtime/app.go`). The server then falls forward to the next free port if 9842 is taken. |
 | WindowMode | WindowMode | WindowModeBrowser | Display mode (browser/webview/mobile) |
 | EmbedFS | any | nil | Embedded frontend filesystem |
 | OnStartup | func(ctx) | nil | Startup callback |
@@ -129,14 +129,14 @@ app.Run() // blocks until SIGINT/SIGTERM
 
 #### Registering commands
 
-`go
+```go
 app.Bridge().Handle("add", func(ctx context.Context, args json.RawMessage) (any, error) {
     var params map[string]int
     json.Unmarshal(args, &params)
     sum := params["a"] + params["b"]
     return map[string]int{"sum": sum}, nil
 })
-`
+```
 
 #### Built-in commands
 
@@ -151,7 +151,7 @@ app.Bridge().Handle("add", func(ctx context.Context, args json.RawMessage) (any,
 
 #### Events (Go side)
 
-`go
+```go
 // Emit events to frontend
 app.Emit("data:updated", map[string]any{"count": 42})
 
@@ -159,7 +159,7 @@ app.Emit("data:updated", map[string]any{"count": 42})
 app.On("app:ready", func(ctx context.Context, data json.RawMessage) {
     log.Print("Frontend is ready")
 })
-`
+```
 
 ### Server Endpoints
 
@@ -214,7 +214,7 @@ The server auto-selects a port if the configured one is in use and sets CORS hea
 
 ### Initialization
 
-`	ypescript
+```typescript
 import { initBridge, invoke, on, getOSInfo } from '@goleo/bridge'
 
 await initBridge({
@@ -222,7 +222,7 @@ await initBridge({
   wsUrl: 'ws://localhost:9842/ws',
   autoReconnect: true,
 })
-`
+```
 
 ### API Reference
 
@@ -252,7 +252,7 @@ await initBridge({
 
 ## Project Template (created by goleo new)
 
-`
+```
 my-app/
 ├── .gitignore              # Ignores generated backend files + build output
 ├── goleo.json              # Goleo project configuration
@@ -278,11 +278,11 @@ my-app/
         ├── main.ts         # Frontend entry, inits bridge
         ├── App.vue         # Root Vue component
         └── style.css
-`
+```
 
 ## User Commands (in root package.json)
 
-`json
+```json
 {
   "scripts": {
     "goleo:dev": "goleo dev",                                  // desktop dev (Go + Vite HMR)
@@ -312,11 +312,11 @@ Standalone binaries come from `goleo:build*`; native installers from `goleo:bund
 (both read icon + metadata from `goleo.json`'s `bundle` section — see the Packaging
 guide). `goleo:sideload-android` builds the APK then `adb install`s it to a connected
 device.
-`
+```
 
 ## Getting Started
 
-`ash
+```bash
 # Install the CLI (npm, or `go install github.com/daforester/goleo/cli/goleo@latest`)
 npm install -g @goleo/cli
 
@@ -326,7 +326,7 @@ cd my-app
 cd frontend && npm install && cd ..
 goleo dev        # Start development
 goleo build      # Build for current platform
-`
+```
 
 ## Dependencies
 
@@ -337,7 +337,13 @@ goleo build      # Build for current platform
 - github.com/ebitengine/purego - dlopen/FFI used by the cgo-free webview + tray backends
 - github.com/gogpu/systray - cgo-free system tray
 - github.com/dop251/goja - JS engine for `init.js`
-- golang.org/x/sys / golang.org/x/mobile - platform + gomobile support
+- golang.org/x/sys - platform support
+- github.com/fsnotify/fsnotify - dev-mode file watching
+- github.com/josephspurrier/goversioninfo - Windows exe icon + version resources
+
+`golang.org/x/mobile` is deliberately **not** a dependency of this module: the mobile build
+path installs `gomobile`/`gobind` as tools and resolves x/mobile from the module cache per
+build (`-mod=mod`), because its bind-support packages are not vendorable. See SPIKES.md.
 
 ### Vendoring (third-party code is committed)
 
@@ -362,11 +368,11 @@ The `spikes/` directories are separate throwaway proof modules and are intention
 not vendored.
 
 ### npm Dependencies (bridge)
-- 	ypescript - Build tool
+- typescript - Build tool
 
 ### User Frontend Dependencies (template)
-- ue - UI framework (default, swappable)
-- ite - Build tool and dev server
+- vue - UI framework (default, swappable)
+- vite - Build tool and dev server
 - @goleo/bridge - Frontend-backend bridge
 - @vitejs/plugin-vue - Vite Vue plugin
 
@@ -525,7 +531,8 @@ This is cgo-free and binding-agnostic (works with either webview backend).
 
 ### Bridge Graceful Degradation
 - Bridge now handles connection timeout → local-only mode (no backend fallback)
-- `backend` config option for explicit platform targeting (desktop/mobile/pwa)
+- `backend` config option (a **boolean**, `bridge/src/types.ts`): set false to skip the
+  backend entirely and go straight to local-only mode, e.g. for a PWA build
 - `showNotification`, `showAlert`, etc. fall back to browser Notification API
 - `getOSInfo`, `getPlatformInfo`, `getArch`, `getEnv`, `openURL` fall back to browser APIs when Go backend unavailable
 
@@ -536,7 +543,8 @@ This is cgo-free and binding-agnostic (works with either webview backend).
 
 ### Template Cleanup
 - Removed stale entries from `create-app.ts`: `commands/commands.go`, `commands/init.js`
-- Files are at `backend/commands.go` and `backend/init.js` (flat, not in a `commands/` subdir)
+- `init.js` is at `backend/init.js`; commands are at `backend/commands/commands.go`
+  (the tree at the top of this file is the accurate one)
 
 ### Host Features via Bridge
 - Architectured a permission-gated host features system (like Tauri/Electron capabilities)
@@ -552,8 +560,13 @@ This is cgo-free and binding-agnostic (works with either webview backend).
 - `bridge/src/clipboard.ts`, `dialogs.ts`, `fs.ts`, `geolocation.ts` — TS convenience wrappers with browser API fallbacks, all exported from `@goleo/bridge`
 - `cli/cmd/generate.go` — `goleo generate types` command that generates `frontend/src/goleo.d.ts` with typed `invoke()` overloads for all 48+ built-in commands
 
-### Complete Host Feature Set (13 features)
-All 13 features implemented with Go sub-packages + re-export bridge handlers + TS convenience wrappers with browser API fallbacks:
+### Complete Host Feature Set (14 features)
+All 14 features in `featureRegistry` (`cli/cmd/scan.go`) implemented with Go sub-packages +
+re-export bridge handlers + TS convenience wrappers with browser API fallbacks. The table
+below lists 13 — **Share** is the 14th (`runtime/share/`, `goleo_share`, native URL hand-off
+on all three desktops, provider on mobile, Web Share API fallback). The KV **store**
+(`runtime/store/`) is a separate subsystem, not a permission-gated feature, so it is not in
+the registry — see Storage below:
 
 Every feature package now exposes a `Provider` interface + `SetProvider`/`runtime.Set<Feature>Provider`, so a mobile shell (or a future native backend) can register a real implementation instead of relying on the `_mobile.go` "no provider registered" error. Desktop status below is the *built-in Go implementation*, not just "compiles":
 
@@ -590,7 +603,9 @@ Added on top of the core bridge/feature system. Full rationale + status in
   one webview against the shared server. The primary window is hosted in-process by `runWebview`.
 - **In-process (Windows, opt-in):** `inProcWindowManager` hosts each window on its own
   `LockOSThread` goroutine (proven in `spikes/win-multiwindow/`). Selected by
-  `Config.InProcessWindows` on Windows. Both implement the `windowSpawner` interface.
+  `Config.InProcessWindows` on Windows. **macOS/Linux** are main-thread-only, so extra
+  in-process windows share the primary's single run loop (`mainLoopWindowManager`,
+  `runtime/app.go`) rather than getting their own. All implement `windowSpawner`.
 - API: `App.OpenWindow/CloseWindow/ListWindows`, bridge `goleo:window{Open,Close,List}`,
   `bridge/src/window.ts`; `WindowOptions.ExitOnClose` quits the app when that window closes.
 

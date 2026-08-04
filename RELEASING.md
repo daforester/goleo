@@ -145,7 +145,7 @@ certutil -encode code-signing.pfx cert.b64   # Windows, then strip the header/fo
 
 Signing uses `osslsigncode`, not `signtool`: the release job cross-compiles
 every target from one Linux runner, and signtool is Windows-only.
-`runtime/signing.go`'s `signWindows` is the separate, signtool-based path that
+`cli/cmd/signing.go`'s `signWindows` is the separate, signtool-based path that
 signs *apps built with goleo* on a Windows machine — the two don't overlap.
 
 Signatures are RFC 3161 timestamped (`timestamp.digicert.com`), so they stay

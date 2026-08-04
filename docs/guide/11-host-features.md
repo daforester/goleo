@@ -56,7 +56,7 @@ Each section shows the `@goleo/bridge` wrapper **and** the raw `invoke('goleo:..
 form (they're equivalent). Import what you use:
 
 ```ts
-import { invoke, sendNotification, openFile, readText, getBatteryInfo } from '@goleo/bridge'
+import { invoke, sendNotification, openFile, clipboardReadText, getBatteryInfo } from '@goleo/bridge'
 ```
 
 ---
@@ -69,7 +69,7 @@ Registered by `RegisterBuiltins`. Always available (desktop, mobile, PWA).
 import { getOSInfo, getPlatformInfo, getArch, getEnv, openURL } from '@goleo/bridge'
 
 const os = await getOSInfo()          // { name, arch, version }   — or invoke('goleo:getOS')
-const plat = await getPlatformInfo()  // { type: 'desktop' | 'mobile' | 'pwa' }
+const plat = await getPlatformInfo()  // { platform, isMobile, isDesktop, isBrowser }
 const home = await getEnv('HOME')     // whitelisted env var        — invoke('goleo:getEnv', { key })
 await openURL('https://example.com')  // open in the default browser — invoke('goleo:openURL', { url })
 ```
@@ -91,7 +91,7 @@ await sendNotification({ title: 'Build finished', body: 'All 42 tests passed' })
 `RegisterClipboard` (in `RegisterDesktopFeatures`). Native on desktop; `navigator.clipboard` fallback.
 
 ```ts
-import { readText, writeText } from '@goleo/bridge'   // clipboard
+import { clipboardReadText, clipboardWriteText } from '@goleo/bridge'
 
 await writeText('copied from Go!')      // invoke('goleo:clipboardWriteText', { text })
 const text = await readText()           // invoke('goleo:clipboardReadText') -> { text }
@@ -137,7 +137,7 @@ unsupported → `navigator.geolocation` fallback; native on mobile.
 
 ```ts
 import { getCurrentPosition } from '@goleo/bridge'
-const pos = await getCurrentPosition({ enableHighAccuracy: true })  // { coords: { latitude, longitude, ... } }
+const pos = await getCurrentPosition({ enableHighAccuracy: true })  // { latitude, longitude, accuracy } — flat, not nested under coords
 // raw: invoke('goleo:geolocationGetCurrentPosition', { enableHighAccuracy })
 ```
 
@@ -192,7 +192,7 @@ mobile via provider. `capturePhoto` returns image data.
 
 ```ts
 import { capturePhoto } from '@goleo/bridge'
-const photo = await capturePhoto()     // { data, mimeType }  — invoke('goleo:cameraCapturePhoto')
+const photo = await capturePhoto()     // { data, format }  — invoke('goleo:cameraCapturePhoto')
 // For a live stream, use getUserMedia in the WebView (a secure context is required —
 // enabled by SchemeAssets / the loopback origin).
 ```
@@ -203,11 +203,11 @@ const photo = await capturePhoto()     // { data, mimeType }  — invoke('goleo:
 provider-backed on mobile where available.
 
 ```ts
-import { requestDevice, connect, disconnect } from '@goleo/bridge'
+import { requestDevice, bleConnect, bleDisconnect } from '@goleo/bridge'
 const device = await requestDevice({ filters: [{ services: ['battery_service'] }] })  // goleo:bleRequestDevice
-await connect(device.id)                 // goleo:bleConnect
+await bleConnect(device.id)              // goleo:bleConnect
 // read/write characteristics: invoke('goleo:bleRead' | 'goleo:bleWrite', { ... })
-await disconnect(device.id)              // goleo:bleDisconnect
+await bleDisconnect(device.id)           // goleo:bleDisconnect
 ```
 
 ## NFC
@@ -216,7 +216,7 @@ await disconnect(device.id)              // goleo:bleDisconnect
 
 ```ts
 import { startScan, stopScan, on } from '@goleo/bridge'
-const off = on('goleo:nfcTag', (tag) => console.log(tag))
+const off = on('nfc:tag', (tag) => console.log(tag))
 await startScan()                        // goleo:nfcStartScan
 // write: invoke('goleo:nfcWrite', { records: [...] })
 await stopScan(); off()                  // goleo:nfcStopScan
@@ -249,10 +249,10 @@ await storeDelete('theme'); await storeClear()
 `RegisterPush`. Provider-backed on mobile; Push API + Service Worker in PWA.
 
 ```ts
-import { subscribe, unsubscribe, getSubscription } from '@goleo/bridge'
-const sub = await subscribe({ /* vapidPublicKey, etc. */ })  // goleo:pushSubscribe
-const cur = await getSubscription()                          // goleo:pushGetSubscription
-await unsubscribe()                                          // goleo:pushUnsubscribe
+import { pushSubscribe, pushUnsubscribe, pushGetSubscription } from '@goleo/bridge'
+const sub = await pushSubscribe({ /* vapidPublicKey, etc. */ })  // goleo:pushSubscribe
+const cur = await pushGetSubscription()                      // goleo:pushGetSubscription
+await pushUnsubscribe()                                      // goleo:pushUnsubscribe
 ```
 
 ## Background sync

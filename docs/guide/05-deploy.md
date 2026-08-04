@@ -26,9 +26,9 @@ key in your app.
 
 **Wire the updater in your app** (`backend/app/app.go`):
 ```go
-import "github.com/daforester/goleo/runtime/updater"
+import "github.com/daforester/goleo/runtime"
 
-updater.RegisterUpdater(app.Bridge(), updater.UpdaterConfig{
+runtime.RegisterUpdater(app.Bridge(), runtime.UpdaterConfig{
     ManifestURL:    "https://downloads.example.com/manifest.json",
     PublicKey:      "<your ed25519 public key>",
     CurrentVersion: "1.2.3",

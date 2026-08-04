@@ -36,7 +36,7 @@ meaningful differences are **language**, **build / cross-compile posture**, the
 | Distribution | NSIS / `.app`+`.dmg` / `.deb`+`.rpm` (nfpm); Authenticode + codesign | deb / rpm / appimage / nsis / msi / app / dmg; signing | NSIS / MSIX, `.app` (DMG is DIY), deb / rpm / appimage |
 | Auto-updater | ed25519-signed `manifest.json` | official updater plugin (separate signing key) | built-in, **binary delta patches** |
 | PWA target | **Yes — `goleo build/dev pwa` (js/wasm)** | No | No |
-| Native feature APIs | 13 host features + 9 core, provider pattern | Large official + community plugin ecosystem | Dialogs / menu / tray / clipboard / notifications / shortcuts built in |
+| Native feature APIs | 14 host features + 9 core, provider pattern | Large official + community plugin ecosystem | Dialogs / menu / tray / clipboard / notifications / shortcuts built in |
 
 ## What genuinely sets Goleo apart
 

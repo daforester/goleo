@@ -131,7 +131,8 @@ Configure in `runtime.Config` and call the bridge helpers from `@goleo/bridge`.
 ```go
 a = runtime.New(runtime.Config{
     Title:            "My App",
-    InProcessWindows: true,               // Windows: extra windows in-process (else child processes)
+    InProcessWindows: true,               // extra windows in-process (Windows: own message loop;
+                                          // macOS/Linux: share the primary's run loop)
     SingleInstance:   true,               // a second launch focuses the running one
     URLScheme:        "myapp",            // register myapp:// deep links
     Background:       true,               // headless controller (window(s) on demand)
@@ -179,7 +180,7 @@ runtime.RegisterClipboard(a.Bridge())
 runtime.RegisterCamera(a.Bridge())           // + geolocation, battery, sensors, vibration, nfc, ble…
 ```
 ```ts
-import { storeSet, storeGet, share, readText } from '@goleo/bridge'
+import { storeSet, storeGet, share, clipboardReadText } from '@goleo/bridge'
 await storeSet('theme', 'dark')
 const theme = await storeGet<string>('theme')
 await share({ title: 'Goleo', url: 'https://example.com' })

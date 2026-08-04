@@ -17,7 +17,6 @@ goleo.Config{
         Items: []goleo.TrayItem{
             {Label: "Open",     OnClick: func() { app.OpenWindow(goleo.WindowOptions{}) }},
             {Label: "Settings", OnClick: func() { showSettings() }},
-            {Separator: true},
             {Label: "Quit",     OnClick: func() { app.Quit() }},
         },
     },
