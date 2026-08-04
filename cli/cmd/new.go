@@ -252,6 +252,36 @@ func linkBridge(projectDir string) {
 		return
 	}
 
+	// The link points at the checkout, and @goleo/bridge's package.json resolves to
+	// ./dist/index.js — which is gitignored. On a machine where you have already run
+	// `npm run build -w bridge` that file happens to be there; on a fresh clone it is
+	// not, and the scaffolded project then fails its frontend build with
+	// "Failed to resolve entry for package @goleo/bridge", which points at the
+	// generated project rather than at the missing build. CI hit exactly that.
+	//
+	// Building it here keeps the link honest: if we are going to point a project at the
+	// working copy, the working copy has to be usable.
+	if _, err := os.Stat(filepath.Join(bridgeDir, "dist", "index.js")); os.IsNotExist(err) {
+		fmt.Println("  Building @goleo/bridge (no dist/ in the local checkout)...")
+		if _, err := os.Stat(filepath.Join(bridgeDir, "node_modules", "typescript")); os.IsNotExist(err) {
+			install := exec.Command("npm", "install")
+			install.Dir = bridgeDir
+			install.Stdout, install.Stderr = os.Stdout, os.Stderr
+			if err := install.Run(); err != nil {
+				fmt.Printf("  Warning: could not install @goleo/bridge devDependencies: %v\n", err)
+			}
+		}
+		build := exec.Command("npm", "run", "build")
+		build.Dir = bridgeDir
+		build.Stdout, build.Stderr = os.Stdout, os.Stderr
+		if err := build.Run(); err != nil {
+			// Not fatal: the link still succeeds and the failure surfaces at the
+			// frontend build, but say plainly what went wrong and where.
+			fmt.Printf("  Warning: could not build @goleo/bridge in %s: %v\n", bridgeDir, err)
+			fmt.Println("  The scaffolded frontend will fail to resolve @goleo/bridge until it is built.")
+		}
+	}
+
 	fmt.Println("  Linking @goleo/bridge from local source...")
 	link := exec.Command("npm", "link")
 	link.Dir = bridgeDir

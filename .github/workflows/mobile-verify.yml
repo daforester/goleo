@@ -131,6 +131,12 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
+      # Node is needed for real here, unlike the bind-only job above: this drives the
+      # whole CLI build, which installs frontend dependencies and runs Vite. Pin it
+      # rather than relying on whatever the runner image happens to ship.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
 
       - name: Install gomobile
         run: |
