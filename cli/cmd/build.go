@@ -226,9 +226,13 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	}
 
 	if targetName == "android" {
-		// Validate the release flags BEFORE the frontend build and gomobile bind.
-		// Checking them where they are used meant waiting through minutes of
-		// cross-compilation only to be told a keystore is missing.
+		// Validate BEFORE the frontend build and gomobile bind. Checking these where they
+		// are used meant waiting through minutes of cross-compilation only to be told a
+		// keystore was missing — or, for the package name, getting a javac error naming a
+		// generated file rather than the goleo.json line responsible.
+		if err := validateAndroidPackageName(loadMobileConfig(".").PackageName); err != nil {
+			return err
+		}
 		if err := validateAndroidRelease(); err != nil {
 			return err
 		}
