@@ -318,7 +318,7 @@ If you had worked around this by renaming the output yourself, drop the rename.
 
 ---
 
-## Unreleased — `goleo:share` only accepts web URLs
+## 0.9.1 — `goleo:share` only accepts web URLs
 
 **Affects:** apps calling `runtime.RegisterShare` (the demo scaffold does) that passed
 `goleo:share` anything other than an `http`/`https`/`mailto`/`tel` URL or their own
@@ -343,7 +343,7 @@ own scheme via `Config.URLScheme` and handle it in-app.
 
 ---
 
-## Unreleased — Linux notifications and the Windows prompt handle text more faithfully
+## 0.9.1 — Linux notifications and the Windows prompt handle text more faithfully
 
 **Affects:** Linux desktop notifications, and multi-line messages in
 `showPrompt` on Windows. No API change.
