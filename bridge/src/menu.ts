@@ -1,4 +1,5 @@
 import { getBridge } from './bridge'
+import { getCapabilities } from './window'
 
 /** One entry in a native menu (see App.SetMenu / Config.Menu on the Go side). */
 export interface MenuItemSpec {
@@ -32,8 +33,14 @@ export function onMenu(id: string, cb: () => void): () => void {
   return getBridge().on(`menu:${id}`, () => cb())
 }
 
-/** Whether the running platform has a native menu bar (from goleo:capabilities). */
+/**
+ * Whether the running platform has a native menu bar (from goleo:capabilities).
+ *
+ * Delegates to getCapabilities() rather than invoking directly, so it shares the
+ * same caching and the same "no backend means not supported" behaviour as
+ * isWindowingSupported/isTraySupported. Invoking directly meant this one threw
+ * where its two siblings returned false, and re-queried the backend on every call.
+ */
 export async function menuSupported(): Promise<boolean> {
-  const caps = await getBridge().invoke<Record<string, boolean>>('goleo:capabilities')
-  return !!caps?.menu
+  return (await getCapabilities()).menu
 }

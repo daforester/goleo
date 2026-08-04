@@ -51,10 +51,10 @@ export function getCapabilities(): Promise<Capabilities> {
   return capsCache
 }
 
-/** Whether a native menu bar can be installed on this platform. */
-export async function isMenuSupported(): Promise<boolean> {
-  return (await getCapabilities()).menu
-}
+// Note: there is deliberately no isMenuSupported here. menu.ts has exported
+// menuSupported() since before this file grew capability helpers, and adding a
+// second public name for the same question would be worse than the naming
+// inconsistency. menuSupported() now delegates to getCapabilities().
 
 /** Whether additional native windows can be opened on this platform. */
 export async function isWindowingSupported(): Promise<boolean> {

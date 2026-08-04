@@ -39,8 +39,8 @@ var KnownCommands = []CommandDecl{
 	// File System (feature: FileSystem / goleo_fs)
 	{Method: "goleo:fsReadTextFile", Args: "{ path: string }", ReturnType: "string", Description: "Read text file", Feature: "FileSystem"},
 	{Method: "goleo:fsWriteTextFile", Args: "{ path: string; content: string }", ReturnType: "void", Description: "Write text file", Feature: "FileSystem"},
-	{Method: "goleo:fsReadBinaryFile", Args: "{ path: string }", ReturnType: "{ data: string }", Description: "Read binary file", Feature: "FileSystem"},
-	{Method: "goleo:fsWriteBinaryFile", Args: "{ path: string; data: string }", ReturnType: "void", Description: "Write binary file", Feature: "FileSystem"},
+	{Method: "goleo:fsReadBinaryFile", Args: "{ path: string }", ReturnType: "{ data: string }", Description: "Read binary file (data is base64-encoded)", Feature: "FileSystem"},
+	{Method: "goleo:fsWriteBinaryFile", Args: "{ path: string; data: string }", ReturnType: "void", Description: "Write binary file (data must be base64-encoded)", Feature: "FileSystem"},
 	{Method: "goleo:fsListDir", Args: "{ path: string }", ReturnType: "{ name: string; path: string; isDir: boolean; size: number; modTime: string }[]", Description: "List directory contents", Feature: "FileSystem"},
 	{Method: "goleo:fsDelete", Args: "{ path: string }", ReturnType: "void", Description: "Delete file or directory", Feature: "FileSystem"},
 	{Method: "goleo:fsAppDataDir", Args: "{ appName?: string }", ReturnType: "string", Description: "Get app data directory", Feature: "FileSystem"},

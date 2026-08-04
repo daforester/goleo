@@ -105,6 +105,54 @@ output, you are unaffected.
 
 ---
 
+## Unreleased — `@goleo/bridge` reports failures instead of inventing values
+
+**Affects:** any code that relied on a bridge call *succeeding* when it had actually
+failed. If your callers already `try/catch` (or `.catch()`), you are unaffected.
+
+Several wrappers converted a failure into a value the caller could not distinguish
+from a real result. Each now throws when the backend is present and only falls back
+when there genuinely is no backend.
+
+| Call | Was, on failure | Now |
+|---|---|---|
+| `showMessage()` | returned `'OK'` | throws; with no backend, asks via `confirm`/`alert` |
+| `saveFile()`, `selectFolder()` | returned `null` (= "user cancelled") | throws; `null` still means cancel |
+| `showPrompt()` | silently opened a browser prompt | throws; browser prompt only with no backend |
+| `openFile()`, `openFiles()` | **never settled** if the picker was cancelled | resolves `null` / `[]` |
+| `readTextFile()` etc. | `"<op> requires the Go backend"` | the backend's real error |
+| `storeGet()`/`storeSet()` etc. | silently switched to `localStorage` | throws; `localStorage` only with no backend |
+| `bleConnect()` | resolved having done nothing | throws |
+
+The one to look at is **`showMessage`**. It used to return `'OK'` when the dialog
+failed, so a caller asking "Delete all data?" proceeded with the deletion. If you
+wrote code assuming it always resolves, it can now reject — which is the point.
+
+Two additions rather than changes:
+
+- **`reconnect()`** — there was previously no way out of local-only mode. If the
+  initial connect timed out (3s default) or the retries were spent, every non-core
+  method threw "backend not connected" for the rest of the session, even after the
+  backend came up. Wire it to a retry affordance or to `bridge:reconnectFailed`.
+  Retries now also back off exponentially with jitter instead of a fixed 3s.
+- **`Capabilities.menu`** — the Go side has always returned it; the TypeScript type
+  omitted it. `menuSupported()` now shares the cached, no-backend-safe path with
+  `isWindowingSupported()`/`isTraySupported()` instead of throwing where they
+  return `false`.
+
+### Binary files cross the bridge as base64
+
+`readBinaryFile()`/`writeBinaryFile()` were corrupting any payload that was not
+plain ASCII, in both directions. They now use base64 on both ends, which is what
+`encoding/json` already does for a Go `[]byte`.
+
+You only need to act if you call `goleo:fsReadBinaryFile` / `goleo:fsWriteBinaryFile`
+through `invoke()` **directly** rather than through the wrappers — in which case
+`data` is now base64 in both directions. The wrappers still take and return a
+`Uint8Array`, so their callers change nothing.
+
+---
+
 ## Unreleased — each app gets its own key/value store
 
 **Affects:** apps using `RegisterStore` / `@goleo/bridge`'s `storeGet`/`storeSet`.
