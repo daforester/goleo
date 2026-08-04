@@ -63,10 +63,15 @@ func TestAllowURLSchemeOptsInAppScheme(t *testing.T) {
 		openURLMu.Unlock()
 	})
 
-	// It should now pass the allow-list. We assert on the *scheme check* rather
-	// than the spawn: exec.Command may legitimately fail in a headless test
-	// environment, so only a scheme rejection counts as a failure here.
-	if err := OpenURL("myapp://open/thing"); err != nil && strings.Contains(err.Error(), "not allowed") {
+	// It should now pass the allow-list. Assert that through checkOutboundURL — the
+	// guard OpenURL delegates to — and NOT by calling OpenURL.
+	//
+	// Calling OpenURL here used to actually launch the OS handler, because the scheme
+	// had just been allowed. Nothing is registered for a test scheme, so Windows
+	// popped its "How do you want to open this file?" chooser on every
+	// `go test ./runtime/`, which is how this was noticed. The spawn adds nothing:
+	// openURLCommand covers the argv, and this covers the allow-list.
+	if err := checkOutboundURL("openURL", "myapp://open/thing"); err != nil {
 		t.Errorf("registered scheme should pass the allow-list, got %v", err)
 	}
 
@@ -201,5 +206,82 @@ func TestOpenURLAndShareShareOneGuard(t *testing.T) {
 	})
 	if err := checkOutboundURL("share", "myapp://open/thing"); err != nil {
 		t.Errorf("a registered app scheme should be allowed: %v", err)
+	}
+}
+
+// Covers what the removed spawn used to exercise implicitly, without launching
+// anything. Same properties as share: the right handler per OS, no shell anywhere, and
+// the URL as exactly one unmodified argv element.
+func TestOpenURLCommandPerOSAndNoShell(t *testing.T) {
+	const url = "https://example.com/x?a=1&b=2"
+
+	for goos, want := range map[string][]string{
+		"windows": {"rundll32", "url.dll,FileProtocolHandler", url},
+		"darwin":  {"open", url},
+		"linux":   {"xdg-open", url},
+	} {
+		name, args, err := openURLCommand(goos, url)
+		if err != nil {
+			t.Errorf("%s: unexpected error %v", goos, err)
+			continue
+		}
+		got := append([]string{name}, args...)
+		if len(got) != len(want) {
+			t.Errorf("%s: argv = %q, want %q", goos, got, want)
+			continue
+		}
+		for i := range got {
+			if got[i] != want[i] {
+				t.Errorf("%s: argv[%d] = %q, want %q", goos, i, got[i], want[i])
+			}
+		}
+	}
+
+	// An unknown platform must report it rather than guessing a handler.
+	if _, _, err := openURLCommand("plan9", url); err == nil {
+		t.Error("openURLCommand should refuse an unsupported platform")
+	}
+
+	// The `&` in the URL above is why this matters: no shell may be involved, or the
+	// OS handler would re-parse it. (share had exactly this bug via `cmd /c start`.)
+	for _, goos := range []string{"windows", "darwin", "linux"} {
+		name, args, _ := openURLCommand(goos, url)
+		for _, tok := range append([]string{name}, args...) {
+			for _, shell := range []string{"cmd", "cmd.exe", "powershell", "pwsh", "sh", "bash", "/c", "-c"} {
+				if strings.EqualFold(tok, shell) {
+					t.Errorf("%s: argv contains shell token %q", goos, tok)
+				}
+			}
+		}
+		count := 0
+		for _, a := range args {
+			if a == url {
+				count++
+			}
+		}
+		if count != 1 {
+			t.Errorf("%s: url appears %d times as its own argv element (args=%q)", goos, count, args)
+		}
+	}
+}
+
+// A standing guard against reintroducing the popup. Any test that reaches
+// exec.Command in this package spawns something on the developer's machine — a
+// browser tab, a Calculator window, or Windows' "how do you want to open this?"
+// chooser. Both offenders so far were tests calling a function whose *last* step is
+// the spawn, when the property under test was decided earlier.
+//
+// So: OpenURL must reject before spawning for everything the guard refuses, and the
+// allowed path must be asserted through checkOutboundURL/openURLCommand instead. This
+// test documents that rule where a future author will see it.
+func TestNothingInThisPackageSpawnsAHandler(t *testing.T) {
+	// Rejected URLs never reach exec.Command — safe to call for real.
+	if err := OpenURL("file:///etc/passwd"); err == nil {
+		t.Error("a refused URL must not reach the OS handler")
+	}
+	// The allowed path is covered by openURLCommand + checkOutboundURL, both pure.
+	// If you are about to add `OpenURL(<something allowed>)` to a test: don't.
+	if _, _, err := openURLCommand("linux", "https://example.com"); err != nil {
+		t.Errorf("openURLCommand should cover the allowed path without spawning: %v", err)
 	}
 }

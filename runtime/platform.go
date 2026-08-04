@@ -178,22 +178,37 @@ func OpenURL(rawURL string) error {
 		return err
 	}
 
-	var cmd string
-	var args []string
-
-	switch runtime.GOOS {
-	case "windows":
-		cmd = "rundll32"
-		args = []string{"url.dll,FileProtocolHandler", url}
-	case "darwin":
-		cmd = "open"
-		args = []string{url}
-	case "linux":
-		cmd = "xdg-open"
-		args = []string{url}
-	default:
-		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
+	cmd, args, err := openURLCommand(runtime.GOOS, url)
+	if err != nil {
+		return err
 	}
-
 	return exec.Command(cmd, args...).Start()
+}
+
+// openURLCommand returns the argv for handing an already-validated URL to the OS
+// default handler.
+//
+// Split out from OpenURL so a test can assert the argv WITHOUT spawning anything. That
+// matters more than it sounds: the previous test called OpenURL with a scheme it had
+// just allowed, which really did launch the handler — and since a test scheme like
+// `myapp://` has nothing registered, Windows popped its "How do you want to open this
+// file?" chooser on every `go test ./runtime/`. runtime/share hit the same trap and was
+// fixed the same way; the rule is that a test for a guard must not require the guarded
+// thing to fire.
+//
+// Deliberately mirrors share.osShareCommand — the URL must be its own argv element with
+// no shell anywhere, for the reasons documented there. The two are not shared because
+// they live in different packages and the duplication is three lines; if a third copy
+// ever appears, unify them.
+func openURLCommand(goos, url string) (string, []string, error) {
+	switch goos {
+	case "windows":
+		return "rundll32", []string{"url.dll,FileProtocolHandler", url}, nil
+	case "darwin":
+		return "open", []string{url}, nil
+	case "linux":
+		return "xdg-open", []string{url}, nil
+	default:
+		return "", nil, fmt.Errorf("unsupported platform: %s", goos)
+	}
 }
