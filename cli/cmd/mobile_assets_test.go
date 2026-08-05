@@ -118,3 +118,28 @@ func TestEveryMobileTemplateParses(t *testing.T) {
 	}
 	t.Logf("parsed %d mobile templates", checked)
 }
+
+// The scaffolded .gitignore must exclude signing keys.
+//
+// `goleo generate android-key` writes release.jks INTO the project directory and prints
+// "do not commit them" — advice, with nothing enforcing it. A committed upload key lets
+// anyone sign updates as you, and Play will not let a listing change the key it uses, so
+// this is not recoverable by rotating.
+//
+// Found because a shell mistake ran that command in the repo root and left an untracked,
+// un-ignored keystore that `git add -A` would have committed.
+func TestScaffoldedGitignoreExcludesSigningKeys(t *testing.T) {
+	for _, pattern := range []string{"*.jks", "*.keystore", "*.p12", "*.mobileprovision"} {
+		if !strings.Contains(tmplGitignore, pattern) {
+			t.Errorf("the scaffolded .gitignore does not exclude %s — `goleo generate "+
+				"android-key` writes a keystore into the project, so an accidental commit is "+
+				"one `git add -A` away", pattern)
+		}
+	}
+	// The .gitignore is emitted inside a Go RAW string literal, so a backtick in it
+	// terminates the literal and breaks the build. That happened while adding the block above.
+	if strings.Contains(tmplGitignore, "`") {
+		t.Error("tmplGitignore contains a backtick, which terminates the raw string literal " +
+			"it lives in")
+	}
+}

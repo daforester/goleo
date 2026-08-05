@@ -20,3 +20,10 @@ prebuilt/
 # or the //go:embed fails on a fresh checkout (CI) while passing locally.
 !spikes/**/frontend/dist/
 !spikes/**/frontend/dist/**
+
+# Signing keys — `goleo generate android-key` writes release.jks into the working
+# directory, so an accidental `git add -A` must not be able to pick one up.
+*.jks
+*.keystore
+*.p12
+*.mobileprovision
