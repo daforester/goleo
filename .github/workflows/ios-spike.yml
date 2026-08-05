@@ -1,0 +1,174 @@
+name: ios-spike
+
+# A single iOS job, for iterating on the iOS build without paying for the rest.
+#
+# WHY THIS EXISTS: macOS runners bill at 10x, so one ios-simulator run inside
+# mobile-verify.yml costs ~30 billable minutes — and pushing to master to get it also runs
+# ci.yml plus mobile-verify's two Android jobs. iOS has never been built anywhere, so it
+# needs several iterations; doing them on master is the expensive way to find out.
+#
+# This runs ONLY on spike/ios-* branches. mobile-verify.yml keeps the authoritative job for
+# master, so nothing here changes what gates a release. Delete this file when iOS builds.
+#
+# Cost measures, roughly halving the per-iteration spend:
+#   * no gomobile simulator-slice probe — it was a full throwaway `gomobile bind` (29s) and
+#     its question is answered: the slice is emitted (see SPIKES.md);
+#   * Go module + build cache, so repeat runs skip most of the 69s bind. NOT an npm cache:
+#     the frontend is scaffolded into /tmp, so there is no lockfile for setup-node to key
+#     on — `--prefer-offline` is the only lever there;
+#   * no Android jobs;
+#   * concurrency cancels a superseded run, since iterating means pushing repeatedly.
+on:
+  push:
+    branches: [ "spike/ios-*" ]
+    paths:
+      - "runtime/**"
+      - "cli/cmd/**"
+      - ".github/workflows/ios-spike.yml"
+  workflow_dispatch:
+
+# A new push supersedes the previous run: iterating means pushing repeatedly, and paying for
+# a superseded macOS job is pure waste.
+concurrency:
+  group: ios-spike-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ios:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # The bind dominates the job (69s of 179s on the first run). Its inputs barely change
+      # between iterations, so cache the module downloads and the compile cache.
+      - name: Cache Go modules and build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/Library/Caches/go-build
+          key: ios-spike-go-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            ios-spike-go-
+
+      - name: Install gomobile and xcodegen
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          go install golang.org/x/mobile/cmd/gobind@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          brew install xcodegen
+
+      # Both halves of the Xcode/XcodeGen pairing come from the runner image and both move.
+      # Their mismatch is what failed the first three runs (XcodeGen writes objectVersion 77
+      # by default; this image has Xcode 15.4, which will not open it).
+      - name: Record toolchain versions
+        run: |
+          xcodebuild -version
+          xcodegen --version
+          xcode-select -p
+
+      - name: Build the CLI and scaffold a project
+        run: |
+          go build -o /tmp/goleo ./cli/goleo
+          mkdir -p /tmp/ios && cd /tmp/ios
+          GOLEO_ROOT="$GITHUB_WORKSPACE" /tmp/goleo new iosapp --no-install
+          cd iosapp/frontend && npm install --no-audit --no-fund --prefer-offline
+
+      - name: Build for the Simulator
+        id: iosbuild
+        continue-on-error: true
+        working-directory: /tmp/ios/iosapp
+        env:
+          GOLEO_ROOT: ${{ github.workspace }}
+          GOFLAGS: -mod=mod
+        run: /tmp/goleo build ios --simulator
+
+      # Runs whether or not the build succeeded: when it fails this is the ground truth for
+      # what the shell must call, and when it succeeds it confirms the naming has not drifted.
+      - name: Generated Objective-C API surface
+        if: always()
+        working-directory: /tmp/ios/iosapp
+        run: |
+          set -uo pipefail
+          find .goleo/ios -maxdepth 4 -name "*.framework" -print 2>/dev/null | head
+          for h in $(find .goleo/ios -name "*.h" -path "*Headers*" 2>/dev/null | head -20); do
+            echo "===== $h ====="
+            # Print the count BEFORE truncating. A silent cap reads as complete coverage:
+            # the first run's head -80 cut the @interface list mid-alphabet, which looked
+            # exactly like "only four interfaces have a wrapper class".
+            echo "($(grep -cE '@protocol|@interface|FOUNDATION_EXPORT' "$h" || true) declarations)"
+            grep -nE "@protocol|@interface|FOUNDATION_EXPORT" "$h" | head -200 || true
+          done
+
+      - name: Fail if the build failed
+        if: steps.iosbuild.outcome == 'failure'
+        run: |
+          echo "::error::goleo build ios --simulator failed — see the build step and the API surface above"
+          exit 1
+
+      - name: Verify the app bundle
+        working-directory: /tmp/ios/iosapp
+        run: |
+          set -euo pipefail
+          test -d GoleoApp.app || { echo "::error::no GoleoApp.app"; ls -la; exit 1; }
+          test -f GoleoApp.app/GoleoApp || { echo "::error::no executable in the bundle"; ls -la GoleoApp.app; exit 1; }
+          ls GoleoApp.app | grep -qi "LaunchScreen" || {
+            echo "::error::Info.plist references UILaunchStoryboardName but LaunchScreen is not in the bundle"
+            ls GoleoApp.app; exit 1; }
+
+          objver=$(grep -m1 objectVersion .goleo/ios/GoleoApp.xcodeproj/project.pbxproj | tr -dc 0-9)
+          echo "project objectVersion: $objver"
+          [ "$objver" = "56" ] || { echo "::error::objectVersion $objver, expected 56 (xcode14_0)"; exit 1; }
+
+          plutil -p GoleoApp.app/Info.plist | grep -E "CFBundleName|CFBundleShortVersionString|CFBundleIdentifier"
+          if plutil -p GoleoApp.app/Info.plist | grep -q '"Goleo App"'; then
+            echo "::error::CFBundleName is still the hardcoded placeholder"; exit 1
+          fi
+
+      # The point of the whole exercise: the Go backend starts, WKWebView loads the embedded
+      # UI, and the app does not crash on launch. A compile cannot tell you any of that.
+      - name: Boot a simulator and launch
+        working-directory: /tmp/ios/iosapp
+        run: |
+          set -euo pipefail
+          DEV=$(xcrun simctl list devices available -j | python3 -c "
+          import json,sys
+          for runtime, devs in json.load(sys.stdin)['devices'].items():
+              for dev in devs:
+                  if dev.get('isAvailable') and 'iPhone' in dev['name']:
+                      print(dev['udid']); raise SystemExit
+          raise SystemExit('no available iPhone simulator')
+          ")
+          xcrun simctl boot "$DEV" || true
+          xcrun simctl bootstatus "$DEV" -b
+
+          BUNDLE_ID=$(plutil -extract CFBundleIdentifier raw GoleoApp.app/Info.plist)
+          xcrun simctl install "$DEV" GoleoApp.app
+          xcrun simctl launch "$DEV" "$BUNDLE_ID"
+          sleep 15
+
+          PID=$(xcrun simctl spawn "$DEV" launchctl list 2>/dev/null | grep "$BUNDLE_ID" | awk '{print $1}' | head -1 || true)
+          echo "pid: ${PID:-none}"
+          if [ -z "${PID:-}" ] || [ "${PID:-}" = "-" ]; then
+            echo "::error::the app is not running — it crashed on launch"
+            xcrun simctl spawn "$DEV" log show --last 2m --predicate "process CONTAINS 'GoleoApp'" --style compact | tail -60 || true
+            exit 1
+          fi
+          echo "app is running"
+
+      - name: Screenshot
+        if: always()
+        run: xcrun simctl io booted screenshot /tmp/ios-spike.png || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-spike-screenshot
+          path: /tmp/ios-spike.png
+          if-no-files-found: ignore

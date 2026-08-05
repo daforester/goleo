@@ -256,3 +256,63 @@ func TestAppIconSettingIsOverriddenWhenThereIsNoIcon(t *testing.T) {
 		}
 	}
 }
+
+// The BGTask identifier the shell registers must match what Info.plist permits.
+//
+// BGTaskScheduler.register with an identifier absent from
+// BGTaskSchedulerPermittedIdentifiers raises an NSException, and registerTask() runs first
+// thing in didFinishLaunching — so a mismatch is a crash on launch, not a degraded feature.
+//
+// Info.plist permits $(PRODUCT_BUNDLE_IDENTIFIER).sync, which is the iOS bundle id, while
+// AppDelegate.swift used the ANDROID package name. That was harmless only while the iOS build
+// reused the Android id for everything; making mobile.ios.bundle_identifier take effect is
+// what turned it into a crash for any project that sets one.
+func TestBackgroundTaskIDMatchesTheBundleIdentifier(t *testing.T) {
+	cfg := defaultMobileConfig()
+	cfg.PackageName = "com.example.android"
+	cfg.IOSBundleID = "com.example.ios"
+
+	raw, err := mobileTemplates.ReadFile("templates/ios/App/AppDelegate.swift")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl, err := template.New("s").Parse(string(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	if err := tmpl.Execute(&out, cfg); err != nil {
+		t.Fatal(err)
+	}
+	src := out.String()
+
+	if !strings.Contains(src, `let backgroundSyncTaskID = "com.example.ios.sync"`) {
+		t.Errorf("the BGTask identifier must derive from the iOS bundle id, since Info.plist "+
+			"permits $(PRODUCT_BUNDLE_IDENTIFIER).sync; registering an unpermitted identifier "+
+			"raises an NSException at launch:\n%s",
+			firstMatchingLine(src, "backgroundSyncTaskID ="))
+	}
+	if strings.Contains(src, `let backgroundSyncTaskID = "com.example.android.sync"`) {
+		t.Error("the BGTask identifier is using the ANDROID package name; on any project that " +
+			"sets mobile.ios.bundle_identifier the app will crash on launch")
+	}
+
+	// And Info.plist must still be the one declaring it, from the build-setting form.
+	plist, err := mobileTemplates.ReadFile("templates/ios/App/Info.plist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(plist), "$(PRODUCT_BUNDLE_IDENTIFIER).sync") {
+		t.Error("Info.plist no longer permits $(PRODUCT_BUNDLE_IDENTIFIER).sync — if that " +
+			"changed, backgroundSyncTaskID must change with it")
+	}
+}
+
+func firstMatchingLine(s, needle string) string {
+	for _, line := range strings.Split(s, "\n") {
+		if strings.Contains(line, needle) {
+			return strings.TrimSpace(line)
+		}
+	}
+	return "(not found)"
+}

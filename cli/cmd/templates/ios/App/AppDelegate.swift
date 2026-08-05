@@ -6,9 +6,16 @@ import BackgroundTasks
 import Goleo
 
 // BGTaskScheduler identifiers must be declared statically in Info.plist's
-// BGTaskSchedulerPermittedIdentifiers, so this can't be templated further —
-// keep it in sync with Info.plist if you change it.
-let backgroundSyncTaskID = "{{.PackageName}}.sync"
+// BGTaskSchedulerPermittedIdentifiers, and registering one that is NOT in that list
+// raises an NSException — from registerTask() below, which runs first thing in
+// didFinishLaunching, so the app crashes on launch.
+//
+// Info.plist permits $(PRODUCT_BUNDLE_IDENTIFIER).sync, and PRODUCT_BUNDLE_IDENTIFIER is
+// the IOS bundle id. This used the ANDROID package name, which was harmless only while the
+// iOS build reused the Android id for everything. Making mobile.ios.bundle_identifier take
+// effect (0.10.2) is what turned it into a crash for any project that sets one. IOSBundleID
+// falls back to PackageName, so the default scaffold is unchanged.
+let backgroundSyncTaskID = "{{.IOSBundleID}}.sync"
 
 @main
 class AppDelegate: UIResponder, UIApplicationDelegate {
