@@ -1146,8 +1146,61 @@ feature is undeclared. Enabling a new feature whose permission implies hardware 
 the `<uses-feature>` is otherwise invisible — the printed permission list looks completely
 correct.
 
+**Outcome (2026-08-05, same day): the corrected bundle was accepted.** goleo 0.10.4,
+versionCode 101, signed, internal track. Play reported exactly the predicted **7 features** —
+the six goleo now declares `required="false"` plus `faketouch`, which the platform implies and
+which every device satisfies — and **19 permissions**, unchanged, confirming the fix touched
+features only. **19,041 supported Android devices** out of a catalogue of roughly 20k models.
+
+**But there is no before/after on that figure**, because the device count for versionCode 100
+was never captured. 19,041 is consistent with the fix having widened reach *and* with it having
+made no measurable difference on this permission set: requiring `bluetooth` and `location`
+excludes only models with no Bluetooth radio and no location provider at all, a thin slice of
+the catalogue. The pre-fix bundle is still readable (*Bundle explorer -> versionCode 100 ->
+device compatibility*) if the comparison is ever wanted. Note also that Play's Features list
+renders required and optional entries identically, so the list matching the prediction confirms
+the manifest arrived intact but is NOT independent evidence the two are optional — that came
+from `required="false"` in the release *merged* manifest, checked locally.
+
+So the fix rests on **correctness, not on the device number**. The same defect on a more
+commonly-absent implied feature would have excluded a large fraction of the catalogue, with no
+local symptom then either.
+
 **Why nothing caught this before Play:** the emulator check confirmed the *permissions* were
 right and that the `maxSdkVersion` bound worked, and CI asserts the manifest is minimal. Neither
 looks at implied features, because they exist only after aapt2 processes the manifest, and their
 consequence is a store-side distribution filter with no local symptom at all. This is the one
 finding in the whole Android effort that genuinely required a real store to surface.
+
+### The GOLEO_ROOT replace outlives the variable (2026-08-05)
+
+Found while updating the test project to the released 0.10.4. Its `go.mod` said
+`require github.com/daforester/goleo v0.9.3` — but also carried
+`replace github.com/daforester/goleo => E:/Development/goleo`, so it had been compiling the
+working tree for days while the require was **decorative**. Bumping the require alone would have
+looked like an upgrade and changed nothing.
+
+**Cause:** `ensureLocalReplace` is called from six places but `snapshotModFiles` guards only the
+mobile and emulate paths. So `goleo build` (desktop) and `goleo dev` inject the `GOLEO_ROOT`
+replace and never remove it — **the effect outlives the environment variable**, and every later
+build silently uses the checkout whether the variable is set or not.
+
+This is the same family as the "dev path hides the user path" entry above, and it had a concrete
+cost here: a verification reported as being against the released module was not.
+
+**Fix: warn, do not auto-remove** (`cli/cmd/replace_warn.go`). The replace is legitimate and
+wanted while developing goleo; what is indefensible is it being invisible. When `go.mod` replaces
+goleo with a **directory** and `GOLEO_ROOT` is **not** set, the build now says so and prints the
+two commands that undo it.
+
+Two implementation details worth keeping:
+- **Distinguish a directory replacement from a module replacement by the absence of a version**,
+  which is Go's own rule, rather than pattern-matching the path — that would have to cope with
+  `./`, `../`, `/abs` and Windows drive letters. A fork pin
+  (`=> github.com/someone/goleo v0.10.4`) is deliberate and must never warn.
+- **Do not match a fixed `"<module> =>"` string.** The first version did, so a hand-formatted
+  `go.mod` with extra whitespace made the warning silently not fire — caught by its own test
+  case. Splitting on the arrow and comparing fields is whitespace-proof, and the block form
+  (`replace ( … )`, which `go mod edit` never writes but a human might) is handled too. **A
+  warning that silently fails to fire is worse than no warning, because silence reads as "all
+  clear".**

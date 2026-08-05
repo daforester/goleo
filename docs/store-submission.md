@@ -17,28 +17,67 @@ trust the number in this file.** Written 2026-08-05 against goleo 0.10.3.
 | Target | Build | Verified on real hardware | Submitted to the store |
 |---|---|---|---|
 | **Android APK** (debug, sideload) | ✅ | ✅ emulator API 36 — installed, launched, providers round-tripped | n/a |
-| **Android AAB** (signed release) | ✅ | ✅ signed APK on emulator: `apkSigningVersion=2`, derived permissions, camera grant→preview | ❌ **never uploaded** |
+| **Android AAB** (signed release) | ✅ | ✅ signed APK on emulator: `apkSigningVersion=2`, derived permissions, camera grant→preview | ✅ **accepted — internal track, 2026-08-05** (see below) |
 | **iOS Simulator** (`--simulator`) | ✅ | ✅ `macos-14` CI — installed, launched, full bridge working | n/a |
 | **iOS device / `.ipa`** | ❌ not implemented | — | ❌ needs a paid Apple account |
 | **Windows MSIX** | ✅ | ✅ real `makeappx`, manifest parses, full-trust declared | ❌ **never submitted** |
 | **Mac App Store** | ❌ deliberately not built | — | ❌ gated behind an acceptance spike (see below) |
 | Windows NSIS / Linux deb+rpm / macOS dmg | ✅ | ✅ NSIS installer verified end-to-end | n/a (direct distribution) |
 
-**The single most useful thing to know:** the *build* side is done and verified for Android and
-Windows. What has never happened is a **store accepting an upload**. That is the remaining
-unknown, and it is not a code problem — it is an account problem.
+**The single most useful thing to know:** **Play has accepted a signed AAB** (internal track,
+2026-08-05) — so the Android path is proven end to end, store included. That upload immediately
+found a defect nothing local could catch (implied `<uses-feature>` entries defaulting to
+*required*, filtering the app off devices), which is the point of shipping to a real store rather
+than reasoning about it. The Microsoft Store and Apple paths have still **never** had an
+artifact accepted, and neither is a code problem — MSIX needs Partner Center identity and a
+restricted-capability justification; iOS needs a paid Apple membership.
 
 ---
 
 ## 1. Google Play (Android)
 
-### Blocked on
+### Status: UPLOADED AND ACCEPTED (internal track, 2026-08-05)
 
-Google Play developer account verification (the user reported it pending on 2026-08-04). A
-one-off registration fee applies, and Google requires identity verification which can take
-days. Nothing in the codebase is waiting.
+The account was verified and a signed AAB was accepted on the internal testing track under a
+throwaway package name. **This is the first time any goleo artifact has been accepted by a
+store**, so the entries below are observed facts rather than expectations.
 
-### What is already proven
+**Play's report on the accepted bundle (goleo 0.10.4, versionCode 101, versionName 0.1.1):**
+
+- **19 permissions** — every one reconciled: goleo's 16 (the 14 the build prints, plus
+  `BLUETOOTH`/`BLUETOOTH_ADMIN` carrying `maxSdkVersion="30"`, which the build deliberately does
+  not print), 2 merged in by AndroidX (`RECEIVE_BOOT_COMPLETED` from WorkManager,
+  `<package>.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION` from androidx.core), and
+  `com.android.vending.CHECK_LICENSE` added by **Play itself** — verified absent from the merged
+  manifest, so it is not goleo's. `ACCESS_COARSE_LOCATION` is correctly absent: the platform adds
+  that at install time, not in the manifest.
+- **7 features** — `bluetooth`, `bluetooth_le`, `camera`, `faketouch`, `location`,
+  `location.gps`, `nfc`. Six are goleo's explicit `required="false"` declarations; `faketouch` is
+  implied by the platform and left alone (every device satisfies it).
+- **19,041 supported Android devices** out of a catalogue of roughly 20k models.
+
+**The first upload (versionCode 100) exposed a real defect — see `SPIKES.md`, 2026-08-05.** It
+reported 6 features where goleo declared 3, because aapt2 *implies* a `<uses-feature>` from
+certain permissions and an implied entry defaults to `required="true"` — so
+`BLUETOOTH`/`BLUETOOTH_ADMIN` implied a **required** `android.hardware.bluetooth` and
+`ACCESS_FINE_LOCATION` a **required** `android.hardware.location`, both hard device filters on an
+app that degrades gracefully. Fixed in 0.10.4; the accepted bundle above is the corrected one.
+
+**Honest limitation on the device figure: there is no before/after.** The supported-device count
+for versionCode 100 was never captured, so 19,041 does not by itself demonstrate the fix widened
+reach — it is consistent with the fix having worked *and* with it having made no measurable
+difference on this particular permission set. Requiring `bluetooth` and `location` excludes only
+models with no Bluetooth radio and no location provider at all, which is a thin slice of the
+catalogue, so the true delta was expected to be small (a few hundred devices at most).
+
+**To close that gap** the pre-fix bundle is still available: *Bundle explorer → versionCode 100 →
+device compatibility*. Its count is the comparison. Record it here when read.
+
+Either way the fix stands on **correctness, not on this number**: the same defect on a more
+commonly-absent implied feature would have excluded a large fraction of the catalogue, and there
+would have been no local symptom then either.
+
+### What was already proven before the upload
 
 On a real Android 36 x86_64 emulator, from a signed release APK built by the demo scaffold
 (full detail in `SPIKES.md`, "Phase 4"):
