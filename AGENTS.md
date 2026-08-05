@@ -6,6 +6,15 @@ Goleo is a Go-based framework for building cross-platform desktop and mobile app
 
 **Core concept**: Write your app logic in Go, build your UI with any web framework (Vue, React, Svelte, vanilla JS, etc.), and Goleo handles the bundling, communication bridge, and platform-specific packaging.
 
+> **Doing anything with the Google Play, Apple, or Microsoft developer accounts?**
+> Read [`docs/store-submission.md`](docs/store-submission.md) first. The build side is done and
+> verified for Android, iOS-Simulator and Windows; what has **never** happened is a store
+> accepting an upload, and that work is blocked on account verification and a paid Apple
+> membership rather than on code. That doc carries the procedures, what is proven versus
+> unverified, and the platform gotchas — package names being permanent, `keytool` not being on
+> PATH, XcodeGen silently overriding settings, the Mac App Store sandbox forbidding the
+> updater. It exists because that work will be picked up long after this context is gone.
+
 ## Repository Structure
 
 ```
