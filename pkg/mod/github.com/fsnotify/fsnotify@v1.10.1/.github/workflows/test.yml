@@ -1,0 +1,176 @@
+name: 'test'
+on:
+  pull_request:
+    paths: ['**.go', 'go.mod', '.github/workflows/*']
+  push:
+    branches: ['main', 'aix']
+
+jobs:
+  linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ['ubuntu-22.04', 'ubuntu-latest', 'ubuntu-24.04-arm']
+        go: ['1.23', '1.26']
+    runs-on: '${{ matrix.os }}'
+    timeout-minutes: 10
+    steps:
+      - uses: 'actions/checkout@v6'
+      - uses: 'actions/setup-go@v6'
+        with: {go-version: '${{ matrix.go }}'}
+      - name: test
+        run: |
+          go version
+          FSNOTIFY_BUFFER=4096 go test -parallel 1 -race    ./...
+                               go test -parallel 1 -race    ./...
+          FSNOTIFY_DEBUG=1     go test -parallel 1 -race -v ./...
+
+  windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ['windows-latest']
+        go: ['1.23', '1.26']
+    runs-on: '${{ matrix.os }}'
+    timeout-minutes: 10
+    steps:
+      - uses: 'actions/checkout@v6'
+      - uses: 'actions/setup-go@v6'
+        with: {go-version: '${{ matrix.go }}'}
+      - name: test
+        run: |
+          go version
+          go test -parallel 1 -race    ./...
+
+          $Env:FSNOTIFY_BUFFER = 4096
+          go test -parallel 1 -race    ./...
+
+          $Env:FSNOTIFY_DEBUG = 1
+          go test -parallel 1 -race -v ./...
+
+  macos:
+    name: 'test'
+    strategy:
+      fail-fast: false
+      matrix:
+        # macos-15-intel: x86_64 coverage; macos-latest: arm64 (Apple Silicon).
+        os: ['macos-15-intel', 'macos-latest']
+        go: ['1.23', '1.26']
+    runs-on: '${{ matrix.os }}'
+    timeout-minutes: 10
+    steps:
+      - uses: 'actions/checkout@v6'
+      - uses: 'actions/setup-go@v6'
+        with: {go-version: '${{ matrix.go }}'}
+      - name: test
+        run: |
+          go version
+          FSNOTIFY_BUFFER=4096 go test -parallel 1 -race    ./...
+                               go test -parallel 1 -race    ./...
+          FSNOTIFY_DEBUG=1     go test -parallel 1 -race -v ./...
+
+  # FreeBSD
+  freebsd:
+    runs-on: 'ubuntu-latest'
+    name:    'test (freebsd)'
+    timeout-minutes: 10
+    steps:
+      - uses: 'actions/checkout@v6'
+      - name: 'test (openbsd)'
+        id:   'freebsd'
+        uses: 'vmactions/freebsd-vm@v1'
+        with:
+          prepare: 'pkg update -f && pkg install -y go'
+          run: |
+            pw useradd action -m
+            chown -R action:action .
+            su action -c 'go version'
+            FSNOTIFY_BUFFER=4096 su action -c 'go test -parallel 1 -race    ./...'
+                                 su action -c 'go test -parallel 1 -race    ./...'
+            FSNOTIFY_DEBUG=1     su action -c 'go test -parallel 1 -race -v ./...'
+
+  # OpenBSD; no -race as the VM doesn't include the comp set.
+  #
+  # TODO: should probably add this, but on my local machine the tests time out
+  #       with -race as the waits aren't long enough (OpenBSD is kind of slow),
+  #       so should probably look into that first. Go 1.19 is supposed to have a
+  #       much faster race detector, so maybe waiting until we have that is
+  #       enough.
+  openbsd:
+    runs-on: 'ubuntu-latest'
+    name:    'test (openbsd)'
+    timeout-minutes: 10
+    steps:
+      - uses: 'actions/checkout@v6'
+      - name: 'test (openbsd)'
+        id:   'openbsd'
+        uses: 'vmactions/openbsd-vm@v1'
+        with:
+          prepare: pkg_add go
+          run: |
+            useradd -mG wheel action
+            su action -c 'go version'
+            FSNOTIFY_BUFFER=4096 su action -c 'go test -parallel 1    ./...'
+                                 su action -c 'go test -parallel 1    ./...'
+            FSNOTIFY_DEBUG=1     su action -c 'go test -parallel 1 -v ./...'
+
+  # NetBSD
+  netbsd:
+    runs-on: 'ubuntu-latest'
+    name:    'test (netbsd)'
+    timeout-minutes: 10
+    steps:
+      - uses: 'actions/checkout@v6'
+      - name: 'test (netbsd)'
+        id:   'netbsd'
+        uses: 'vmactions/netbsd-vm@v1'
+        with:
+          prepare: pkg_add go
+          # TODO: no -race for the same reason as OpenBSD (the timing; it does run).
+          run: |
+            useradd -mG wheel action
+            su action -c '/usr/pkg/bin/go??? version'
+            FSNOTIFY_BUFFER=4096 su action -c '/usr/pkg/bin/go??? test -parallel 1    ./...'
+                                 su action -c '/usr/pkg/bin/go??? test -parallel 1    ./...'
+            FSNOTIFY_DEBUG=1     su action -c '/usr/pkg/bin/go??? test -parallel 1 -v ./...'
+
+  # DragonFlyBSD
+  dragonflybsd:
+    runs-on: 'ubuntu-latest'
+    name:    'test (dragonflybsd)'
+    timeout-minutes: 10
+    steps:
+      - uses: 'actions/checkout@v6'
+      - name: 'test (dragonflybsd)'
+        id:   'dragonflybsd'
+        uses: 'vmactions/dragonflybsd-vm@v1'
+        with:
+          prepare: pkg install -y go
+          # TODO: no -race for the same reason as OpenBSD (the timing; it does run).
+          run: |
+            pw user add -mG wheel -n action
+            su action -c 'go version'
+            env FSNOTIFY_BUFFER=4096 su action -c 'go test -parallel 1    ./...'
+                                     su action -c 'go test -parallel 1    ./...'
+            env FSNOTIFY_DEBUG=1     su action -c 'go test -parallel 1 -v ./...'
+
+  # illumos
+  illumos:
+    runs-on: 'ubuntu-latest'
+    name:    'test (illumos)'
+    timeout-minutes: 10
+    steps:
+    - uses: 'actions/checkout@v6'
+    - name: 'test (illumos)'
+      id:   'illumos'
+      uses: 'vmactions/omnios-vm@v1'
+      with:
+        prepare: pkg install go-126
+        run: |
+          useradd action
+          export GOCACHE=/tmp/go-cache
+          export GOPATH=/tmp/go-path
+          su action -c 'go version'
+          FSNOTIFY_BUFFER=4096 su action -c '/opt/ooce/go-1.26/bin/go test -parallel 1    ./...'
+                               su action -c '/opt/ooce/go-1.26/bin/go test -parallel 1    ./...'
+          FSNOTIFY_DEBUG=1     su action -c '/opt/ooce/go-1.26/bin/go test -parallel 1 -v ./...'

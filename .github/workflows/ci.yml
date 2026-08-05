@@ -1,0 +1,148 @@
+name: ci
+
+on:
+  push:
+    branches-ignore: [ "spike/**" ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # All third-party deps are committed under vendor/ so builds never depend
+      # on upstream repos staying online. Fail if vendor/ has drifted from go.mod
+      # (a dep bumped without re-running scripts/update-vendor). Only the root
+      # module is checked: cli/npm/goleo is a generated copy of it (produced by
+      # cli/npm/copy-source.js at build/publish time), not committed source.
+      - name: Vendor is consistent
+        run: |
+          go mod vendor && git diff --exit-code -- vendor go.mod go.sum \
+            || { echo "::error::root vendor/ is stale — run scripts/update-vendor"; exit 1; }
+
+      # Windows uses the same cgo-free glaze backend as macOS/Linux (WebView2 via
+      # purego), so this cross-builds from Linux with no C toolchain or platform
+      # libraries.
+      - name: Windows build (cgo-free)
+        run: CGO_ENABLED=0 GOOS=windows go build ./runtime/...
+
+      # macOS/Linux now default to the cgo-free glaze backend, so the whole
+      # desktop matrix must cross-build CGO_ENABLED=0 from Linux with no tags.
+      # Interactive UX is verified on real hardware by glaze-verify.yml.
+      - name: Desktop build (cgo-free, default glaze backend)
+        run: |
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build ./runtime/...
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build ./runtime/...
+          CGO_ENABLED=0 GOOS=linux  GOARCH=amd64 go build ./runtime/...
+          CGO_ENABLED=0 GOOS=linux  GOARCH=arm64 go build ./runtime/...
+
+      # Cross-LINK a real executable per desktop OS. `go build ./runtime/...`
+      # only compiles a library and never links, so it misses link-time errors
+      # like the glaze/systray fakecgo _cgo_init duplicate on Mach-O. Building the
+      # runtime-verify app links Mach-O/PE/ELF from Linux with no Mac needed.
+      - name: Desktop executable cross-link (all OSes, cgo-free)
+        working-directory: spikes/glaze-runtime-verify
+        run: |
+          CGO_ENABLED=0 GOOS=darwin  GOARCH=arm64 go build -o /dev/null .
+          CGO_ENABLED=0 GOOS=darwin  GOARCH=amd64 go build -o /dev/null .
+          CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -o /dev/null .
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o /dev/null .
+
+      # Mobile-safety guard: replicate the gomobile compile set on the REAL
+      # mobile targets (GOOS=android/ios) with -tags mobilebuild. All desktop
+      # webview/window/tray code and desktop-only feature impls must be excluded
+      # (the stub is used); if any leaks in, this fails fast. The feature tag
+      # exercises a device-feature mobile provider path too.
+      #
+      # NOTE: this must target android/ios, not the host GOOS. `linux +
+      # mobilebuild` is an unreal combination that trips over cgo-only desktop
+      # files (e.g. camera_linux.go) and says nothing about mobile safety.
+      - name: Mobile guard — android
+        run: |
+          CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build -tags mobilebuild ./runtime/...
+          CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build -tags "mobilebuild goleo_share" ./runtime/...
+
+      - name: Mobile guard — ios
+        run: |
+          CGO_ENABLED=0 GOOS=ios GOARCH=arm64 go build -tags mobilebuild ./runtime/...
+          CGO_ENABLED=0 GOOS=ios GOARCH=arm64 go build -tags "mobilebuild goleo_share" ./runtime/...
+
+      - name: CLI build
+        run: go build ./cli/...
+
+      # Actually run the unit tests. This was missing for a long time, and the cost
+      # was real: six cli/cmd android_deps tests had been failing permanently on
+      # Windows dev machines (Unix-only XDG_CACHE_HOME / a fixture hardcoding the
+      # POSIX `sdkmanager` name) with nothing to catch it. Safe on a bare runner —
+      # tests needing GUI/host tooling skip themselves rather than fail (e.g.
+      # clipboard's round-trip skips without xclip; the dialogs tests are
+      # //go:build windows), verified in a clean golang container with no xclip or
+      # zenity installed.
+      # gofmt is checked here and not on a developer's machine because Windows
+      # checkouts have CRLF line endings, which makes `gofmt -l` flag every file
+      # locally and tells you nothing. The CI checkout is LF, so this is the only
+      # place the check is meaningful.
+      - name: Formatting
+        run: |
+          unformatted=$(gofmt -l runtime cli)
+          if [ -n "$unformatted" ]; then
+            echo "::error::gofmt needed on:"; echo "$unformatted"; exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./runtime/... ./cli/...
+
+      - name: Unit tests
+        run: go test ./...
+
+      # Separate -race pass. The runtime carries a fair amount of concurrent state
+      # — the per-server WebSocket hub, the filesystem scope, the store's writers —
+      # and none of it was ever exercised under the detector by CI. It roughly
+      # doubles this job's runtime, which is worth it for the class of bug that
+      # otherwise only shows up intermittently in the field.
+      - name: Race detector
+        run: go test -race ./runtime/... ./cli/...
+
+      # The TypeScript bridge had no test runner at all until now — only `tsc`,
+      # which cannot tell you that a catch block returns the wrong value. That is
+      # how several failure-path bugs survived there (a failed confirm dialog
+      # returning 'OK', an fs error being replaced with "requires the Go backend").
+      # Gating it here matters as much as adding it: a suite nothing runs is the
+      # same as no suite.
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # `npm ci` at the ROOT must work on a fresh clone. It used to fail after every
+      # release: the version bump pinned @goleo/cli's optionalDependencies to a version
+      # not yet on the registry, npm could not write lockfile entries for it, and being
+      # OPTIONAL they were dropped silently — so package.json declared six platform
+      # packages the lockfile knew nothing about, and `npm ci` refuses on any such
+      # mismatch. It needed a manual `npm install` + commit after each release, and it
+      # stayed invisible because every workflow ran `npm install`, which re-resolves
+      # rather than verifies. The committed pins are now "latest" (see
+      # cli/npm/check-optional-deps.js) so there is nothing to repair — this guards that.
+      - name: Lockfile is installable (npm ci on a fresh clone)
+        run: npm ci
+
+      # And the published @goleo/cli must never carry those "latest" pins: end users
+      # would get a floating platform binary. build-platform-packages.js stamps the
+      # exact version before publishing and prepublishOnly refuses without it, so check
+      # the guard itself still rejects the committed state rather than passing vacuously.
+      - name: Publish guard rejects unpinned platform deps
+        run: |
+          if node cli/npm/check-optional-deps.js 2>/dev/null; then
+            echo "::error::check-optional-deps passed on the committed tree, where the pins are \"latest\" — the guard is not guarding anything"
+            exit 1
+          fi
+          echo "guard correctly refuses the committed \"latest\" pins"
+
+      - name: Bridge tests (TypeScript)
+        working-directory: bridge
+        run: npm test

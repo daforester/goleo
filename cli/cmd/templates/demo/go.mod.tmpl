@@ -1,0 +1,13 @@
+module goleo/__GOLEO_APP_NAME__
+
+go 1.26
+
+require github.com/daforester/goleo __GOLEO_VERSION__
+
+// goleo's cgo-free webview backend (github.com/crgimenes/glaze) is pinned to a
+// fork that adds the WebView2 permission auto-grant, so camera/mic/geolocation
+// resolve on Windows instead of waiting on a prompt nothing answers. Go replace
+// directives don't transit, so this has to be repeated here rather than being
+// inherited from goleo. Dropping it still builds, but silently loses that grant
+// on Windows. See goleo's AGENTS.md / SPIKES.md.
+replace github.com/crgimenes/glaze => github.com/daforester/glaze v0.0.46-goleo.1

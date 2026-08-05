@@ -1,0 +1,25 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>scheme-verify</title></head>
+<body><h1>goleo scheme-assets verify</h1>
+<script>
+// Native in-process channel injected by the runtime's nativeOnInit shim — proves
+// the page reaches the Bridge over native IPC with NO loopback port in play.
+function invoke(method, args) {
+  window.__goleoSend(JSON.stringify({ type: 'invoke', data: { id: String(Date.now()) + Math.random(), method: method, args: args } }));
+}
+(function start() {
+  if (typeof window.__goleoSend !== 'function') { setTimeout(start, 50); return; }
+  (async function () {
+    var r = { origin: location.origin, secure: (window.isSecureContext === true), ls: false, crypto: false, native: !!window.__GOLEO_NATIVE__ };
+    try { localStorage.setItem('k', '1'); r.ls = (localStorage.getItem('k') === '1'); localStorage.removeItem('k'); } catch (e) { r.lsErr = String(e); }
+    try {
+      if (window.crypto && window.crypto.subtle) {
+        var d = await window.crypto.subtle.digest('SHA-256', new TextEncoder().encode('goleo'));
+        r.crypto = (d.byteLength === 32);
+      } else { r.cryptoErr = 'crypto.subtle undefined'; }
+    } catch (e) { r.cryptoErr = String(e); }
+    invoke('smoke:report', r);
+  })();
+})();
+</script>
+</body></html>

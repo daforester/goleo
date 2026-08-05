@@ -1,0 +1,47 @@
+<!doctype html><html><head><meta charset="utf-8"><title>fs-scope verify</title></head>
+<body><h1>fs scope verification</h1><pre id="out"></pre>
+<script>
+const log = m => { document.getElementById('out').textContent += m + "\n"; };
+let id = 0;
+const pending = {};
+function invoke(method, args) {
+  return new Promise((resolve) => {
+    const rid = String(++id);
+    pending[rid] = resolve;
+    window.__goleoSend(JSON.stringify({type:'invoke', data:{id:rid, method, args}}));
+  });
+}
+window.__goleoRecv = (raw) => {
+  const msg = typeof raw === 'string' ? JSON.parse(raw) : raw;
+  if (msg.type === 'invokeResult' && pending[msg.data.id]) {
+    pending[msg.data.id](msg.data);
+    delete pending[msg.data.id];
+  }
+};
+function report(o) { window.__goleoSend(JSON.stringify({type:'invoke', data:{id:'r'+(++id), method:'verify:report', args:o}})); }
+
+(async () => {
+  const native = !!window.__GOLEO_NATIVE__;
+  log('native channel: ' + native);
+  const inPath  = await invoke('verify:inScopePath');
+  const outPath = await invoke('verify:outOfScopePath');
+
+  const wIn  = await invoke('goleo:fsWriteTextFile', {path: inPath.result,  content: 'hello'});
+  const wOut = await invoke('goleo:fsWriteTextFile', {path: outPath.result, content: 'pwned'});
+  const dOut = await invoke('goleo:fsDelete',        {path: outPath.result});
+  const rIn  = await invoke('goleo:fsReadTextFile',  {path: inPath.result});
+
+  log('write in-scope  : ' + (wIn.error  ? 'ERR ' + wIn.error  : 'ok'));
+  log('write out-scope : ' + (wOut.error ? 'refused' : 'ALLOWED!'));
+  log('delete out-scope: ' + (dOut.error ? 'refused' : 'ALLOWED!'));
+  log('read in-scope   : ' + (rIn.error  ? 'ERR ' + rIn.error  : JSON.stringify(rIn.result)));
+
+  report({
+    native,
+    writeInScopeOK:      !wIn.error,
+    writeOutScopeRefused: !!wOut.error,
+    deleteOutScopeRefused: !!dOut.error,
+    readInScopeOK:       !rIn.error && rIn.result === 'hello',
+  });
+})();
+</script></body></html>
