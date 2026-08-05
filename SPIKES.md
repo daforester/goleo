@@ -1099,3 +1099,55 @@ removal and the cache were real savings; the baseline was not comparable.
 
 The lesson worth keeping: **a green run and a red run are not the same amount of work**, so
 "cost per iteration" measured on failures understates the finish line.
+
+## Play upload — the permission report reconciled, and one real bug (2026-08-05)
+
+**First ever Play upload** (internal track, throwaway package `qvbnxwtz.rmpldskg`). Play reported
+**19 permissions and 6 features**; the build printed **14 permissions**. Every line reconciles,
+and one of the differences was a genuine defect.
+
+**Permissions: 19 = goleo's 16 + 2 merged + 1 from Play.**
+- goleo's manifest declares **16**: the 14 the build prints, plus `BLUETOOTH` and
+  `BLUETOOTH_ADMIN` carrying `maxSdkVersion="30"`. Those two are deliberately not in the printed
+  list (they are the legacy bound) but Play's Bundle explorer shows every `<uses-permission>`
+  regardless of `maxSdkVersion`. They still vanish on API 31+ *devices* — confirmed earlier on
+  the API 36 emulator.
+- AndroidX manifest-merges **2** more: `RECEIVE_BOOT_COMPLETED` (WorkManager) and
+  `<package>.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION` (androidx.core, signature-level,
+  namespaced to the app).
+- **Play itself** adds `com.android.vending.CHECK_LICENSE` — verified absent from the merged
+  manifest in `intermediates/merged_manifest/`, so it comes from Play's bundle processing, not
+  from goleo or AndroidX.
+- `ACCESS_COARSE_LOCATION` is correctly **absent**: the platform adds it at install time
+  alongside `ACCESS_FINE_LOCATION`, which is why it appeared in `dumpsys` but not here.
+
+**Features: 6 against 3 declared — and this was the bug.** goleo declared `camera`, `nfc`,
+`bluetooth_le`, all `required="false"`. Play reported those plus `android.hardware.bluetooth`,
+`android.hardware.location` and `android.hardware.faketouch`.
+
+**aapt2 derives `<uses-feature>` from `<uses-permission>`, and an implied entry defaults to
+`required="true"`.** So `BLUETOOTH`/`BLUETOOTH_ADMIN` implied a **required**
+`android.hardware.bluetooth`, and `ACCESS_FINE_LOCATION` implied a **required**
+`android.hardware.location` — hard device filters on Play, hiding the app from any device
+without Bluetooth or GPS, for features that degrade gracefully to a browser fallback. The
+`required="false"` work was in place but covered only the features goleo declared *directly*,
+not the ones its own permissions implied. `faketouch` is a baseline every device satisfies and is
+left alone.
+
+Fixed: `goleo_ble` now also declares `android.hardware.bluetooth`, and `goleo_geolocation`
+declares `android.hardware.location` (+ `.gps` defensively — Play reported only the former, but
+Android's documented table lists both and aapt's implied set has changed across versions;
+declaring an inert `required="false"` line is cheaper than losing device coverage). The demo now
+emits six optional features, matching what Play derives, and the build prints them.
+
+`TestEveryImpliedHardwareFeatureIsDeclaredOptional` guards the **class**, not the instance: it
+walks a permission→implied-feature table against the full feature set and fails if any implied
+feature is undeclared. Enabling a new feature whose permission implies hardware and forgetting
+the `<uses-feature>` is otherwise invisible — the printed permission list looks completely
+correct.
+
+**Why nothing caught this before Play:** the emulator check confirmed the *permissions* were
+right and that the `maxSdkVersion` bound worked, and CI asserts the manifest is minimal. Neither
+looks at implied features, because they exist only after aapt2 processes the manifest, and their
+consequence is a store-side distribution filter with no local symptom at all. This is the one
+finding in the whole Android effort that genuinely required a real store to surface.

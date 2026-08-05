@@ -53,10 +53,28 @@ var corePermissions = []string{
 // needs. All are required="false": Play uses these to filter which devices can install
 // an app, and goleo features degrade to a browser fallback rather than being essential,
 // so marking any of them required would exclude devices unnecessarily.
+//
+// EVERY feature a declared permission IMPLIES has to be listed here, not just the obvious
+// one per feature. aapt2 derives <uses-feature> entries from <uses-permission> and an
+// implied entry defaults to required="TRUE" — so a permission whose feature is not declared
+// explicitly becomes a hard device filter. Found on a real Play upload: the listing reported
+// six features where goleo declared three, and the extra `android.hardware.bluetooth`
+// (implied by BLUETOOTH/BLUETOOTH_ADMIN) and `android.hardware.location` (implied by
+// ACCESS_FINE_LOCATION) were required, excluding any device without Bluetooth or GPS from an
+// app that degrades gracefully on both. `android.hardware.faketouch` is also implied and is
+// left alone: it is a baseline every device satisfies.
 var androidHardwareFeatures = map[string][]string{
 	"goleo_camera": {"android.hardware.camera"},
 	"goleo_nfc":    {"android.hardware.nfc"},
-	"goleo_ble":    {"android.hardware.bluetooth_le"},
+	// bluetooth_le for the BLE APIs, and plain bluetooth because the legacy BLUETOOTH /
+	// BLUETOOTH_ADMIN permissions imply it.
+	"goleo_ble": {"android.hardware.bluetooth_le", "android.hardware.bluetooth"},
+	// ACCESS_FINE_LOCATION implies android.hardware.location. The real Play listing reported
+	// only that one, not .gps — but Android's documented table lists both and aapt's implied
+	// set has changed across versions, so .gps is declared defensively. Declaring a feature
+	// required="false" that nothing implies costs one inert line; missing one that IS implied
+	// costs device coverage.
+	"goleo_geolocation": {"android.hardware.location", "android.hardware.location.gps"},
 }
 
 // legacyBluetoothPermissions are the pre-API-31 Bluetooth grants. BLUETOOTH and

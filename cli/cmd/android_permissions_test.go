@@ -383,3 +383,78 @@ func New() {
 		t.Errorf("camera hardware feature missing; resolved features = %v", p.Features)
 	}
 }
+
+// impliedHardwareFeatures is Android's permission -> implied <uses-feature> mapping, as far
+// as it affects goleo. aapt2 derives these automatically and an implied entry defaults to
+// required="TRUE", so any permission here whose feature goleo does not declare explicitly
+// becomes a hard device filter on Play.
+//
+// Confirmed against a real Play upload (2026-08-05): the listing reported six features where
+// goleo declared three, the extras being android.hardware.bluetooth (from BLUETOOTH /
+// BLUETOOTH_ADMIN) and android.hardware.location (from ACCESS_FINE_LOCATION) — plus
+// android.hardware.faketouch, a baseline every device satisfies, which is why it is not here.
+var impliedHardwareFeatures = map[string][]string{
+	"android.permission.CAMERA":               {"android.hardware.camera"},
+	"android.permission.NFC":                  {"android.hardware.nfc"},
+	"android.permission.BLUETOOTH":            {"android.hardware.bluetooth"},
+	"android.permission.BLUETOOTH_ADMIN":      {"android.hardware.bluetooth"},
+	"android.permission.ACCESS_FINE_LOCATION": {"android.hardware.location"},
+	"android.permission.RECORD_AUDIO":         {"android.hardware.microphone"},
+}
+
+// Every permission that implies a hardware feature must have that feature declared
+// explicitly, so it lands as required="false" instead of being implied as required.
+//
+// This is the invariant, not the instance: enable a feature whose permission implies
+// hardware, forget the <uses-feature>, and Play silently narrows who can install the app.
+// Nothing about the build output would show it — the permission list looks right.
+func TestEveryImpliedHardwareFeatureIsDeclaredOptional(t *testing.T) {
+	// The worst case is every feature enabled, which is what the demo scaffold does.
+	var allTags []string
+	for _, f := range featureRegistry {
+		allTags = append(allTags, f.BuildTag)
+	}
+	perms := resolveAndroidPermissions(allTags, nil)
+
+	declared := map[string]bool{}
+	for _, f := range perms.Features {
+		declared[f] = true
+	}
+
+	// The legacy Bluetooth permissions are emitted as raw XML, so include them.
+	requested := append([]string{}, perms.Permissions...)
+	if strings.Contains(perms.LegacyXML, "BLUETOOTH") {
+		requested = append(requested,
+			"android.permission.BLUETOOTH", "android.permission.BLUETOOTH_ADMIN")
+	}
+
+	for _, perm := range requested {
+		for _, feature := range impliedHardwareFeatures[perm] {
+			if !declared[feature] {
+				t.Errorf("%s implies <uses-feature %s>, which goleo does not declare — aapt2 "+
+					"will add it as required=\"true\" and Play will hide the app from every "+
+					"device lacking that hardware, even though the feature degrades gracefully",
+					perm, feature)
+			}
+		}
+	}
+}
+
+// Every feature goleo declares must be optional. One required entry is a device filter.
+func TestAllDeclaredFeaturesAreOptional(t *testing.T) {
+	raw, err := mobileTemplates.ReadFile("templates/android/app/src/main/AndroidManifest.xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(raw)
+	if !strings.Contains(src, `android:required="false"`) {
+		t.Fatal("the manifest template does not mark <uses-feature> optional at all")
+	}
+	// There must be no uses-feature line without required="false".
+	for _, line := range strings.Split(src, "\n") {
+		if strings.Contains(line, "uses-feature") && !strings.Contains(line, `android:required="false"`) {
+			t.Errorf("a <uses-feature> is declared without required=\"false\": %q",
+				strings.TrimSpace(line))
+		}
+	}
+}
