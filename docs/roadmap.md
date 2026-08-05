@@ -78,6 +78,13 @@ interactive/pixel UX only headless on CI. See Track D, `SPIKES.md`, and `spikes/
   `GoleoShareImpl` (`UIActivityViewController`) added to `AppDelegate.swift` + registered. No
   Xcode/device here, so gomobile's exact Swift protocol signatures/arg-labels are a best guess
   (marked with NOTE comments) — needs a Mac to validate.
+  - **Currency note (2026-08-05):** validated. `AppDelegate.swift` now compiles and the app
+    runs on a simulator in CI. The guessed *method shapes* were all correct; the **names**
+    were not — the Swift module is `Goleo` (from the artifact) while every symbol carries the
+    Go *package* prefix `Gomobile`, and package-level Go funcs are C functions taking no
+    argument labels. Read off the generated `Gomobile.objc.h`, which `mobile-verify` prints.
+    Clipboard/Share are compiled and wired but not exercised on a device; a simulator has no
+    real pasteboard peer or share sheet to assert against.
 - **npm mirror synced** — `cli/npm/goleo/` (runtime + bridge src/dist + `go.mod`) resynced
   with all recent work; mirror module verified to build on host, windows (cgo-free), and the
   android mobile guard, and the store test passes there.

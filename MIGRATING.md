@@ -475,7 +475,7 @@ agrees with it.
 
 **Also in this release:** `goleo build ios --simulator` is added — a build against the iOS
 Simulator SDK with code signing off, which is the only iOS target needing no Apple Developer
-account. **It does not complete yet**, and neither does `goleo build ios`: see
+account. **It did not complete in 0.10.2**, and neither did `goleo build ios`: see
 [Mobile](docs/guide/10-mobile.md). What this release fixes is everything up to the Swift
 compile, none of which worked before because iOS had never been built anywhere:
 
@@ -523,3 +523,32 @@ is the copy the WebView actually loads over loopback. Nothing read the native co
 APK, AAB and `.app` carried the whole frontend twice. If you added code that reads
 `file:///android_asset/…` or a bundle resource, it will no longer find those files — load
 over `http://127.0.0.1:<port>` as the shells do.
+
+---
+
+## 0.10.3 — iOS builds and runs
+
+**No action needed.** This release makes `goleo build ios` work; nothing that worked before
+changes.
+
+0.10.2's entry above says the iOS build stops at the Swift compile. It no longer does. Verified
+on a macOS runner from a freshly scaffolded project: `GoleoApp.app` builds for the Simulator,
+installs, launches, and the screenshot shows the embedded UI rendered with `goleo:getOS`
+answered by the Go backend, a custom `invoke()` returning, and `heartbeat` push events arriving.
+So the Go backend, loopback asset serving, WKWebView, bridge invoke and event push all work.
+
+```bash
+goleo build ios --simulator     # needs no Apple Developer account
+goleo build ios                 # device build; needs a signing certificate
+```
+
+Six things were wrong, each hidden behind the one before it — the gomobile simulator slice, the
+Xcode project format, the xcframework name, the Swift binding names, XcodeGen's app-icon preset,
+and a `BGTaskScheduler` identifier taken from the Android package name. That last one is the
+only one worth checking yourself: if you set `mobile.ios.bundle_identifier` to something other
+than your Android `package_name`, 0.10.2 would have crashed on launch (the identifier was not in
+`Info.plist`'s permitted list, which raises an exception). It is derived from the iOS bundle id
+now.
+
+**Still no `.ipa`**, so TestFlight and App Store submission remain unwired; both need a paid
+Apple Developer account. `goleo build ios --release` refuses and says so.
