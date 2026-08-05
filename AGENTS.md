@@ -599,6 +599,17 @@ This is cgo-free and binding-agnostic (works with either webview backend).
   `mobile.android.extra_permissions` (`cli/cmd/android_permissions.go`) — NOT from the
   compiled tag set, which is deliberately a superset (`nativeShellProviderTags` forces eight
   tags into every build so gobind emits the symbols the fixed Java shell references)
+- The same file derives **`<uses-feature>` declarations** (`androidHardwareFeatures`), all
+  emitted `android:required="false"`. This is not cosmetic: aapt2 *implies* a `<uses-feature>`
+  from certain permissions and an implied entry defaults to `required="true"`, which makes Play
+  filter the app off every device lacking that hardware — so **every feature a declared
+  permission implies must be listed explicitly**, not just one per goleo feature.
+  `TestEveryImpliedHardwareFeatureIsDeclaredOptional` enforces that against a
+  permission→implied-feature table. Found on a real Play upload: goleo declared three features
+  and Play reported six, with `android.hardware.bluetooth` (from the legacy `BLUETOOTH`
+  permissions) and `android.hardware.location` (from `ACCESS_FINE_LOCATION`) silently required.
+  Nothing local can catch this — implied features exist only after aapt2 runs, and the symptom
+  is a store-side distribution filter.
 - `cli/cmd/scan.go` — source scanner that detects `runtime.Register*()` calls and emits the corresponding build tags + manifest entries
 - `runtime/clipboard/` — implemented feature with read/write text via platform shell commands; re-exported via `runtime/clipboard_reexport.go`
 - `runtime/dialogs/` — native dialogs (file open/save, folder picker, message box, input prompt) via PowerShell (Windows), osascript (macOS), zenity (Linux)

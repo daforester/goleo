@@ -552,3 +552,45 @@ now.
 
 **Still no `.ipa`**, so TestFlight and App Store submission remain unwired; both need a paid
 Apple Developer account. `goleo build ios --release` refuses and says so.
+
+---
+
+## 0.10.4 — Android builds no longer restrict which devices can install your app
+
+**Affects:** Android apps that enable **Bluetooth** or **Geolocation**. **No action needed** —
+your next build simply reaches more devices. Read on if you have already published, because the
+effect is visible on your store listing.
+
+Android derives a `<uses-feature>` declaration from certain permissions automatically, and an
+**implied** one defaults to `android:required="true"`. goleo declared `camera`, `nfc` and
+`bluetooth_le` explicitly as optional, but not the two its own permissions implied:
+
+| Permission goleo declares | Implied feature | Was |
+|---|---|---|
+| `BLUETOOTH` / `BLUETOOTH_ADMIN` (legacy, `maxSdkVersion=30`) | `android.hardware.bluetooth` | **required** |
+| `ACCESS_FINE_LOCATION` | `android.hardware.location` | **required** |
+
+A required feature is a hard filter: Play hides the app from every device without that hardware.
+For features that fall back to a browser API when unavailable, that is simply lost reach.
+
+Both are now declared `required="false"`, so the build prints six optional features where it
+printed three:
+
+```
+Hardware features (all optional): android.hardware.bluetooth, android.hardware.bluetooth_le,
+android.hardware.camera, android.hardware.location, android.hardware.location.gps,
+android.hardware.nfc
+```
+
+**If you have already shipped a release**, rebuild and upload again — your supported-device count
+in Play Console should increase. Nothing else changes: the permission list is untouched, and
+`android.hardware.faketouch` (also implied, by the platform) is left alone because every device
+satisfies it.
+
+**If you add a hardware permission yourself** through `mobile.android.extra_permissions`, declare
+its feature too — goleo can only derive features for the permissions it adds itself.
+
+This was found by uploading to Play for the first time. It is worth knowing that it *cannot* be
+caught locally: implied features exist only after `aapt2` processes the manifest, and the only
+symptom is a store-side distribution filter — nothing fails, and the app installs fine on any
+device you happen to test.

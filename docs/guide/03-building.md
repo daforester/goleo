@@ -106,6 +106,21 @@ npm run goleo:build-ios        # -> GoleoApp.app, a DEBUG build (macOS + Xcode)
   The generated manifest declares only the permissions your app enables, and the build
   prints the list with the feature that asked for each one. If something is missing, add
   it to `mobile.android.extra_permissions` in `goleo.json`.
+
+  It also declares the **hardware features** those permissions imply, all as
+  `android:required="false"`, and prints them:
+
+  ```
+  Hardware features (all optional): android.hardware.bluetooth, android.hardware.camera, …
+  ```
+
+  That `required="false"` is load-bearing. Android derives a `<uses-feature>` from certain
+  permissions automatically — `CAMERA` implies a camera, `ACCESS_FINE_LOCATION` implies
+  location hardware — and an **implied** entry defaults to `required="true"`, which makes
+  Play hide your app from every device lacking that hardware. goleo's features degrade to a
+  browser fallback rather than being essential, so it declares each one explicitly as
+  optional to stop that happening. If you add a permission by hand through
+  `extra_permissions` and it implies hardware, declare the feature yourself too.
 - **iOS**: builds a **debug** `GoleoApp.app` with `xcodebuild`. macOS only. The `.xcframework`
   gomobile produces is an intermediate that the build consumes and then deletes, so there
   is nothing to integrate by hand.

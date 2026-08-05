@@ -128,6 +128,22 @@ each, so a missing one is visible while you build rather than after a user insta
 Android an undeclared permission fails silently, with the runtime request returning
 "denied" and no prompt.
 
+It also prints the **hardware features** those permissions imply:
+
+```
+Hardware features (all optional): android.hardware.bluetooth, android.hardware.bluetooth_le,
+android.hardware.camera, android.hardware.location, android.hardware.location.gps,
+android.hardware.nfc
+```
+
+Every one is declared `android:required="false"`, and that matters more than it looks.
+Android derives a `<uses-feature>` from certain permissions on its own, and an **implied**
+entry is *required* by default — which makes Play filter your app off every device without
+that hardware. Since goleo's features fall back to a browser API rather than being
+essential, each is declared optional explicitly. Play will still list them; check
+*Release → Bundle explorer → Features* against the printed list, and watch your supported
+device count if you ever add a hardware permission by hand.
+
 ## Tips
 
 - Serve dev over `localhost` (Goleo does this via `adb reverse`) — never
