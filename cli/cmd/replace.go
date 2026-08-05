@@ -33,6 +33,7 @@ func ensureLocalReplace(projectDir string) error {
 		return fmt.Errorf("checking go.mod: %w", err)
 	}
 	if hasReplace {
+		warnDetachedLocalReplace(projectDir)
 		return nil
 	}
 
