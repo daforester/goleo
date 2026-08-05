@@ -106,12 +106,7 @@ npm run goleo:build-ios        # -> GoleoApp.app, a DEBUG build (macOS + Xcode)
   The generated manifest declares only the permissions your app enables, and the build
   prints the list with the feature that asked for each one. If something is missing, add
   it to `mobile.android.extra_permissions` in `goleo.json`.
-- **iOS**: **not working as of 0.10.2** — the build stops at the Swift compile because the
-  native shell's gomobile binding names were never compiled. Android is the supported
-  mobile target; see [Mobile](10-mobile.md) for what is fixed and what remains. The rest of
-  this bullet describes the intended behaviour.
-
-  Builds a **debug** `GoleoApp.app` with `xcodebuild`. macOS only. The `.xcframework`
+- **iOS**: builds a **debug** `GoleoApp.app` with `xcodebuild`. macOS only. The `.xcframework`
   gomobile produces is an intermediate that the build consumes and then deletes, so there
   is nothing to integrate by hand.
 

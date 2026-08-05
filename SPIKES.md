@@ -1061,3 +1061,41 @@ the entire file with `unexpected EOF`. Caught immediately because the new test r
 template, but nothing else would have: the file is only rendered during a real mobile build.
 `TestEveryMobileTemplateParses` now parses all 23 mobile templates, so the class is covered
 rather than the instance.
+
+### ✅ iOS builds, installs and RUNS (2026-08-05) — the full bridge on a simulator
+
+Fifth run, on a `spike/ios-build` branch. **Green end to end.** From a freshly scaffolded
+project on a `macos-14` runner: `GoleoApp.app` built for the Simulator, bundle verified
+(objectVersion 56, `CFBundleName` "iosapp", version 0.1.0, LaunchScreen present), installed,
+launched, and still running with a live PID after 15s.
+
+The screenshot is the part that matters, because a live process is not a working app. It shows:
+- the **embedded UI rendered** — WKWebView loaded the frontend the Go server serves over
+  loopback;
+- `{"os":"ios","arch":"arm64","name":"iOS"}` — `goleo:getOS` round-tripped **from the Go
+  backend**;
+- *"Backend says: Hello, Goleo! From Go backend at 2026-08-05T00:05:23Z"* — a custom invoke;
+- *"Backend Event: heartbeat … {"goroutines":10,…}"* — **server→client push events**.
+
+So on iOS: gomobile-hosted Go backend, loopback asset serving, WKWebView, bridge invoke, and
+event push all work. `runtime/`'s mobile path is genuinely exercised on iOS for the first time.
+
+**Five defects, each only reachable once the previous was fixed** — the shape of bringing up a
+path that had never executed. In order: (1) the Xcode project format, (2) the xcframework name,
+(3) the gomobile binding names, (4) XcodeGen's app-icon preset, and (5) — found by reading
+rather than running — the BGTask identifier taken from the Android package name, which
+`BGTaskScheduler.register` would have thrown on during `didFinishLaunching`. Only (5) was
+invisible to CI, because the default scaffold's two identifiers happen to be equal.
+
+**On runner cost, and a prediction that did not hold.** macOS bills at 10x. The failing run was
+179s (~30 billable min) and reaching it also ran `ci` plus two Android jobs, so the work moved
+to a branch with a single-job workflow: no simulator-slice probe (a whole throwaway
+`gomobile bind`, 29s), a Go module/build cache, and `cancel-in-progress`. I predicted ~18-20
+billable minutes. **The green run cost 51.** The estimate was wrong because the failing baseline
+skipped the boot-and-launch steps entirely — they cost 118s, and they only run when the build
+succeeds. The honest numbers: a *build-failure* iteration went 179s → ~150s; a *successful* run
+is inherently ~300s because booting a simulator and launching an app is expensive. The probe
+removal and the cache were real savings; the baseline was not comparable.
+
+The lesson worth keeping: **a green run and a red run are not the same amount of work**, so
+"cost per iteration" measured on failures understates the finish line.

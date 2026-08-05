@@ -428,7 +428,7 @@ asserts that, and `checkWrapperJar` verifies the embed really is a wrapper JAR. 
 |---------|---------|-------|-------|---------|-----|-----|
 | Dev mode | yes | yes | yes | n/a | n/a | yes |
 | Desktop build | yes | yes | yes | n/a | n/a | n/a |
-| Mobile build | n/a | n/a | yes | yes | **not yet** | n/a |
+| Mobile build | n/a | n/a | yes | yes | yes | n/a |
 | PWA build | yes | yes | yes | yes | yes | yes |
 | PWA dev mode | yes | yes | yes | yes | yes | yes |
 | Gomobile | n/a | n/a | yes | yes | yes | n/a |
@@ -868,7 +868,7 @@ iOS was the only target with no verification of any kind. "Tier 1" is everything
   placeholder), boot a simulator with `xcrun simctl`, install, launch, assert still running,
   upload a screenshot.
 
-**Status after the first real macOS runs (2026-08-04/05): iOS still does not build.** Each run
+**Status after the real macOS runs (2026-08-04/05): iOS builds, installs and runs.** Each run
 peeled off one layer that had never been exercised, in order:
 1. the simulator-slice probe **passed** — gomobile does emit `ios-arm64-simulator`;
 2. `xcodebuild` refused the project: XcodeGen's default `projectFormat` writes objectVersion
@@ -877,14 +877,28 @@ peeled off one layer that had never been exercised, in order:
    for `App.xcframework` while the build wrote `goleo.xcframework`; both are now
    `Goleo.xcframework`, which is also what gomobile derives the Swift module name from
    (`bind_iosapp.go`: `title = strings.Title(base minus ".xcframework")`, `Module: title`);
-4. **current blocker:** `App/AppDelegate.swift`. It was written without ever being compiled,
-   and the two names it needs come from different places — the Swift module is `Goleo` (from
-   the artifact name) while gobind derives the Objective-C class prefix from the Go *package*
-   (`gomobile` → `Gomobile`). So `import Goleo` is right but `Goleo.setHomeDir(...)` and
-   `GoleoNotifierProtocol` are not. The CI job now prints the generated headers so the real
-   symbols can be read off a macOS run instead of guessed at across round-trips.
+4. `App/AppDelegate.swift` had never been compiled, and the two names it needs come from
+   different places — the Swift module is `Goleo` (from the artifact name) while gobind
+   derives the Objective-C class prefix from the Go *package* (`gomobile` → `Gomobile`). So
+   `import Goleo` was right but `Goleo.setHomeDir(...)` and `GoleoNotifierProtocol` were not.
+   Fixed against the generated headers, which the job prints;
+5. `actool` refused the build: XcodeGen's own `settingPresets` set
+   `ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon` for an application target, so goleo's
+   `HasIcon` gate could add that setting but not prevent it, and the scaffold ships no icon.
+   Overridden with an explicit empty value;
+6. a launch crash found by reading rather than running: the BGTask identifier came from the
+   **Android** package name while `Info.plist` permits `$(PRODUCT_BUNDLE_IDENTIFIER).sync`.
+   Registering an unpermitted identifier raises an NSException from `didFinishLaunching`.
+   Harmless only while the iOS build reused the Android id — making
+   `mobile.ios.bundle_identifier` take effect in 0.10.2 is what turned it into a crash.
 
-Docs say iOS does not build; do not describe it as working until a runner produces a bundle.
+**Resolved (2026-08-05): iOS builds, installs and runs.** A `macos-14` runner produced a
+`GoleoApp.app` from a fresh scaffold, installed it on a simulator and launched it, and the
+screenshot shows the embedded UI rendered with `goleo:getOS` round-tripped from the Go
+backend (`"os":"ios","arch":"arm64"`), a custom invoke returning, and `heartbeat` push
+events arriving — so the backend, loopback asset serving, WKWebView, bridge invoke and
+event push all work. The remaining iOS gap is distribution (`.ipa`/TestFlight), which needs
+a paid Apple Developer account.
 
 **Tier 2 (not done, and not blocked on hardware):** signed `.ipa` via `archive` +
 `-exportArchive`, `ExportOptions.plist`, entitlements, TestFlight upload. All of that needs a

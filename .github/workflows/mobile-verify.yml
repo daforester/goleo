@@ -302,12 +302,14 @@ jobs:
   # A simulator build needs NO code signing, which is the whole reason this is possible
   # without a paid account. Anything beyond it — a signed .ipa, TestFlight, the App Store —
   # needs the account, but notably NOT Mac hardware: these runners are the Mac.
-  # iOS is not building yet (see SPIKES.md); the iteration happens on spike/ios-* via
-  # ios-spike.yml so that a macOS runner — billed at 10x — is not spent on every master
-  # push to re-learn a known failure. Kept here as the authoritative job, but opt-in until
-  # the spike lands: remove the `if` once `goleo build ios` succeeds.
+  # The iOS equivalent of android-release: build a real app, install it on a simulator and
+  # prove it runs. This is the only job that exercises the iOS path at all, and it found four
+  # defects in a row that nothing else could — each only reachable once the previous was
+  # fixed (project format, xcframework name, gomobile binding names, app-icon preset).
+  #
+  # macOS runners bill at 10x, so it carries the cost measures worked out during the spike:
+  # a Go module + build cache (the gomobile bind dominates), and no simulator-slice probe.
   ios-simulator:
-    if: github.event_name == 'workflow_dispatch'
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -317,6 +319,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+
+      # The bind dominates this job and its inputs barely change between runs.
+      - name: Cache Go modules and build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/Library/Caches/go-build
+          key: ios-go-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            ios-go-
 
       - name: Install gomobile and xcodegen
         run: |

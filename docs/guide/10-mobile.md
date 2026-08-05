@@ -49,32 +49,18 @@ if none is present (it will not spin up an emulator).
 
 ## iOS
 
-> **iOS does not build yet — as of 0.10.2 it stops at the Swift compile.** Android is
-> the supported mobile target. Everything below describes the intended workflow and the
-> commands are real, but `App/AppDelegate.swift` — the native shell that hosts the
-> WebView and wires the platform providers — was written without ever being compiled,
-> and its gomobile binding names are wrong. It is being fixed against the real generated
-> headers on a macOS runner rather than guessed at; follow
-> [the roadmap](../roadmap.md) for status.
->
-> What *does* work as of 0.10.2: gomobile emits a device **and** simulator slice, the
-> generated Xcode project opens in Xcode 14 and newer, the project and the build agree on
-> the framework name, and `Info.plist` carries your app's real name, version and bundle
-> identifier. Those were all broken, and each one had to be fixed before the Swift
-> failure was even reachable.
-
 ```bash
 npm run goleo:build-ios          # -> GoleoApp.app, a DEBUG build (macOS + Xcode)
 goleo build ios --simulator      # -> GoleoApp.app for the Simulator, unsigned
 ```
 
-`goleo build ios` is intended to produce a finished `GoleoApp.app`; the `.xcframework`
+`goleo build ios` produces a finished `GoleoApp.app`; the `.xcframework`
 gomobile generates is an intermediate that the build consumes and deletes, so there is
 nothing for you to integrate by hand.
 
 **Without an Apple Developer account**, use `--simulator`. It builds against the
 Simulator SDK with code signing disabled, which is the only iOS path that needs no
-certificate at all — and once the shell compiles, this is how you run it:
+certificate at all:
 
 ```bash
 goleo build ios --simulator
