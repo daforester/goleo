@@ -115,10 +115,22 @@ The `release` workflow then:
 2. builds the `@goleo/cli-*` packages (their versions + `@goleo/cli`'s
    `optionalDependencies` are re-synced by `build-platform-packages.js`, same as
    the lifecycle hook above — this is what actually reaches the npm registry),
-3. publishes **platform packages → `@goleo/cli` → `@goleo/bridge`** via OIDC,
-   each with provenance.
+3. publishes **`@goleo/bridge` → platform packages → `@goleo/cli`** via OIDC, each
+   with provenance.
 
 You only set two versions; the platform packages inherit `@goleo/cli`'s.
+
+That order is about registry **propagation**, not correctness. The one real constraint
+is that the platform packages precede `@goleo/cli`, so its `optionalDependencies`
+resolve for anyone installing seconds later. `@goleo/bridge` has no dependencies and
+no dependents here, so it goes first deliberately: it is the package a scaffolded
+project resolves **last** (`release-smoke` installs the CLI, scaffolds, *then*
+npm-installs the frontend), so publishing it last handed the least-propagated package
+the latest deadline. `release-smoke`'s windows-latest job lost exactly that race on
+0.10.5 — `ETARGET No matching version found for @goleo/bridge@^0.10.5`, about 63
+seconds after the release workflow finished, while ubuntu and macOS won it. Every
+network-resolving step in `release-smoke` now also retries, which is the defence in
+depth; this ordering is the root-cause fix.
 
 ## Windows code signing (optional, strongly recommended)
 

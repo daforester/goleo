@@ -178,9 +178,29 @@ jobs:
           # that reproduces it.
           go list ./... > /dev/null
 
+      # Retry, for the same reason the CLI install and the scaffold do — and MORE so.
+      # release.yml publishes platform packages, then @goleo/cli, then @goleo/bridge
+      # LAST, and this job starts seconds after that workflow completes. So the one
+      # package with the least propagation time was the only one resolved without a
+      # retry, which made this step the narrowest race in the job.
+      #
+      # It is also a hard step (no continue-on-error), so losing that race skips every
+      # assertion after it and the Verdict reports five checks as failures when nothing
+      # about the release was wrong. Observed on 0.10.5, windows-latest only — exactly
+      # the signature of a race rather than a defect.
       - name: Install frontend deps (resolves @goleo/bridge from npm for real)
         working-directory: ${{ runner.temp }}/smoke/smokeapp/frontend
-        run: npm install --no-audit --no-fund
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4; do
+            if npm install --no-audit --no-fund; then break; fi
+            if [ "$attempt" = 4 ]; then
+              echo "::error::npm install never succeeded — @goleo/bridge@^$SMOKE_VERSION may not be on the registry, or a transitive install script failed"
+              exit 1
+            fi
+            echo "npm install failed (attempt $attempt); @goleo/bridge is published LAST, so retrying in 30s"
+            sleep 30
+          done
 
       - name: Check npm resolved a matching bridge
         id: bridge_version
