@@ -70,8 +70,11 @@ difference on this particular permission set. Requiring `bluetooth` and `locatio
 models with no Bluetooth radio and no location provider at all, which is a thin slice of the
 catalogue, so the true delta was expected to be small (a few hundred devices at most).
 
-**To close that gap** the pre-fix bundle is still available: *Bundle explorer → versionCode 100 →
-device compatibility*. Its count is the comparison. Record it here when read.
+**That gap was deliberately left open — do not chase it.** The pre-fix bundle's count is still
+readable (*Bundle explorer → versionCode 100 → device compatibility*) if anyone ever wants the
+comparison, but the decision on 2026-08-05 was that it is not worth the trip: the expected delta
+is a few hundred devices at most, the fix is verified at the manifest level, and a measurement
+that could plausibly come back as "no change" would tell you nothing you do not already know.
 
 Either way the fix stands on **correctness, not on this number**: the same defect on a more
 commonly-absent implied feature would have excluded a large fraction of the catalogue, and there
