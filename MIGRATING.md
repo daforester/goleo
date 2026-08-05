@@ -594,3 +594,40 @@ This was found by uploading to Play for the first time. It is worth knowing that
 caught locally: implied features exist only after `aapt2` processes the manifest, and the only
 symptom is a store-side distribution filter — nothing fails, and the app installs fine on any
 device you happen to test.
+
+---
+
+## 0.10.5 — the build tells you when it is compiling a local checkout
+
+**No action needed** unless you have `GOLEO_ROOT` in your workflow. Nothing changes about what
+gets built; you just find out what is being built.
+
+`GOLEO_ROOT` wires a local goleo checkout into a project via a `replace` directive in `go.mod` —
+and nothing ever removed it again. So a single `goleo build` or `goleo dev` with the variable set
+repointed the project **permanently**, and every later build silently compiled the checkout even
+with the variable unset. The `require` line in `go.mod` became decorative.
+
+A real project was found requiring `v0.9.3` while building a working tree several releases ahead.
+Bumping the require would have looked like an upgrade and changed nothing.
+
+Now, when `go.mod` replaces goleo with a **directory** and `GOLEO_ROOT` is not set, the build
+prints:
+
+```
+  NOTE: go.mod replaces github.com/daforester/goleo with a local directory:
+          E:/Development/goleo
+  This build compiles THAT directory, so the require version in go.mod is not
+  what you are shipping — and GOLEO_ROOT is not set on this run. Expected while
+  developing goleo itself; otherwise drop it to build a released version:
+          go mod edit -dropreplace github.com/daforester/goleo
+          go mod tidy && go mod vendor
+```
+
+**If you are developing goleo itself**, set `GOLEO_ROOT` and the notice stays quiet — it only
+fires when the pin is in `go.mod` but the variable is not in the environment, which is the state
+that misleads. **If you pin goleo to a fork** (`=> github.com/you/goleo v1.2.3`) nothing changes:
+a module replacement carries a version, a directory replacement does not, and only the latter is
+flagged.
+
+Nothing is removed for you. The replace is legitimate; it was only ever a problem for being
+invisible.
