@@ -104,6 +104,46 @@ func TestAvdConfigValueReadsAnyKey(t *testing.T) {
 	}
 }
 
+// An AVD's data directory is NOT necessarily <name>.avd — it is whatever its <name>.ini
+// registration points at, and the two diverge the moment an AVD is renamed. A real machine
+// had emulator-5562.ini -> Medium_Phone.avd/, a perfectly healthy AVD that goleo could not
+// introspect: avdStatus said "unable to verify its system image", ensureAVD's self-heal was
+// silently skipped, and the microphone check advised editing a config.ini at a path that did
+// not exist. Reading the .ini is what makes all three correct.
+func TestAvdConfigFollowsTheIniPathWhenTheDirectoryIsNamedDifferently(t *testing.T) {
+	avdHome := t.TempDir()
+	t.Setenv("ANDROID_AVD_HOME", avdHome)
+
+	// Data lives in Medium_Phone.avd, but the AVD is called emulator-5562.
+	dataDir := filepath.Join(avdHome, "Medium_Phone.avd")
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const cfg = "AvdId=emulator-5562\n" +
+		"image.sysdir.1=system-images/android-36.1/google_apis_playstore/x86_64/\n" +
+		"hw.audioInput=yes\n"
+	if err := os.WriteFile(filepath.Join(dataDir, "config.ini"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ini := "avd.ini.encoding=UTF-8\npath=" + dataDir + "\npath.rel=avd\\Medium_Phone.avd\n"
+	if err := os.WriteFile(filepath.Join(avdHome, "emulator-5562.ini"), []byte(ini), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := avdConfigValue("emulator-5562", "hw.audioInput"); got != "yes" {
+		t.Errorf("hw.audioInput = %q, want %q — the .ini's path= was not followed", got, "yes")
+	}
+	if got := avdSystemImageSysdir("emulator-5562"); !strings.Contains(got, "android-36.1") {
+		t.Errorf("image.sysdir.1 = %q, want the value from the AVD's real directory", got)
+	}
+
+	// The ordinary case — directory named after the AVD, no .ini — must still work.
+	writeAVDConfig(t, avdHome, "plain_avd", "system-images/android-34/google_apis/x86_64/")
+	if got := avdSystemImageSysdir("plain_avd"); !strings.Contains(got, "android-34") {
+		t.Errorf("the <name>.avd fallback broke: %q", got)
+	}
+}
+
 // doctor reports microphone readiness but must never fail the run over it: a machine with no
 // working microphone builds and emulates everything else perfectly well.
 func TestAvdAudioStatusIsInformativeNotFatal(t *testing.T) {

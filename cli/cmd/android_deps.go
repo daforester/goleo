@@ -985,13 +985,46 @@ func avdHomeDir() string {
 	return filepath.Join(home, ".android", "avd")
 }
 
-// avdConfigPath returns where an AVD's config.ini lives. The file may not exist:
-// `emulator -list-avds` enumerates the *.ini files at the AVD home root, which can
-// name an AVD whose .avd directory is missing — a real state seen on a dev machine,
-// where a stray emulator-5562.ini was listed while the only real AVD had no .ini at
-// all. Callers that give advice about config.ini must check this separately from a
-// key simply being absent, or they tell the user to edit a file that is not there.
+// avdDataDir returns the directory an AVD's data actually lives in, by reading the
+// path= key of its <name>.ini registration file. Returns "" when there is no such
+// file or no path key.
+func avdDataDir(name string) string {
+	data, err := os.ReadFile(filepath.Join(avdHomeDir(), name+".ini"))
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		k, v, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		if strings.TrimSpace(k) == "path" {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
+
+// avdConfigPath returns where an AVD's config.ini lives.
+//
+// The directory is NOT necessarily <name>.avd. An AVD is registered by a <name>.ini
+// file at the AVD home root whose path= key points at its data directory, and the two
+// diverge as soon as an AVD is renamed — the tooling rewrites the .ini name and the
+// config's AvdId but keeps the original directory. A real machine had
+// emulator-5562.ini pointing at Medium_Phone.avd/, a completely healthy AVD.
+//
+// Assuming <name>.avd was wrong there in three places at once: avdStatus reported
+// "unable to verify its system image", ensureAVD's self-heal was silently skipped
+// (a missing sysdir is treated as "can't introspect, trust it"), and the microphone
+// check advised editing a config.ini that did not exist at the path it guessed.
+// None of them looked like the same bug, and none named the assumption.
+//
+// The <name>.avd fallback still covers the ordinary case, including AVDs registered
+// with no .ini at all.
 func avdConfigPath(name string) string {
+	if dir := avdDataDir(name); dir != "" {
+		return filepath.Join(dir, "config.ini")
+	}
 	return filepath.Join(avdHomeDir(), name+".avd", "config.ini")
 }
 

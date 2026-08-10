@@ -1530,12 +1530,23 @@ otherwise — so `androidDeps.supportsHostAudio` just checks the exit status.
 
 Two things this turned up on the way:
 
-- **`emulator -list-avds` enumerates the `*.ini` files at the AVD home root**, not the
-  `.avd` directories, so it can name an AVD that does not exist. The dev machine had a stray
-  `emulator-5562.ini` with no `emulator-5562.avd/`, while the only real AVD
-  (`Medium_Phone.avd`) had no `.ini` and so was invisible. `ensureAVD` takes `listAVDNames()[0]`,
-  so `goleo emulate android` there would try to boot a phantom. Not fixed here — noted
-  because the symptom (an AVD that "exists" and cannot be booted) looks nothing like the cause.
+- **An AVD''s data directory is not `<name>.avd`.** An AVD is registered by a `<name>.ini`
+  file at the AVD home root whose `path=` key points at its data directory; the two diverge
+  as soon as an AVD is renamed. The dev machine had `emulator-5562.ini` pointing at
+  `Medium_Phone.avd/` — a completely healthy, bootable AVD.
+
+  Read as two mismatched files it looks like corruption, and the first diagnosis here was
+  exactly that: "delete the stray .ini". **That would have destroyed the machine''s only AVD
+  registration.** The lesson is narrow and worth stating: two files whose names disagree are
+  not evidence of corruption until you have read what is *inside* them. `emulator-5562.ini`
+  named `Medium_Phone.avd` in its first line.
+
+  goleo assumed `<name>.avd` in `avdConfigPath`, which broke three things at once and none of
+  them looked related: `avdStatus` reported "unable to verify its system image", `ensureAVD`
+  silently skipped its self-heal (a missing sysdir is treated as "can''t introspect, trust
+  it"), and the microphone check advised editing a config.ini at a path that did not exist.
+  Now resolved through the `.ini`, with the `<name>.avd` fallback kept for AVDs that have no
+  `.ini` at all.
 - The first cut of the doctor line read that phantom and advised "add hw.audioInput=yes to
   its config.ini" — a file that does not exist. A status line that gives advice must
   distinguish *no config* from *no key*, or it sends people somewhere empty. `avdConfigPath`
