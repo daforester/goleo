@@ -89,26 +89,31 @@ git tag v0.2.0
 git push --follow-tags
 ```
 
-The six `@goleo/cli-<os>-<arch>` packages are **not** listed here — `@goleo/cli`
-pulls them through `optionalDependencies`, and the committed values are deliberately
-`"latest"`. They cannot be the exact version: a release commits `X.Y.Z` *before*
-those packages exist on the registry, npm cannot write lockfile entries for a version
-it cannot resolve, and because the dependencies are **optional** it drops them
-silently rather than failing. That left `package.json` declaring six packages the
-lockfile knew nothing about, so `npm ci` — which requires the two to agree exactly —
-refused on a fresh clone with `Missing: @goleo/cli-darwin-arm64@X.Y.Z from lock file`.
-It needed a manual re-lock after every single release, and it stayed invisible for a
-long time because every workflow runs `npm install`, which re-resolves the tree rather
-than verifying it.
+The six `@goleo/cli-<os>-<arch>` packages are **not** listed here, and the committed
+`cli/npm/package.json` declares **no** `optionalDependencies` at all.
+`build-platform-packages.js` adds all six at the exact version just before publishing
+(it replaces the whole object, so they never need to be pre-declared).
 
-`"latest"` always resolves, so the lockfile is consistent at every commit and there is
-nothing to repair. `build-platform-packages.js` stamps the exact version into
-`optionalDependencies` just before publishing, so what reaches the registry is pinned
-as tightly as ever. `cli/npm/check-optional-deps.js` runs from `prepublishOnly` and
-**refuses to publish** if it finds anything other than the exact version there — the
-one thing that must never ship is a `"latest"` pin, which would leave end users with a
-floating platform binary. CI additionally asserts that `npm ci` works at the root and
-that the guard still rejects the committed tree.
+They cannot be committed at the exact version: a release commits `X.Y.Z` *before* those
+packages exist on the registry, npm cannot write lockfile entries for a version it
+cannot resolve, and because the dependencies are **optional** it drops them silently
+rather than failing. That left `package.json` declaring six packages the lockfile knew
+nothing about, so `npm ci` — which requires the two to agree exactly — refused on a
+fresh clone with `Missing: @goleo/cli-darwin-arm64@X.Y.Z from lock file`.
+
+They were briefly committed as `"latest"`, which fixed that and introduced a quieter
+problem: `"latest"` is a **floating range**, and the lockfile records whatever it
+resolved to once. That snapshot never moves. It sat at `0.9.1` while the tree was at
+`0.10.12`, so every `npm install` here — including the one `scripts/setup.*` runs —
+pulled a months-old published binary into `node_modules`, where `bin/goleo.js` found it
+ahead of the developer's own build and refused to run on a version mismatch. Declaring
+nothing avoids both failure modes: there is no range to float and no pin to go stale.
+
+`cli/npm/check-optional-deps.js` runs from `prepublishOnly` and **refuses to publish**
+unless all six are present and pinned to the exact version — so a publish that skips
+`build-platform-packages.js` fails closed rather than shipping a CLI with no binary. CI
+asserts that `npm ci` works at the root and that the guard still rejects the committed
+(unstamped) tree.
 
 The `release` workflow then:
 1. cross-compiles the six platform binaries (`CGO_ENABLED=0`),

@@ -1739,3 +1739,41 @@ lacks, with those reasons recorded as the allow-list. **The test immediately fou
 manual sweep had missed**: `NFCReaderUsageDescription` has no `NS` prefix, so grepping
 `NS*UsageDescription` skips it. Worth remembering — the iOS purpose-string keys are not a
 uniformly named set, and eyeballing them is unreliable in a way the comparison is not.
+
+## Release — "latest" fixed a lockfile problem and created a quieter one (2026-08-10)
+
+`package-lock.json` pinned `@goleo/cli-win32-x64` and `-linux-x64` at **0.9.1** while the tree
+was at 0.10.12. Every `npm install` in this repo — including the one `scripts/setup.*` runs —
+pulled a months-old published binary into `node_modules`, where `bin/goleo.js` found it ahead
+of the developer''s own build and refused to run on a version mismatch.
+
+The chain is worth following, because each step was a correct fix for the step before:
+
+1. Committing the **exact** version could not work: a release commits `X.Y.Z` before those
+   packages exist on the registry, npm cannot lock an unresolvable version, and being
+   **optional** it drops them silently — so `npm ci` refused with `Missing:
+   @goleo/cli-darwin-arm64@X.Y.Z from lock file`.
+2. So they were committed as **`"latest"`**, which always resolves. That fixed `npm ci`.
+3. But `"latest"` is a **floating range**, and a lockfile records what a range resolved to
+   *once*. `package.json` said "always current" and `package-lock.json` said `0.9.1`, and only
+   the lockfile is consulted. Nothing compares the two, so it drifted silently for four
+   releases.
+
+The fix is to declare **none** in the committed tree. `build-platform-packages.js` already
+*replaced* the whole `optionalDependencies` object at publish time, so it never needed them
+pre-declared — the committed values existed only to keep the lockfile happy, and removing them
+keeps it happier: no range to float, no pin to go stale, nothing for `npm ci` to reconcile.
+
+Verified all four properties before committing, since this mechanism has broken twice:
+
+| Property | Result |
+|---|---|
+| `npm ci` on the committed tree | exit 0 |
+| lockfile still names any platform package | none |
+| publish guard refuses the unstamped tree | exit 1 |
+| `build-platform-packages.js` then stamps all six and the guard passes | exit 0 at 0.10.13 |
+
+**The transferable point:** a floating range in `package.json` and a fixed entry in the
+lockfile are two statements about the same dependency that no tool reconciles, and the more
+reassuring one (`"latest"`) is the one that is not consulted. If a value must not go stale,
+do not express it as a range whose snapshot is stored elsewhere.

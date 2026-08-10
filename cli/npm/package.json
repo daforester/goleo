@@ -16,14 +16,6 @@
     "goleo",
     "README.md"
   ],
-  "optionalDependencies": {
-    "@goleo/cli-darwin-arm64": "latest",
-    "@goleo/cli-darwin-x64": "latest",
-    "@goleo/cli-linux-arm64": "latest",
-    "@goleo/cli-linux-x64": "latest",
-    "@goleo/cli-win32-arm64": "latest",
-    "@goleo/cli-win32-x64": "latest"
-  },
   "keywords": [
     "goleo",
     "go",

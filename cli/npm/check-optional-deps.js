@@ -9,22 +9,29 @@
 // problem (see below) but it moves a correctness requirement from "committed state" to
 // "a step that must run first", so it needs a guard that fails closed.
 //
-// Why "latest" is committed: the exact version cannot be. A release bumps
+// Why nothing is committed: the exact version cannot be. A release bumps
 // cli/npm/package.json to X.Y.Z and commits, but @goleo/cli-<os>-<arch>@X.Y.Z does not
 // exist on the registry until the release workflow publishes it *afterwards*. npm
 // cannot write lockfile entries for a version it cannot resolve, and because these are
 // OPTIONAL dependencies it drops them silently instead of failing — so the committed
 // tree ended up declaring six packages with zero lockfile entries, and `npm ci` (which
 // requires package.json and package-lock.json to agree exactly) refused on a fresh
-// clone with "Missing: @goleo/cli-darwin-arm64@X.Y.Z from lock file". It needed a
-// manual `npm install` + commit after every single release to repair, and it stayed
-// invisible for a long time because the release workflow runs `npm install`, which
-// re-resolves rather than verifies.
+// clone with "Missing: @goleo/cli-darwin-arm64@X.Y.Z from lock file".
 //
-// "latest" always resolves, so the lockfile is consistent at every commit and there is
-// nothing to repair. What must not happen is "latest" reaching the registry: end users
-// would get a floating platform binary, and bin/goleo.js's version guard would then
-// refuse to run whenever it drifted from the wrapper. Hence this check.
+// The first fix for that committed "latest" instead, which always resolves. It worked,
+// but traded one problem for a quieter one: "latest" is a FLOATING range and the
+// lockfile records whatever it resolved to once. That snapshot then never moves. It sat
+// at 0.9.1 while the tree was at 0.10.12, so every `npm install` in this repo — which
+// scripts/setup.* runs — pulled a months-old published binary into node_modules, where
+// bin/goleo.js found it before the developer's own build and refused to run.
+//
+// So now the committed tree declares NONE, and build-platform-packages.js adds all six
+// at the exact version just before publishing (it replaces the whole object, so it never
+// needed them pre-declared). Nothing floats, nothing is pinned stale, and `npm ci` has
+// nothing to reconcile. What must not happen is @goleo/cli reaching the registry with
+// them missing or floating — end users would get no binary, or a drifting one that
+// bin/goleo.js's version guard then refuses to run. Hence this check, which fails closed
+// on both.
 
 import { readFileSync } from 'fs'
 import { resolve, dirname } from 'path'

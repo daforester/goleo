@@ -131,17 +131,18 @@ jobs:
       - name: Lockfile is installable (npm ci on a fresh clone)
         run: npm ci
 
-      # And the published @goleo/cli must never carry those "latest" pins: end users
-      # would get a floating platform binary. build-platform-packages.js stamps the
-      # exact version before publishing and prepublishOnly refuses without it, so check
-      # the guard itself still rejects the committed state rather than passing vacuously.
-      - name: Publish guard rejects unpinned platform deps
+      # The committed tree declares NO platform optionalDependencies — build-platform-
+      # packages.js adds all six at the exact version just before publishing. So a
+      # publish that skips that step would ship a @goleo/cli with no binary at all, and
+      # prepublishOnly is the only thing standing in the way. Check the guard still
+      # rejects the committed state rather than passing vacuously.
+      - name: Publish guard rejects the unstamped tree
         run: |
           if node cli/npm/check-optional-deps.js 2>/dev/null; then
-            echo "::error::check-optional-deps passed on the committed tree, where the pins are \"latest\" — the guard is not guarding anything"
+            echo "::error::check-optional-deps passed on the committed tree, which declares no platform packages — the guard is not guarding anything"
             exit 1
           fi
-          echo "guard correctly refuses the committed \"latest\" pins"
+          echo "guard correctly refuses the unstamped committed tree"
 
       - name: Bridge tests (TypeScript)
         working-directory: bridge
