@@ -106,6 +106,14 @@ export const demos: Demo[] = [
     load: () => import('./CameraDemo.vue'),
   },
   {
+    id: 'microphone',
+    title: 'Microphone',
+    icon: '🎤',
+    description: 'Record audio and play it back; check and request mic permission.',
+    support: { desktop: 'partial', android: 'yes', ios: 'yes', pwa: 'yes' },
+    load: () => import('./MicrophoneDemo.vue'),
+  },
+  {
     id: 'bluetooth',
     title: 'Bluetooth LE',
     icon: '📶',

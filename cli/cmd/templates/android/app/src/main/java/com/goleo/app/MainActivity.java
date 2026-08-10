@@ -87,6 +87,7 @@ import gomobile.BLEProvider;
 import gomobile.ClipboardProvider;
 import gomobile.DialogsProvider;
 import gomobile.Gomobile;
+import gomobile.MicrophoneProvider;
 import gomobile.NFCProvider;
 import gomobile.Notifier;
 import gomobile.SensorsProvider;
@@ -99,6 +100,7 @@ public class MainActivity extends AppCompatActivity {
     private static final int WEB_PERMISSION_REQUEST = 9843;
     private static final int GEO_PERMISSION_REQUEST = 9844;
     private static final int BLE_PERMISSION_REQUEST = 9845;
+    private static final int MIC_PERMISSION_REQUEST = 9846;
     private static final AtomicInteger notificationId = new AtomicInteger(1);
 
     private WebView webView;
@@ -181,6 +183,7 @@ public class MainActivity extends AppCompatActivity {
         Gomobile.setClipboardProvider(new GoleoClipboard());
         Gomobile.setShareProvider(new GoleoShare());
         Gomobile.setDialogsProvider(new GoleoDialogs());
+        Gomobile.setMicrophoneProvider(new GoleoMicrophone());
 
         nfcAdapter = NfcAdapter.getDefaultAdapter(this);
         if (nfcAdapter != null) {
@@ -341,6 +344,7 @@ public class MainActivity extends AppCompatActivity {
         Gomobile.setClipboardProvider(null);
         Gomobile.setShareProvider(null);
         Gomobile.setDialogsProvider(null);
+        Gomobile.setMicrophoneProvider(null);
         Gomobile.stopServer();
         super.onDestroy();
     }
@@ -891,6 +895,32 @@ public class MainActivity extends AppCompatActivity {
             }
         }
         return types.toArray(new String[0]);
+    }
+
+    // Reports and requests microphone permission. Recording itself is the WebView's job
+    // (getUserMedia + MediaRecorder); only the permission state needs a native call,
+    // because a web page cannot ask about it without starting a capture.
+    //
+    // Method shapes match GoleoNotifier's — a lone boolean and a lone String, no checked
+    // exception. A provider method returning a value AND an error does not bind to Swift,
+    // so it must not be used on either platform (see SPIKES.md, 2026-08-10).
+    private class GoleoMicrophone implements MicrophoneProvider {
+        @Override
+        public boolean permissionGranted() {
+            return hasPermission(Manifest.permission.RECORD_AUDIO);
+        }
+
+        @Override
+        public String requestPermission() {
+            if (permissionGranted()) {
+                return "granted";
+            }
+            // Same contract as GoleoNotifier.requestPermission: the prompt is asynchronous,
+            // so report "default" and let the app query again rather than guessing.
+            runOnUiThread(() -> ActivityCompat.requestPermissions(MainActivity.this,
+                    new String[]{Manifest.permission.RECORD_AUDIO}, MIC_PERMISSION_REQUEST));
+            return "default";
+        }
     }
 
     private class GoleoWakeLock implements WakeLockProvider {

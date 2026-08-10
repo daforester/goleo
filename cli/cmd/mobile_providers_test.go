@@ -151,6 +151,7 @@ func TestUnconditionallyWiredProvidersHaveTheirTagForced(t *testing.T) {
 		"ClipboardProvider":  "goleo_clipboard",
 		"ShareProvider":      "goleo_share",
 		"DialogsProvider":    "goleo_dialog",
+		"MicrophoneProvider": "goleo_microphone",
 	} {
 		if !forced[tag] {
 			t.Errorf("the shells wire %s unconditionally but %s is not in "+
@@ -187,6 +188,7 @@ func TestBothShellsRegisterEveryProvider(t *testing.T) {
 	for _, provider := range []string{
 		"Notifier", "BatteryProvider", "WakeLockProvider", "SensorsProvider",
 		"BackgroundProvider", "ClipboardProvider", "ShareProvider", "DialogsProvider",
+		"MicrophoneProvider",
 	} {
 		if !strings.Contains(string(swift), "GomobileSet"+provider+"(") {
 			t.Errorf("the iOS shell never calls GomobileSet%s — the feature compiles in and "+

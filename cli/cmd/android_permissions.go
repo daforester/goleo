@@ -66,6 +66,10 @@ var corePermissions = []string{
 var androidHardwareFeatures = map[string][]string{
 	"goleo_camera": {"android.hardware.camera"},
 	"goleo_nfc":    {"android.hardware.nfc"},
+	// RECORD_AUDIO implies android.hardware.microphone. Without this line an app that
+	// registers the microphone would be filtered off any device without one — and the
+	// recording it wants is a getUserMedia fallback that degrades fine.
+	"goleo_microphone": {"android.hardware.microphone"},
 	// bluetooth_le for the BLE APIs, and plain bluetooth because the legacy BLUETOOTH /
 	// BLUETOOTH_ADMIN permissions imply it.
 	"goleo_ble": {"android.hardware.bluetooth_le", "android.hardware.bluetooth"},

@@ -81,6 +81,17 @@ var featureRegistry = []Feature{
 		},
 	},
 	{
+		// Separate from Camera on purpose: RECORD_AUDIO is a permission users see and Play
+		// flags, and most camera apps only want stills. An app that wants camera + audio
+		// registers both, so camera-only apps do not ask for the microphone.
+		Name:        "Microphone",
+		BuildTag:    "goleo_microphone",
+		Permissions: []string{"android.permission.RECORD_AUDIO"},
+		IOSUsageDescs: map[string]string{
+			"NSMicrophoneUsageDescription": "Access the microphone for audio recording",
+		},
+	},
+	{
 		Name:        "Bluetooth",
 		BuildTag:    "goleo_ble",
 		Permissions: []string{"android.permission.BLUETOOTH_SCAN", "android.permission.BLUETOOTH_CONNECT"},
@@ -279,6 +290,8 @@ var nativeShellProviderTags = []string{
 	// stops at "cannot find symbol gomobile.DialogsProvider" — invisible in the demo
 	// scaffold, which enables every feature, and a build failure in a minimal one.
 	"goleo_dialog",
+	// Both shells register a MicrophoneProvider unconditionally, same as dialogs above.
+	"goleo_microphone",
 }
 
 // mobileBindTags returns the -tags value for `gomobile bind`: the

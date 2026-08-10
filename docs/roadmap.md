@@ -349,7 +349,7 @@ interface (design Windows-first on the proven `edge` layer, then macOS/Linux via
 
 Web UI in a system WebView + a Go provider bridge = Goleo's shape (the Capacitor/Cordova
 class). Fill device-feature gaps by extending the host-feature system, porting from Capacitor
-plugins as *references*. **Existing (13):** clipboard, dialogs, fs, geolocation, battery,
+plugins as *references*. **Existing (14):** clipboard, dialogs, fs, geolocation, battery, microphone,
 wakelock, vibration, sensors, camera, bluetooth, nfc, background, push, + core.
 
 ### The vertical-slice pattern (one feature = every touch point)

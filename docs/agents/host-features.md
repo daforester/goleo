@@ -32,7 +32,7 @@
   bindings an app needs are compiled. The Android **manifest** is separate: its permissions
   are derived from the `Register*` calls `detectFeatureUsage` finds, plus
   `mobile.android.extra_permissions` (`cli/cmd/android_permissions.go`) — NOT from the
-  compiled tag set, which is deliberately a superset (`nativeShellProviderTags` forces eight
+  compiled tag set, which is deliberately a superset (`nativeShellProviderTags` forces ten
   tags into every build so gobind emits the symbols the fixed Java shell references)
 - The same file derives **`<uses-feature>` declarations** (`androidHardwareFeatures`), all
   emitted `android:required="false"`. This is not cosmetic: aapt2 *implies* a `<uses-feature>`
@@ -53,10 +53,10 @@
 - `bridge/src/clipboard.ts`, `dialogs.ts`, `fs.ts`, `geolocation.ts` — TS convenience wrappers with browser API fallbacks, all exported from `@goleo/bridge`
 - `cli/cmd/generate.go` — `goleo generate types` command that generates `frontend/src/goleo.d.ts` with typed `invoke()` overloads for all 48+ built-in commands
 
-### Complete Host Feature Set (14 features)
-All 14 features in `featureRegistry` (`cli/cmd/scan.go`) implemented with Go sub-packages +
+### Complete Host Feature Set (15 features)
+All 15 features in `featureRegistry` (`cli/cmd/scan.go`) implemented with Go sub-packages +
 re-export bridge handlers + TS convenience wrappers with browser API fallbacks. The table
-below lists 13 — **Share** is the 14th (`runtime/share/`, `goleo_share`, native URL hand-off
+below lists 14 — **Share** is the 15th (`runtime/share/`, `goleo_share`, native URL hand-off
 on all three desktops, provider on mobile, Web Share API fallback). The KV **store**
 (`runtime/store/`) is a separate subsystem, not a permission-gated feature, so it is not in
 the registry — see Storage below:
@@ -75,12 +75,36 @@ Every feature package now exposes a `Provider` interface + `SetProvider`/`runtim
 | **Vibration** | `runtime/vibration/` | `goleo_vibration` | Unsupported (no desktop vibrator) | Provider | `navigator.vibrate()` |
 | **Sensors** | `runtime/sensors/` | `goleo_sensors` | Unsupported (no portable desktop sensor API) | Provider | Generic Sensor API |
 | **Camera** | `runtime/camera/` | `goleo_camera` | Unsupported — intentionally routes to WebView `getUserMedia` | Provider | `getUserMedia` + canvas |
+| **Microphone** | `runtime/microphone/` | `goleo_microphone` | Unsupported — no OS-level permission to query; the `getUserMedia` prompt is the model | Provider (permission only) | `getUserMedia` + `MediaRecorder` |
 | **Bluetooth** | `runtime/bluetooth/` | `goleo_ble` | Unsupported — intentionally routes to Web Bluetooth | Provider | Web Bluetooth API |
 | **NFC** | `runtime/nfc/` | `goleo_nfc` | Linux only, opt-in: a cgo libnfc backend behind `-tags goleo_libnfc` (needs libnfc-dev + a reader); unsupported on Windows/macOS | Provider | Web NFC API |
 | **Background** | `runtime/background/` | `goleo_background` | Unsupported — desktop process runs continuously, no OS scheduler needed | Provider | Service Worker Sync |
 | **Push** | `runtime/push/` | `goleo_push` | Unsupported — use the app's own WebSocket channel instead | Provider | Push API + Service Worker |
 
 "Unsupported" packages return `fmt.Errorf("...: %w", errors.ErrUnsupported)` rather than a generic error, so callers can `errors.Is(err, errors.ErrUnsupported)` to detect "no native path on this platform, use the fallback" instead of a real failure. On Android, the Android WebView (`cli/cmd/templates/{android,android-dev}/.../MainActivity.java`) now wires `WebChromeClient.onPermissionRequest` (camera/mic) and `onGeolocationPermissionsShowPrompt` to runtime permission requests, so the getUserMedia/geolocation browser fallbacks actually work instead of silently failing; on iOS, `AppDelegate.swift` sets a `WKUIDelegate` that grants the equivalent WKWebView permission callbacks, and `Info.plist` declares the required `NS*UsageDescription` strings. **All of these are gated on the request's origin** (`isAppOrigin`): the parsed host must equal a loopback name, plus `10.0.2.2` in the Android dev shell only. That gate is load-bearing because neither shell restricts navigation, so it answers for whatever page the WebView reaches — iOS used to grant camera, mic and location unconditionally, Android matched a string prefix (which accepts `http://127.0.0.1.evil.com`), and Android's geolocation path had no check at all. Compare the parsed host, never a prefix.
+
+### Microphone is its own feature, not part of Camera (added in 0.10.9)
+
+`RegisterMicrophone` exists **separately from `RegisterCamera`** because `RECORD_AUDIO` is a
+permission users see and Play flags, and most camera apps only want stills — folding it into
+Camera would declare it for all of them. An app that wants camera + audio registers both.
+
+It is deliberately tiny: two commands (`goleo:microphonePermission`,
+`goleo:microphoneRequestPermission`) and no capture. Recording is `getUserMedia` +
+`MediaRecorder` in the WebView, which works everywhere goleo runs. The only thing the web
+API cannot do is report permission *without starting a capture*, and on mobile that is a
+native call — hence the provider, whose method set (`PermissionGranted() bool`,
+`RequestPermission() string`) deliberately mirrors `notify.Notifier`'s proven gobind shapes.
+
+`RECORD_AUDIO` implies `android.hardware.microphone`, so `androidHardwareFeatures` declares
+it `required="false"`. Miss that and Play hides the app from every device without a mic —
+`TestEveryImpliedHardwareFeatureIsDeclaredOptional` covers it, and it was mutation-checked
+against this feature.
+
+It was added because the device checklist asked for a microphone prompt that **nothing in
+the demo could trigger**: `CameraDemo.vue` passed `audio: false`, and no other page touched
+audio — while both shells carried live audio-capture permission branches and iOS declared
+`NSMicrophoneUsageDescription` with no feature behind it.
 
 ### Dialogs on mobile (added in 0.10.7, after the iOS device spike)
 

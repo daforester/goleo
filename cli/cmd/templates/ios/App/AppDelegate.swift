@@ -4,6 +4,7 @@ import UserNotifications
 import CoreMotion
 import BackgroundTasks
 import UniformTypeIdentifiers
+import AVFoundation
 import Goleo
 
 // BGTaskScheduler identifiers must be declared statically in Info.plist's
@@ -30,6 +31,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     let clipboardProvider = GoleoClipboardImpl()
     let shareProvider = GoleoShareImpl()
     let dialogsProvider = GoleoDialogs()
+    let microphoneProvider = GoleoMicrophone()
     let permissionDelegate = GoleoWebPermissionDelegate()
 
     func application(
@@ -61,6 +63,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         GomobileSetClipboardProvider(clipboardProvider)
         GomobileSetShareProvider(shareProvider)
         GomobileSetDialogsProvider(dialogsProvider)
+        GomobileSetMicrophoneProvider(microphoneProvider)
 
         let port = GomobileStartServer(false)
         let url = URL(string: "http://127.0.0.1:\(port)")!
@@ -424,6 +427,46 @@ class GoleoNotifier: NSObject, GomobileNotifierProtocol {
         }
         // Bounded wait: if the system dialog is showing, report "default"
         // and let the app query again later.
+        _ = semaphore.wait(timeout: .now() + 0.5)
+        return status
+    }
+}
+
+/// Reports and requests microphone permission via AVAudioSession. Implements the
+/// gomobile-generated MicrophoneProvider interface.
+///
+/// Recording is the WebView's job (getUserMedia + MediaRecorder); only the permission state
+/// needs a native call, because a web page cannot ask about it without starting a capture.
+///
+/// Method shapes match GoleoNotifier's — a lone Bool and a lone String, no throwing. A
+/// provider method returning a value AND an error does not bind to Swift at all; see the
+/// note on GoleoDialogs.
+class GoleoMicrophone: NSObject, GomobileMicrophoneProviderProtocol {
+    func permissionGranted() -> Bool {
+        if #available(iOS 17.0, *) {
+            return AVAudioApplication.shared.recordPermission == .granted
+        }
+        return AVAudioSession.sharedInstance().recordPermission == .granted
+    }
+
+    func requestPermission() -> String {
+        if permissionGranted() {
+            return "granted"
+        }
+        var status = "default"
+        let semaphore = DispatchSemaphore(value: 0)
+        let handler: (Bool) -> Void = { allowed in
+            status = allowed ? "granted" : "denied"
+            semaphore.signal()
+        }
+        if #available(iOS 17.0, *) {
+            AVAudioApplication.requestRecordPermission(completionHandler: handler)
+        } else {
+            AVAudioSession.sharedInstance().requestRecordPermission(handler)
+        }
+        // Bounded wait, exactly as GoleoNotifier.requestPermission does it: while the system
+        // prompt is on screen there is no answer yet, so report "default" and let the app
+        // ask again rather than blocking a bridge handler on the user.
         _ = semaphore.wait(timeout: .now() + 0.5)
         return status
     }

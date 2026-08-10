@@ -68,6 +68,7 @@ func generateBackendEntrypoints(projectDir string) error {
 		"backend/gomobile/clipboard.go":  tmplMobileClipboardGo,
 		"backend/gomobile/share.go":      tmplMobileShareGo,
 		"backend/gomobile/dialogs.go":    tmplMobileDialogsGo,
+		"backend/gomobile/microphone.go": tmplMobileMicrophoneGo,
 		"backend/gomobile/battery.go":    tmplMobileBatteryGo,
 		"backend/gomobile/wakelock.go":   tmplMobileWakeLockGo,
 		"backend/gomobile/sensors.go":    tmplMobileSensorsGo,

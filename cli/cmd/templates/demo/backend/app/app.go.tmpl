@@ -57,6 +57,10 @@ func New(opts Options) *runtime.App {
 				// Camera: native V4L2 on Linux; macOS/Windows fall back to the
 				// webview's getUserMedia.
 				runtime.RegisterCamera(a.Bridge())
+				// Microphone is opt-in SEPARATELY from the camera, so a
+				// camera-only app never asks users for RECORD_AUDIO. Recording
+				// happens in the webview; this only exposes permission state.
+				runtime.RegisterMicrophone(a.Bridge())
 				// NFC: native libnfc on Linux when built with -tags goleo_libnfc
 				// (requires libnfc-dev + a reader). Otherwise it reports that no
 				// desktop NFC is available.
@@ -76,6 +80,10 @@ func New(opts Options) *runtime.App {
 			// Just Works, so the bundled demo pages exercise them by default:
 			runtime.RegisterGeolocation(a.Bridge())
 			runtime.RegisterCamera(a.Bridge())
+			// Separate from the camera on purpose: this is what puts RECORD_AUDIO in
+			// the generated manifest, so an app that only wants stills does not ask
+			// for the microphone. Drop this line and the mic demo stops working.
+			runtime.RegisterMicrophone(a.Bridge())
 			runtime.RegisterClipboard(a.Bridge())
 			runtime.RegisterShare(a.Bridge())
 			runtime.RegisterDialogs(a.Bridge())

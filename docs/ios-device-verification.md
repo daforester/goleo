@@ -11,22 +11,14 @@ macOS 26.5.2, Go 1.26.5 darwin/arm64, XcodeGen 2.46.0.
 
 ## 1. Set up
 
-> **You need 0.10.8.** These fixes ship in that release, which is being published — if npm
-> does not have it yet, wait a few minutes and try again. **0.10.6 predates the fixes and
-> 0.10.7 does not build for iOS at all**, so neither is worth running.
->
-> ```bash
-> npm view @goleo/cli version      # must say 0.10.8 before you start
-> ```
-
 Upgrade the CLI:
 
 ```bash
-npm install -g @goleo/cli@0.10.8
+npm install -g @goleo/cli@0.10.9
 # or, if you installed with Go:
-#   go install github.com/daforester/goleo/cli/goleo@v0.10.8
+#   go install github.com/daforester/goleo/cli/goleo@v0.10.9
 
-goleo version      # must print 0.10.8
+goleo version      # must print 0.10.9
 ```
 
 If the CLI reports a *version mismatch* between `@goleo/cli` and its native binary package,
@@ -55,7 +47,7 @@ a personal team that can install on your own device, with the profile expiring a
 `.goleo/ios/` on every build and will overwrite it. It must be in `goleo.json`.
 
 > Prefer a clean slate? `goleo new ios-check --demo` with the upgraded CLI scaffolds a fresh
-> demo app already on `0.10.8`. Reusing your existing app is more useful, but if it
+> demo app already on `0.10.9`. Reusing your existing app is more useful, but if it
 > fights you for more than a few minutes, scaffold a new one.
 
 ---
@@ -72,10 +64,10 @@ goleo build ios            2>&1 | tee build-device.log
 Then confirm the CLI and the Go runtime agree:
 
 ```bash
-grep goleo go.mod          # must show github.com/daforester/goleo v0.10.8
+grep goleo go.mod          # must show github.com/daforester/goleo v0.10.9
 ```
 
-**If it does not say `0.10.8`, stop and re-run the build.** The Go module tag can lag a
+**If it does not say `0.10.9`, stop and re-run the build.** The Go module tag can lag a
 few minutes behind the npm release; goleo says so when it happens (`not tagged as a Go
 module yet — using @latest`). A mismatch here shows up as `undefined:
 runtime.FileDialogOptions` and means you are testing new code against an old runtime.
@@ -109,8 +101,16 @@ Install `GoleoApp.app` on the phone and launch it.
 | 10 | Wake lock | Screen stays on |
 | 11 | Background sync registers | No error |
 | 12 | Camera permission prompt appears | Prompt shown |
-| 13 | Microphone permission prompt appears | Prompt shown |
+| 13 | Microphone permission prompt appears | Prompt shown — use the **Microphone** demo's "Request permission" |
 | 14 | Location permission prompt appears | Prompt shown |
+
+Microphone page (new — nothing in the demo could reach the mic before, which is why this
+item had no result last time):
+
+| # | Check | Expected |
+|---|---|---|
+| 13a | "Request permission" | The iOS mic prompt appears; status then reads granted |
+| 13b | Record, stop, then play the clip back | You hear what you recorded |
 
 Dialogs page:
 
@@ -156,7 +156,7 @@ hang, or one that never appears, is a real defect.
 ## 4. If the Swift does not compile
 
 This exact failure happened once already — it is what made 0.10.7 unusable on iOS — and was
-fixed for 0.10.8, which CI compiles on a macOS runner before release. So it should not
+fixed in 0.10.8, which CI compiles on a macOS runner before release. So it should not
 recur. If it does, for an error like *"type 'GoleoDialogs' does not conform to protocol
 'GomobileDialogsProviderProtocol'"*:
 

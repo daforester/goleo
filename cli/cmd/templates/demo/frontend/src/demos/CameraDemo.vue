@@ -86,6 +86,11 @@ function describeError(e: unknown): string {
   return String(e)
 }
 
+// Camera only, or camera + microphone. Kept as an explicit choice because the two are
+// separate permissions: goleo's Microphone feature is registered separately from Camera,
+// so an app that only wants stills never asks the user for audio.
+const withAudio = ref(false)
+
 async function startPreview() {
   err.value = ''
   if (!navigator.mediaDevices?.getUserMedia) {
@@ -99,7 +104,10 @@ async function startPreview() {
     const video: MediaTrackConstraints | boolean = selectedId.value
       ? { deviceId: { exact: selectedId.value } }
       : true
-    stream = await navigator.mediaDevices.getUserMedia({ video, audio: false })
+    // audio is opt-in: asking for it triggers a SECOND permission prompt (and on
+    // Android needs RECORD_AUDIO in the manifest, which only RegisterMicrophone
+    // adds). Most camera use wants neither, so the default stays video-only.
+    stream = await navigator.mediaDevices.getUserMedia({ video, audio: withAudio.value })
     if (videoEl.value) {
       videoEl.value.srcObject = stream
       await videoEl.value.play()
@@ -153,6 +161,15 @@ onBeforeUnmount(() => {
         <button class="btn btn-primary" @click="startPreview" :disabled="streaming">Start camera</button>
         <button class="btn" @click="stopPreview" :disabled="!streaming">Stop</button>
       </div>
+      <label style="display: block; margin-top: 0.5rem">
+        <input type="checkbox" v-model="withAudio" :disabled="streaming" />
+        Include the microphone
+      </label>
+      <p class="muted" style="margin-top: 0.25rem">
+        Off by default: audio is a second permission prompt, and on Android it needs
+        RECORD_AUDIO, which only <code>RegisterMicrophone</code> adds. See the Microphone
+        demo to record and play audio back.
+      </p>
       <!-- kept in the DOM (v-show) so the ref is available before playing -->
       <video
         ref="videoEl"

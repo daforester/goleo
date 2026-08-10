@@ -174,12 +174,14 @@ func TestIOSShellUsesTheGeneratedBindingNames(t *testing.T) {
 		"GomobileSetWakeLockProvider(", "GomobileSetSensorsProvider(",
 		"GomobileSetBackgroundProvider(", "GomobileSetClipboardProvider(",
 		"GomobileSetShareProvider(", "GomobileSetDialogsProvider(",
+		"GomobileSetMicrophoneProvider(",
 		"GomobileStartServer(", "GomobileStopServer(",
 		"GomobileEmitSensorReading(", "GomobileEmitBackgroundSync(",
 		"GomobileNotifierProtocol", "GomobileBatteryProviderProtocol",
 		"GomobileWakeLockProviderProtocol", "GomobileSensorsProviderProtocol",
 		"GomobileBackgroundProviderProtocol", "GomobileClipboardProviderProtocol",
 		"GomobileShareProviderProtocol", "GomobileDialogsProviderProtocol",
+		"GomobileMicrophoneProviderProtocol",
 	} {
 		if !strings.Contains(src, sym) {
 			t.Errorf("AppDelegate.swift does not reference %s, which the generated "+

@@ -207,6 +207,28 @@ const photo = await capturePhoto()     // { data, format }  — invoke('goleo:ca
 // enabled by SchemeAssets / the loopback origin).
 ```
 
+## Microphone
+
+`RegisterMicrophone` — **separate from `RegisterCamera` on purpose.** `RECORD_AUDIO` is a
+permission users see and Play flags, and most camera apps only want stills, so registering
+the camera does not ask for the microphone. Want both? Register both.
+
+Recording is done in the WebView with `getUserMedia` + `MediaRecorder`, which works on every
+platform, so there is no Go-side capture API. What Go adds is the permission state, which a
+web page cannot check without starting a capture:
+
+```ts
+import { invoke } from '@goleo/bridge'
+
+const { granted } = await invoke<{ granted: boolean }>('goleo:microphonePermission')
+// Ask without recording. "default" means the OS prompt is up and unanswered — query again.
+const { status } = await invoke<{ status: string }>('goleo:microphoneRequestPermission')
+```
+
+On desktop both reject with an `ErrUnsupported`-style error: there is no OS-level microphone
+permission to query, and the browser's own `getUserMedia` prompt is the permission model.
+Catch it and fall through to `getUserMedia`.
+
 ## Bluetooth (BLE)
 
 `RegisterBLE`. Desktop/mobile route to Web Bluetooth (secure context required);
@@ -293,6 +315,7 @@ on('goleo:backgroundSync', ({ tag }) => flush(tag))
 | Vibration | — | Provider | `navigator.vibrate()` |
 | Sensors | — | Provider | Generic Sensor API |
 | Camera | getUserMedia | Provider | `getUserMedia` |
+| Microphone | getUserMedia | Provider (permission) | `getUserMedia` + `MediaRecorder` |
 | Bluetooth | Web Bluetooth | Provider | Web Bluetooth |
 | NFC | Linux only, `-tags goleo_libnfc` | Provider | Web NFC |
 | Share | Native (URL hand-off) | Native | Web Share |
