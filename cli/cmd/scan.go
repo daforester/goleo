@@ -84,9 +84,24 @@ var featureRegistry = []Feature{
 		// Separate from Camera on purpose: RECORD_AUDIO is a permission users see and Play
 		// flags, and most camera apps only want stills. An app that wants camera + audio
 		// registers both, so camera-only apps do not ask for the microphone.
-		Name:        "Microphone",
-		BuildTag:    "goleo_microphone",
-		Permissions: []string{"android.permission.RECORD_AUDIO"},
+		Name:     "Microphone",
+		BuildTag: "goleo_microphone",
+		// BOTH are required, and the second one is the trap. Chromium's WebView media
+		// stack refuses to enumerate any input device without it:
+		//
+		//	W cr_media: Requires MODIFY_AUDIO_SETTINGS and RECORD_AUDIO.
+		//	            No audio device will be available for recording
+		//
+		// MODIFY_AUDIO_SETTINGS is a NORMAL permission — granted at install with no
+		// prompt — so leaving it out fails completely silently: the RECORD_AUDIO prompt
+		// appears, the user approves it, every visible signal says yes, and
+		// getUserMedia({audio:true}) still throws NotReadableError. Found via logcat on
+		// an emulator where the host microphone worked fine for system apps, after the
+		// emulator itself had been ruled out.
+		Permissions: []string{
+			"android.permission.RECORD_AUDIO",
+			"android.permission.MODIFY_AUDIO_SETTINGS",
+		},
 		IOSUsageDescs: map[string]string{
 			"NSMicrophoneUsageDescription": "Access the microphone for audio recording",
 		},

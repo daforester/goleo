@@ -29,29 +29,34 @@ adb devices          # confirm your phone shows up (authorize the prompt on-devi
 
 ### Microphone capture on the emulator
 
-Getting audio into the guest takes **three** things, and goleo can only do the first two.
-Verified on a real emulator run, because two of them look like the same thing and are not:
+`RegisterMicrophone` declares **two** Android permissions, and the second is the one that
+catches people out:
 
-1. **`-allow-host-audio` at launch.** Without it the emulator "zeroes out audio" (its own
-   `-help` text), so `getUserMedia({audio:true})` fails even after `RECORD_AUDIO` is granted.
-   goleo passes this whenever it starts the emulator.
-2. **`hw.audioInput=yes` in the AVD's `config.ini`** — the virtual mic hardware. Most device
-   profiles set it already.
-3. **Extended Controls (⋮) → Microphone → "Virtual microphone uses host audio input".**
-   This is a *runtime* toggle, separate from (1): the flag permits the emulator process to
-   use host audio, this routes it into the guest. **It defaults off and does not persist
-   across restarts**, so it is the step you will keep having to redo — and the one that
-   still bites after goleo has done its part.
+- `RECORD_AUDIO` — the runtime prompt you see and approve.
+- `MODIFY_AUDIO_SETTINGS` — a **normal** permission, granted silently at install.
 
-`goleo doctor android` reports (1) and (2) without starting anything. It cannot see (3),
-which lives inside a running emulator.
+Chromium's WebView media stack requires **both** before it will enumerate any input device.
+Without the second it logs `Requires MODIFY_AUDIO_SETTINGS and RECORD_AUDIO. No audio device
+will be available for recording` and `getUserMedia({audio:true})` throws `NotReadableError` —
+with nothing on screen to suggest a permission is involved, because the prompt you *did* see
+was granted. goleo declares both; this is only worth knowing if you hand-roll a manifest.
 
-If capture still fails with all three in place, check the **default recording device** in
-Windows — the emulator opens whatever Windows considers default, not a device you pick — and
-**Settings → Privacy & security → Microphone → "Let desktop apps access your microphone"**.
+On an emulator, two further things are needed and goleo handles the first:
 
-A real device sidesteps every one of these, which is why the iOS/Android device checklists
-use one.
+- **`-allow-host-audio` at launch.** Without it the emulator "zeroes out audio" (its own
+  `-help` text). goleo passes it whenever it starts the emulator; an emulator you started
+  yourself has to be restarted through `goleo emulate android` to get it.
+- **`hw.audioInput=yes` in the AVD's `config.ini`** — the virtual mic hardware. Most device
+  profiles set it already. `goleo doctor android` reports both of these without starting
+  anything.
+
+If capture still fails after that, check **Extended Controls (⋮) → Microphone → "Virtual
+microphone uses host audio input"**, your Windows **default recording device** (the emulator
+opens whatever Windows considers default), and **Settings → Privacy & security → Microphone →
+"Let desktop apps access your microphone"**.
+
+A real device sidesteps the emulator-specific items entirely, which is why the device
+checklists use one.
 
 ## Sideload a build (Android)
 

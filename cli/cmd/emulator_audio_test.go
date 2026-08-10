@@ -104,6 +104,44 @@ func TestAvdConfigValueReadsAnyKey(t *testing.T) {
 	}
 }
 
+// Recording in the WebView needs MODIFY_AUDIO_SETTINGS as well as RECORD_AUDIO. Chromium's
+// media stack checks both before it will enumerate any input device:
+//
+//	W cr_media: Requires MODIFY_AUDIO_SETTINGS and RECORD_AUDIO.
+//	            No audio device will be available for recording
+//
+// MODIFY_AUDIO_SETTINGS is a NORMAL permission, granted at install with no prompt, so
+// omitting it fails silently in the worst way: the RECORD_AUDIO prompt appears, the user
+// approves it, and getUserMedia still throws NotReadableError with nothing on screen to
+// suggest a permission is missing. Confirmed on a device via logcat.
+func TestMicrophoneDerivesBothAudioPermissions(t *testing.T) {
+	perms := resolveAndroidPermissions([]string{"goleo_microphone"}, nil)
+
+	declared := map[string]bool{}
+	for _, p := range perms.Permissions {
+		declared[p] = true
+	}
+	for _, want := range []string{
+		"android.permission.RECORD_AUDIO",
+		"android.permission.MODIFY_AUDIO_SETTINGS",
+	} {
+		if !declared[want] {
+			t.Errorf("enabling the microphone does not declare %s — the WebView will report "+
+				"\"No audio device will be available for recording\" however the runtime "+
+				"prompt goes", want)
+		}
+	}
+
+	// And it must stay opt-in: an app that only registers the camera should ask for
+	// neither, or every camera app tells its users it wants the microphone.
+	cameraOnly := resolveAndroidPermissions([]string{"goleo_camera"}, nil)
+	for _, p := range cameraOnly.Permissions {
+		if strings.Contains(p, "AUDIO") {
+			t.Errorf("a camera-only app declares %s; audio must come from RegisterMicrophone", p)
+		}
+	}
+}
+
 // An AVD's data directory is NOT necessarily <name>.avd — it is whatever its <name>.ini
 // registration points at, and the two diverge the moment an AVD is renamed. A real machine
 // had emulator-5562.ini -> Medium_Phone.avd/, a perfectly healthy AVD that goleo could not

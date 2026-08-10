@@ -1568,3 +1568,30 @@ evidence for them is easy to find: the flag is in the launch params, the hardwar
 hardware-qemu.ini, and both say yes while the guest still gets nothing. `goleo doctor android`
 reports the two it can see and says nothing about the third, which is honest but incomplete
 by construction — the state lives inside a running emulator.
+
+**Root cause, found on the device (same day).** The emulator was never the problem. With
+`-allow-host-audio` confirmed in the launch params, `hw.audioInput = true` resolved, an active
+host microphone, and the Extended Controls toggle enabled, capture still failed — while the
+emulator's own voice assist recorded fine. `adb logcat` named it outright:
+
+	W cr_media: Requires MODIFY_AUDIO_SETTINGS and RECORD_AUDIO.
+	            No audio device will be available for recording
+
+goleo declared `RECORD_AUDIO` and not `MODIFY_AUDIO_SETTINGS`. Chromium's WebView media stack
+checks both before it will enumerate ANY input device. `dumpsys package` confirmed the app
+requested only the first.
+
+**Why this was so hard to see, and the lesson worth keeping:** `MODIFY_AUDIO_SETTINGS` is a
+*normal* permission — granted at install, no prompt, no UI, nothing in the app to inspect.
+Every visible signal said the permissions were fine, because the one you can see
+(`RECORD_AUDIO`) was prompted for and approved. That combination — a dangerous permission
+that prompts correctly and a normal one that is silently missing — looks exactly like a
+hardware or configuration fault, and the investigation went to the emulator three times
+before going to logcat.
+
+It also cost two wrong diagnoses that were each documented as fact before being tested: that
+the emulator zeroes audio (true, but already fixed and not the cause here), and that the
+Extended Controls toggle was the missing piece (unconfirmed; it was enabled and did not help).
+**`adb logcat` answered in one command what three rounds of reasoning about the emulator did
+not.** For anything WebView-related on Android, read the device log first — `cr_media`,
+`AudioRecord` and `AudioFlinger` say precisely what they want.
