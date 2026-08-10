@@ -1,6 +1,6 @@
 {
   "name": "@goleo/bridge",
-  "version": "0.10.10",
+  "version": "0.10.11",
   "description": "Frontend bridge library for Goleo — communicate between web frontend and Go backend",
   "type": "module",
   "main": "./dist/index.js",

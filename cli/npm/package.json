@@ -1,6 +1,6 @@
 {
   "name": "@goleo/cli",
-  "version": "0.10.10",
+  "version": "0.10.11",
   "description": "Goleo CLI — build cross-platform desktop & mobile apps with Go + web tech",
   "type": "module",
   "bin": {
