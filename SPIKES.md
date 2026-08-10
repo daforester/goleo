@@ -1707,3 +1707,35 @@ an explicit permission route — Linux auto-grants the WebKitGTK `permission-req
 (`webview_glaze_permissions_linux.go`), Windows goes through WebView2 plus the glaze fork''s
 auto-grant, macOS through the WKUIDelegate. Only the permission *query* has no desktop
 equivalent, and the demo says so inline instead of degrading the page.
+
+## iOS — the same "declared but unread" shape, checked deliberately (2026-08-10)
+
+After the Android dev-manifest split, the obvious question was whether iOS has the same shape.
+It does, in one place: `featureRegistry.IOSUsageDescs` declares purpose strings for eight
+features and **nothing reads them** — `templates/ios/App/Info.plist` hardcodes its own three
+(camera, microphone, location). The registry looks like the source of truth for iOS purpose
+strings and is not one.
+
+This is worse than the Android equivalent if it ever bites: a missing purpose string does not
+deny the request, iOS **terminates the app** the first time it touches the resource.
+
+**No active bug today.** Every declared-but-absent key was checked individually:
+
+| Key | Why it is currently inert |
+|---|---|
+| `NSPhotoLibraryUsageDescription` | the dialogs use `UIDocumentPickerViewController`, which reads no photo library |
+| `NSDocumentsFolderUsageDescription` | a **macOS** key; no effect on iOS at all |
+| `NSMotionUsageDescription` | gates `CMPedometer`/`CMMotionActivityManager`; raw accelerometer/gyro/magnetometer need none, and all three were device-verified working |
+| `NSBluetoothAlwaysUsageDescription` | iOS has no CoreBluetooth path — no BLE provider is registered |
+| `NFCReaderUsageDescription` | iOS has no CoreNFC path — no NFC provider is registered |
+
+The last two are landmines, not exemptions: implementing either feature on iOS without adding
+its string at the same time is a launch-time crash. NFC additionally needs the
+`com.apple.developer.nfc.readersession.formats` **entitlement**, which goleo does not generate
+at all — the purpose string alone would not be enough.
+
+`TestIOSUsageDescriptionsReachTheInfoPlist` now fails when a feature declares a key the plist
+lacks, with those reasons recorded as the allow-list. **The test immediately found one the
+manual sweep had missed**: `NFCReaderUsageDescription` has no `NS` prefix, so grepping
+`NS*UsageDescription` skips it. Worth remembering — the iOS purpose-string keys are not a
+uniformly named set, and eyeballing them is unreliable in a way the comparison is not.
