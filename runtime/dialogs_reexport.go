@@ -90,7 +90,19 @@ func RegisterDialogs(b *Bridge) {
 
 // DialogsProvider is re-exported so shells (e.g. the gomobile bridge) can
 // inject a native backend without importing the sub-package directly.
-type DialogsProvider = dialogs.Provider
+//
+// The option types are re-exported for the same reason: Provider's methods take
+// them, so a shell adapter cannot implement the interface without naming them.
+// Without these aliases the generated gomobile package had to import
+// runtime/dialogs directly, which is exactly what "inject without importing the
+// sub-package" is meant to avoid.
+type (
+	DialogsProvider   = dialogs.Provider
+	FileFilter        = dialogs.FileFilter
+	FileDialogOptions = dialogs.FileDialogOptions
+	MessageBoxOptions = dialogs.MessageBoxOptions
+	PromptOptions     = dialogs.PromptOptions
+)
 
 func SetDialogsProvider(p DialogsProvider) {
 	dialogs.SetProvider(p)

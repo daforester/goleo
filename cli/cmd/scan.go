@@ -274,6 +274,11 @@ var nativeShellProviderTags = []string{
 	"goleo_ble",
 	"goleo_clipboard",
 	"goleo_share",
+	// Both shells register a DialogsProvider unconditionally. Without this tag, gobind
+	// emits no DialogsProvider for an app that never calls RegisterDialogs, and the shell
+	// stops at "cannot find symbol gomobile.DialogsProvider" — invisible in the demo
+	// scaffold, which enables every feature, and a build failure in a minimal one.
+	"goleo_dialog",
 }
 
 // mobileBindTags returns the -tags value for `gomobile bind`: the

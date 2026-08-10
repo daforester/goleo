@@ -631,3 +631,89 @@ flagged.
 
 Nothing is removed for you. The replace is legitimate; it was only ever a problem for being
 invisible.
+
+---
+
+## 0.10.7 — the mobile WebView only grants camera, mic and location to your own UI
+
+**Affects:** Android and iOS apps whose WebView loads content from anywhere other than the
+app's own loopback origin — a remote page, a CDN-hosted view, an embedded third-party frame —
+**and** that uses `getUserMedia` or `navigator.geolocation` from that content.
+
+### What changed
+
+The native shells answer the WebView's camera, microphone and geolocation permission prompts.
+They were not checking properly who was asking:
+
+- **iOS granted all three unconditionally**, ignoring the origin entirely.
+- **Android matched a string prefix** (`startsWith("http://127.0.0.1")`), which also accepts
+  `http://127.0.0.1.evil.com` — an ordinary domain anyone can register.
+- **Android's geolocation callback had no origin check at all.**
+
+Neither shell restricts navigation, so those gates answered for whatever page the WebView had
+reached. All three now parse the origin and require the **host** to be loopback
+(`127.0.0.1`, `localhost`, `::1`), which is what goleo serves your UI from. The Android *dev*
+shell additionally accepts `10.0.2.2`, the emulator's alias for your machine's loopback.
+
+### Do I need to change anything?
+
+Only if your UI is served from somewhere other than goleo's own loopback server. If it is,
+those three APIs now fail in the WebView. There is no config switch — host your UI through
+goleo (the default) or use the Go-side feature APIs, which are gated by `Policy` instead.
+
+Everything the scaffolds produce is unaffected: the frontend is embedded in the Go binary and
+served over loopback on both platforms.
+
+---
+
+## 0.10.7 — build flags are refused by targets that cannot honour them
+
+**Affects:** scripts and CI jobs that pass `--ios-target`, `--android-api`, or `--ios-team` to
+a `goleo build` invocation that does not use them.
+
+### What changed
+
+These three flags were declared globally and read by exactly one target each, so every other
+target accepted them and silently did nothing — `goleo build windows --ios-target 17.0`
+reported success having ignored the flag. They now fail fast:
+
+| Flag | Accepted by |
+|---|---|
+| `--ios-target`, `--ios-team` | `ios` only |
+| `--android-api` | `android` only |
+
+`--ios-team` is additionally refused with `--simulator`, since a Simulator build is not signed
+at all — that is what makes it work without an Apple Developer account.
+
+### Do I need to change anything?
+
+Only if a build command passes one of these to the wrong target. The error names the flag and
+the target it applies to. This matches how `--bundle`, `--publish`, `--release`,
+`--android-format`, `--version-code`, `--android-abi` and `--android-ndk` have behaved since
+0.10.0 — a flag is either honoured or refused, never accepted and ignored.
+
+---
+
+## 0.10.7 — iOS apps expose their Documents directory to the Files app
+
+**Affects:** every iOS app built with goleo.
+
+### What changed
+
+The generated `Info.plist` now sets `UIFileSharingEnabled` and
+`LSSupportsOpeningDocumentsInPlace`, so the app's Documents directory appears in the iOS Files
+app under the app's name.
+
+This is required for `goleo:dialogSaveFile` to be useful. iOS has no "choose a destination,
+then write to it" primitive — the document picker exports a file that already exists, while
+the caller needs a path to write to — so on mobile `saveFile` asks for a *name* and returns a
+path in Documents. Without these two keys the file is written somewhere the user can never
+reach.
+
+### Do I need to change anything?
+
+Nothing to change, but be aware that anything your app writes to its Documents directory is
+now user-visible and user-deletable. If that is wrong for your app, write to Application
+Support instead (`goleo:fsAppDataDir`), which stays private, and remove the two keys from the
+generated `Info.plist` — note that goleo regenerates `.goleo/ios/` on every build, so that
+edit does not survive; open an issue if you need it configurable.

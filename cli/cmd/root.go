@@ -15,6 +15,11 @@ applications using Go for the backend and web technologies (HTML, CSS, JS,
 Vue, React, etc.) for the frontend.
 
 Supports Windows, Linux, macOS, Android, and iOS from a single codebase.`,
+	// A failure INSIDE a command is not a usage error, and printing the flag list after
+	// one buries the actual message: a failed iOS build ended with 16 lines of --help,
+	// below which "xcodebuild failed: exit status 65" scrolled away. Cobra still prints
+	// usage for genuine argument errors, which is what it is for.
+	SilenceUsage: true,
 	Run: func(cmd *cobra.Command, args []string) {
 		cmd.Help()
 	},

@@ -16,12 +16,12 @@ func resetBuildFlags(t *testing.T) {
 	save := struct {
 		bundle, publish, release, noSign, simulator bool
 		androidFormat, windowsFormat, arch, iosTgt  string
-		abi, ndk                                    string
+		abi, ndk, iosTeamID                         string
 		versionCode, androidAPI                     int
 	}{
 		buildBundle, buildPublish, buildRelease, buildNoSign, buildSimulator,
 		buildAndroidFormat, buildWindowsFormat, buildArch, iosDeployTarget,
-		buildAndroidABI, buildAndroid,
+		buildAndroidABI, buildAndroid, iosTeam,
 		buildVersionCode, androidAPI,
 	}
 	t.Cleanup(func() {
@@ -31,11 +31,12 @@ func resetBuildFlags(t *testing.T) {
 		buildArch, iosDeployTarget = save.arch, save.iosTgt
 		buildVersionCode, androidAPI = save.versionCode, save.androidAPI
 		buildAndroidABI, buildAndroid = save.abi, save.ndk
+		iosTeam = save.iosTeamID
 	})
 	buildBundle, buildPublish, buildRelease, buildNoSign, buildSimulator = false, false, false, false, false
 	buildAndroidFormat, buildWindowsFormat, buildArch, iosDeployTarget = "", "", "", ""
 	buildVersionCode, androidAPI = 0, 0
-	buildAndroidABI, buildAndroid = "", ""
+	buildAndroidABI, buildAndroid, iosTeam = "", "", ""
 }
 
 // Every build flag against every target. A flag a target cannot honour must be REFUSED,
@@ -60,6 +61,11 @@ func TestEveryFlagIsEitherHonouredOrRefusedPerTarget(t *testing.T) {
 		{"--bundle", func() { buildBundle = true }, nil, []string{"current", "windows", "linux", "darwin"}},
 		{"--publish", func() { buildPublish = true }, nil, []string{"current", "windows", "linux", "darwin"}},
 		{"--simulator", func() { buildSimulator = true }, nil, []string{"ios"}},
+		// These three were declared globally and read by exactly one target each, so every
+		// other target accepted them and silently ignored them.
+		{"--ios-target", func() { iosDeployTarget = "17.0" }, nil, []string{"ios"}},
+		{"--ios-team", func() { iosTeam = "ABCDE12345" }, nil, []string{"ios"}},
+		{"--android-api", func() { androidAPI = 30 }, nil, []string{"android"}},
 		{"--release", func() { buildRelease = true }, nil, []string{"android"}},
 		{"--android-format", func() { buildAndroidFormat = "aab" }, nil, []string{"android"}},
 		{"--version-code", func() { buildVersionCode = 42 }, nil, []string{"android"}},
@@ -151,6 +157,33 @@ func TestIOSReleaseRefusalExplainsItself(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "only applies to the android target") {
 		t.Errorf("iOS got the generic android message instead of its own:\n%v", err)
+	}
+}
+
+// --ios-team is honoured by the ios target but cannot apply to a Simulator build, which is
+// unsigned by design. Refused rather than ignored — and the refusal must not read as "wrong
+// target", which would send the user looking for a mistake they did not make.
+func TestIOSTeamIsRefusedWithSimulator(t *testing.T) {
+	resetBuildFlags(t)
+	iosTeam, buildSimulator = "ABCDE12345", true
+	err := validateTargetFlags("ios", targets["ios"])
+	if err == nil {
+		t.Fatal("--ios-team with --simulator must be refused: a Simulator build is not signed")
+	}
+	if !strings.Contains(err.Error(), "--simulator") {
+		t.Errorf("the refusal should name --simulator as the reason:\n%v", err)
+	}
+
+	// And each on its own must still be fine, or the check has over-reached.
+	resetBuildFlags(t)
+	iosTeam = "ABCDE12345"
+	if err := validateTargetFlags("ios", targets["ios"]); err != nil {
+		t.Errorf("--ios-team alone on ios was refused: %v", err)
+	}
+	resetBuildFlags(t)
+	buildSimulator = true
+	if err := validateTargetFlags("ios", targets["ios"]); err != nil {
+		t.Errorf("--simulator alone on ios was refused: %v", err)
 	}
 }
 

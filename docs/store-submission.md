@@ -19,7 +19,8 @@ trust the number in this file.** Written 2026-08-05 against goleo 0.10.3.
 | **Android APK** (debug, sideload) | ✅ | ✅ emulator API 36 — installed, launched, providers round-tripped | n/a |
 | **Android AAB** (signed release) | ✅ | ✅ signed APK on emulator: `apkSigningVersion=2`, derived permissions, camera grant→preview | ✅ **accepted — internal track, 2026-08-05** (see below) |
 | **iOS Simulator** (`--simulator`) | ✅ | ✅ `macos-14` CI — installed, launched, full bridge working | n/a |
-| **iOS device / `.ipa`** | ❌ not implemented | — | ❌ needs a paid Apple account |
+| **iOS device app** (signed, sideload) | ✅ since 2026-08-10 — needs `mobile.ios.development_team` | ⚠️ ran on an iPhone 17 Pro Max via **Xcode**, not via the CLI; the CLI device path is unverified | n/a |
+| **iOS `.ipa`** (TestFlight / App Store) | ❌ not implemented | — | ❌ needs a paid Apple account |
 | **Windows MSIX** | ✅ | ✅ real `makeappx`, manifest parses, full-trust declared | ❌ **never submitted** |
 | **Mac App Store** | ❌ deliberately not built | — | ❌ gated behind an acceptance spike (see below) |
 | Windows NSIS / Linux deb+rpm / macOS dmg | ✅ | ✅ NSIS installer verified end-to-end | n/a (direct distribution) |
@@ -31,6 +32,15 @@ found a defect nothing local could catch (implied `<uses-feature>` entries defau
 than reasoning about it. The Microsoft Store and Apple paths have still **never** had an
 artifact accepted, and neither is a code problem — MSIX needs Partner Center identity and a
 restricted-capability justification; iOS needs a paid Apple membership.
+
+**iOS device builds changed in 0.10.7** and the table above is worded carefully. Until then
+`goleo build ios` could not target a device at all: no way to supply a `DEVELOPMENT_TEAM`, and no
+`-destination`, so xcodebuild silently built a *Mac* app. Both are fixed, and a free Apple ID's
+personal team is enough to install on your own device (profiles expire after 7 days) — a paid
+membership is only needed for `.ipa` distribution. But the fix itself has **not** been run on
+hardware; the device evidence in `SPIKES.md` (2026-08-09) came from an Xcode build. Do not
+promote that row to ✅ without a CLI device run — `docs/ios-device-verification.md` is the
+run sheet for exactly that.
 
 ---
 

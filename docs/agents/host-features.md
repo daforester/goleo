@@ -80,7 +80,57 @@ Every feature package now exposes a `Provider` interface + `SetProvider`/`runtim
 | **Background** | `runtime/background/` | `goleo_background` | Unsupported — desktop process runs continuously, no OS scheduler needed | Provider | Service Worker Sync |
 | **Push** | `runtime/push/` | `goleo_push` | Unsupported — use the app's own WebSocket channel instead | Provider | Push API + Service Worker |
 
-"Unsupported" packages return `fmt.Errorf("...: %w", errors.ErrUnsupported)` rather than a generic error, so callers can `errors.Is(err, errors.ErrUnsupported)` to detect "no native path on this platform, use the fallback" instead of a real failure. On Android, the Android WebView (`cli/cmd/templates/{android,android-dev}/.../MainActivity.java`) now wires `WebChromeClient.onPermissionRequest` (camera/mic) and `onGeolocationPermissionsShowPrompt` to runtime permission requests, so the getUserMedia/geolocation browser fallbacks actually work instead of silently failing; on iOS, `AppDelegate.swift` sets a `WKUIDelegate` that grants the equivalent WKWebView permission callbacks, and `Info.plist` declares the required `NS*UsageDescription` strings.
+"Unsupported" packages return `fmt.Errorf("...: %w", errors.ErrUnsupported)` rather than a generic error, so callers can `errors.Is(err, errors.ErrUnsupported)` to detect "no native path on this platform, use the fallback" instead of a real failure. On Android, the Android WebView (`cli/cmd/templates/{android,android-dev}/.../MainActivity.java`) now wires `WebChromeClient.onPermissionRequest` (camera/mic) and `onGeolocationPermissionsShowPrompt` to runtime permission requests, so the getUserMedia/geolocation browser fallbacks actually work instead of silently failing; on iOS, `AppDelegate.swift` sets a `WKUIDelegate` that grants the equivalent WKWebView permission callbacks, and `Info.plist` declares the required `NS*UsageDescription` strings. **All of these are gated on the request's origin** (`isAppOrigin`): the parsed host must equal a loopback name, plus `10.0.2.2` in the Android dev shell only. That gate is load-bearing because neither shell restricts navigation, so it answers for whatever page the WebView reaches — iOS used to grant camera, mic and location unconditionally, Android matched a string prefix (which accepts `http://127.0.0.1.evil.com`), and Android's geolocation path had no check at all. Compare the parsed host, never a prefix.
+
+### Dialogs on mobile (added in 0.10.7, after the iOS device spike)
+
+Dialogs was the cautionary case for "the table says Provider": `runtime.SetDialogsProvider`
+existed, but there was **no `backend/gomobile` binding and no shell registered one**, so
+every `goleo:dialog*` call on Android *and* iOS returned `dialogs: no native provider
+registered`. Nothing failed at build time — a provider nobody registers is a valid program.
+Worse, the source comment claimed the JS bridge would fall back to `window.alert`; it does
+not. `bridge/src/dialogs.ts` gates every fallback on `backendPresent()`, and on mobile the
+Go backend is by definition present, so the error propagated to the caller. That is the
+correct behaviour (a dialog silently becoming a `confirm()` the user never saw is how a
+destructive action gets approved), but it meant the feature was simply broken.
+
+What exists now: `tmplMobileDialogsGo` → `backend/gomobile/dialogs.go`, `GoleoDialogs` in
+`AppDelegate.swift`, `GoleoDialogs` in `MainActivity.java`, and `goleo_dialog` in
+`nativeShellProviderTags`.
+
+Three things about it that are not guessable from the code:
+
+- **Every method takes and returns a JSON string** (`OpenFileJSON`, `ShowMessageJSON`, …).
+  gobind cannot generate a reverse-bound method that takes or returns a struct pointer from
+  another package, and it binds neither `[]FileFilter` nor a `[]string` result — and it
+  **silently omits** a method it cannot bind rather than failing the build, so the symptom
+  is an unrecognised selector on a device. Same reasoning as `BLEProvider.RequestDeviceJSON`.
+- **`SaveFile` and `SelectFolder` deliberately do not show a system picker.** Neither
+  platform can hand back a plain filesystem path for an arbitrary user-chosen location:
+  Android's SAF yields a `content://` tree URI and iOS's picker a security-scoped URL, and
+  the path-based Go fs plugin can read neither. So `SaveFile` prompts for a *name* and
+  returns a path inside the app's own documents directory, and `SelectFolder` returns that
+  directory. iOS `Info.plist` sets `UIFileSharingEnabled` + `LSSupportsOpeningDocumentsInPlace`
+  so files written there are reachable in the Files app; on Android it is
+  `getExternalFilesDir(null)`.
+- **`OpenFile` copies.** iOS uses `asCopy: true` and Android copies the picked content into
+  `getCacheDir()/goleo-picked/`, both yielding a real readable path that `RegisterDialogs`
+  then hands to `Bridge.GrantFSPath`. The Android copy takes the **basename** of the
+  provider-supplied `DISPLAY_NAME`, which is another app's string and could otherwise
+  contain `../`.
+
+Every method blocks its calling thread until the user answers, with **no timeout** — a
+timeout would report a cancellation the user never made. That is safe only because the Go
+bridge handlers run on goroutines, and both shells throw rather than deadlocking if they
+ever find themselves on the UI thread.
+
+Because they block indefinitely, dialog calls are also **serialised** per shell
+(`serial`/`DispatchSemaphore` on iOS, `withDialogLock` on Android). That is not defensive
+padding: the bridge runs every invoke on its own goroutine (`runtime/websocket.go`), so a
+frontend that fires two dialogs without awaiting the first genuinely runs them
+concurrently, and the file picker parks its result in state shared with the
+activity/app-delegate callback. Without the lock one call consumes the other's result and
+the loser blocks forever.
 
 ### Fully Generated Backend Entry Points
-`backend/main.go` (desktop) and `backend/gomobile/{gomobile.go,notifier.go}` (mobile) are no longer scaffolded once and left as editable source — they're pure boilerplate (call `app.New(...)`, nothing app-specific) regenerated fresh by `generateBackendEntrypoints()` (`cli/cmd/generate_backend.go`) before every `goleo new`/`dev`/`build`/`emulate` run, exactly like the Android/iOS shell templates under `cli/cmd/templates/`. All app-specific logic — commands, feature wiring, `Width`/`Height`/`Port`/`Title` — lives entirely in `backend/app/app.go`, the one file a developer edits. Each generated file carries a `// Code generated by goleo. DO NOT EDIT.` header. A new `.gitignore` (`tmplGitignore` in `templates.go`, mirrored in `create-app.ts`) excludes the three generated files plus `.goleo/`, build outputs, and `node_modules` — none of that previously had a `.gitignore` at all. `backendPkgDir()` (`build.go`) now detects the `backend/` layout by checking for the directory itself rather than `backend/main.go`, since that file may not exist yet on a fresh clone before the first CLI run regenerates it. A new `parseModuleName()` helper (`replace.go`) reads the module path out of `go.mod` at CLI runtime so these files can be rendered outside of `goleo new` (where `projectConfig.ModuleName` was previously only ever constructed once, from the CLI arg).
+`backend/main.go` (desktop) and every `backend/gomobile/*.go` (mobile — `gomobile.go`, `notifier.go`, and one file per provider) are no longer scaffolded once and left as editable source — they're pure boilerplate (call `app.New(...)`, nothing app-specific) regenerated fresh by `generateBackendEntrypoints()` (`cli/cmd/generate_backend.go`) before every `goleo new`/`dev`/`build`/`emulate` run, exactly like the Android/iOS shell templates under `cli/cmd/templates/`. All app-specific logic — commands, feature wiring, `Width`/`Height`/`Port`/`Title` — lives entirely in `backend/app/app.go`, the one file a developer edits. Each generated file carries a `// Code generated by goleo. DO NOT EDIT.` header. A new `.gitignore` (`tmplGitignore` in `templates.go`, mirrored in `create-app.ts`) excludes the three generated files plus `.goleo/`, build outputs, and `node_modules` — none of that previously had a `.gitignore` at all. `backendPkgDir()` (`build.go`) now detects the `backend/` layout by checking for the directory itself rather than `backend/main.go`, since that file may not exist yet on a fresh clone before the first CLI run regenerates it. A new `parseModuleName()` helper (`replace.go`) reads the module path out of `go.mod` at CLI runtime so these files can be rendered outside of `goleo new` (where `projectConfig.ModuleName` was previously only ever constructed once, from the CLI arg).

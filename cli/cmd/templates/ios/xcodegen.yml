@@ -55,6 +55,15 @@ targets:
         #   None of the input catalogs contained ... an app icon set named "AppIcon"
         # An explicit empty value overrides the preset and drops actool's --app-icon.
         {{if .HasIcon}}ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon{{else}}ASSETCATALOG_COMPILER_APPICON_NAME: ""{{end}}
+        # From mobile.ios.development_team (or --ios-team). A DEVICE build cannot be
+        # signed without it: xcodebuild stops at 'Signing for "App" requires a development
+        # team', which is why `goleo build ios` could only ever produce a Simulator app
+        # and every real-device run had to go through Xcode. Omitted entirely when unset
+        # so a Simulator build, which does not sign, is unaffected.
+{{- if .IOSDevelopmentTeam}}
+        DEVELOPMENT_TEAM: {{.IOSDevelopmentTeam}}
+        CODE_SIGN_STYLE: Automatic
+{{- end}}
     # An explicit scheme is required by `xcodebuild -scheme` for archiving and for
     # simulator builds; xcodegen generates one implicitly, but naming it here keeps the
     # name stable so the build commands do not depend on that default.

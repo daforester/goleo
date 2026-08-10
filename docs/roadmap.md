@@ -85,6 +85,11 @@ interactive/pixel UX only headless on CI. See Track D, `SPIKES.md`, and `spikes/
     argument labels. Read off the generated `Gomobile.objc.h`, which `mobile-verify` prints.
     Clipboard/Share are compiled and wired but not exercised on a device; a simulator has no
     real pasteboard peer or share sheet to assert against.
+  - **Currency note (2026-08-09):** exercised on an iPhone 17 Pro Max. Clipboard round-tripped
+    both directions; the **share sheet did not open** — the presenter was resolved through
+    `UIApplication.shared.windows`, which is empty under the scene lifecycle, so `present`
+    was a silent no-op. Fixed via `GoleoUI.topViewController()`, not yet re-run on hardware.
+    Full findings in `SPIKES.md` (2026-08-09).
 - **npm mirror synced** — `cli/npm/goleo/` (runtime + bridge src/dist + `go.mod`) resynced
   with all recent work; mirror module verified to build on host, windows (cgo-free), and the
   android mobile guard, and the store test passes there.
@@ -460,7 +465,7 @@ Effort legend: S = days · M = 1–2 wk · L = 2–4 wk · XL = 1 mo+ (single-de
 
 ---
 
-## Where this stands — resume point (2026-08-05, goleo 0.10.6)
+## Where this stands — resume point (2026-08-10, goleo 0.10.7)
 
 A stopping point, not a finished project. Everything below is verified where it says verified.
 
@@ -475,6 +480,10 @@ A stopping point, not a finished project. Everything below is verified where it 
 - **iOS** — builds, installs and **runs on a simulator** with the full bridge live: Go backend,
   loopback asset serving, WKWebView, `invoke()` and push events. CI-gated in `mobile-verify`.
   Took six never-before-executed defects to reach; every one is in `SPIKES.md` (2026-08-04/05).
+  A first **real-device** run (2026-08-09) passed 10 of 14 host features and found four more
+  defects — foreground notifications suppressed, dialogs with no provider on *either* mobile
+  platform, a silently-nil share presenter, and a CLI device build that produced a *Mac* app.
+  All four are fixed; **none is hardware-verified yet.** `SPIKES.md` (2026-08-09).
 - **Windows MSIX** — builds and validates with real `makeappx`. Never submitted.
 - **Release pipeline** — `release-smoke` installs the *published* CLI with no checkout, on all
   three desktops. It has now caught a real propagation race as well as the three packaging bugs

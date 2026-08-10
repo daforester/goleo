@@ -99,7 +99,7 @@ const text = await readText()           // invoke('goleo:clipboardReadText') -> 
 
 ## File dialogs
 
-`RegisterDialogs` (in `RegisterDesktopFeatures`). Native pickers on desktop;
+`RegisterDialogs` (in `RegisterDesktopFeatures`). Native pickers on desktop and on mobile;
 `<input type="file">` fallback in the browser.
 
 ```ts
@@ -113,6 +113,16 @@ const btn   = await showMessage({ title: 'Delete?', message: 'This cannot be und
 const name  = await showPrompt({ title: 'Rename', message: 'New name:', defaultValue: 'untitled' })
 // raw: invoke('goleo:dialogOpenFile' | 'goleo:dialogSaveFile' | 'goleo:dialogSelectFolder' | 'goleo:dialogShowMessage' | 'goleo:dialogShowPrompt', { ... })
 ```
+
+**On mobile, `saveFile` and `selectFolder` behave differently** and it is worth designing
+around rather than being surprised by. `showMessage`, `showPrompt` and `openFile` are fully
+native (alerts and the system document picker; `openFile` returns a real readable path).
+But neither Android nor iOS can hand back a filesystem *path* for an arbitrary location the
+user chooses — Android's picker returns a `content://` URI and iOS a security-scoped URL,
+and the Go filesystem API takes paths. So `saveFile` asks for a **name** and returns a path
+inside the app's own documents directory, and `selectFolder` returns that directory without
+showing a picker. Files written there are visible to the user (the Files app on iOS,
+`Android/data/<pkg>/files` on Android).
 
 ## File system
 

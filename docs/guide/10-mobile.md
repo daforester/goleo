@@ -58,6 +58,10 @@ goleo build ios --simulator      # -> GoleoApp.app for the Simulator, unsigned
 gomobile generates is an intermediate that the build consumes and deletes, so there is
 nothing for you to integrate by hand.
 
+A device build is signed, so it needs an Apple Developer Team ID in
+`mobile.ios.development_team` (or `--ios-team`). Setting it in Xcode does not work —
+goleo regenerates the project under `.goleo/ios/` on every build.
+
 **Without an Apple Developer account**, use `--simulator`. It builds against the
 Simulator SDK with code signing disabled, which is the only iOS path that needs no
 certificate at all:

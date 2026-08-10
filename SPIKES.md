@@ -1270,3 +1270,117 @@ Mutation-verified all three branches: a no-op write FAILS (0/8 canaries, no skip
 fails immediately as corruption, an alternating-empty read SKIPS with the diagnostic. **A guard
 added to reduce flakiness must be mutation-tested against the bug it could mask**, or it is just
 a way of not being told.
+
+## iOS — the first real-device run, and the four defects it found (2026-08-09)
+
+First execution of the demo scaffold on physical hardware: **iPhone 17 Pro Max (17,2), iOS 26.6,
+Xcode 26.6 (17F113), macOS 26.5.2 (25F84), Go 1.26.5 darwin/arm64, XcodeGen 2.46.0.** It built,
+launched and rendered its UI. Ten of fourteen checklist items passed on first contact —
+accelerometer, gyroscope, magnetometer, battery, clipboard both directions, wake lock, background
+sync registration, camera and location permission prompts. What follows is the other four, all of
+which are now fixed but **none of which are verified on hardware yet**.
+
+Read this before concluding any of the four is over-engineered; each has a mechanism that a
+simulator run does not exercise.
+
+**1. Notifications: permission granted, nothing ever delivered.** iOS suppresses a notification
+whose app is in the foreground unless a `UNUserNotificationCenterDelegate` implements
+`willPresent` and asks for it. `GoleoNotifier.show` posts with `trigger: nil`, so every
+notification fires immediately — i.e. always in the foreground while testing. No delegate was set,
+so the default (present nothing) applied. The permission prompt working is what made this read as
+a delivery failure rather than a presentation one. `add(request)` also discarded its completion
+handler, so a rejection failed in total silence.
+
+**2. Dialogs had no mobile provider at all — on iOS *and* Android.** `runtime.SetDialogsProvider`
+existed; no `backend/gomobile` binding did, and neither shell called one. Every `goleo:dialog*`
+call on either platform returned `no native provider registered`. **A provider nobody registers
+is a valid program**, so nothing caught it at build time, and the source comment claiming the JS
+bridge would fall back to `window.alert` was wrong — `bridge/src/dialogs.ts` gates fallbacks on
+`backendPresent()`, and on mobile the backend is always present. Detail in
+`docs/agents/host-features.md`; the parts worth knowing here are that provider methods must pass
+**JSON strings** (gobind omits, rather than rejects, a reverse-bound method it cannot bind) and
+that `goleo_dialog` had to join `nativeShellProviderTags` — the shells wire it unconditionally, so
+without the forced tag any app that does not call `RegisterDialogs` fails to compile its shell.
+That failure is invisible in the demo scaffold, which enables everything, and breaks the minimal
+one, which is the `goleo new` default.
+
+**3. The share sheet silently did nothing.** Unlike (2), the provider *was* registered. It
+resolved its presenter through `UIApplication.shared.windows`, deprecated since iOS 15 and empty
+under the scene lifecycle — and the device log carries `UIScene lifecycle will soon be required`.
+`root` was nil, `present` was a no-op, and `ShareProvider.share` returns void, so Go never learned
+anything had failed. Presenters now resolve through `GoleoUI`, which is handed the app's own
+window in `didFinishLaunching`.
+
+**4. `goleo build ios` could not build for a device at all, for two independent reasons.** The
+checklist's device run came from Xcode, not the CLI; `build-device.log` ends in failure.
+  - No `DEVELOPMENT_TEAM`, and no config or flag to supply one — so xcodebuild stopped at
+    `Signing for "App" requires a development team`. The obvious workaround, selecting a team in
+    Xcode, does not survive: goleo regenerates `.goleo/ios/` on every build. Now
+    `mobile.ios.development_team` / `--ios-team`, refused early by `validateIOSSigning` rather
+    than after a full gomobile bind.
+  - **No `-destination`.** xcodebuild silently takes the first matching destination, and on a Mac
+    with "Designed for iPad" support that is `{ platform:macOS, variant:Designed for
+    [iPad,iPhone], name:My Mac }` — so the iOS device target built a **Mac** app and reported
+    success. The only trace is one warning among hundreds of lines: `Using the first of multiple
+    matching destinations`. Now pinned to `-sdk iphoneos -destination generic/platform=iOS`.
+
+Benign, recorded so they are not re-investigated: the `com.apple.CoreMotion.plist` permission
+warning, `Could not create a sandbox extension`, and `xpc_user_sessions_get_foreground_uid failed`
+are all normal for a sandboxed WKWebView app. The duplicated `starting up...` line comes from a
+single `log.Println`, so it is stderr duplication rather than double initialisation — unconfirmed,
+and harmless either way.
+
+Microphone was the one checklist item marked `?`. It is not a defect: `NSMicrophoneUsageDescription`
+is in the Info.plist template and the `WKUIDelegate` grants capture. It was simply never exercised.
+
+**Found while implementing the dialogs provider, not on the device:** a blocking modal and
+the bridge's concurrency model interact badly. Every invoke runs on **its own goroutine**
+(`runtime/websocket.go`), so a frontend that fires two dialogs without awaiting the first
+runs them concurrently — and the file picker on both platforms parks its result in a single
+slot shared with the activity / app-delegate callback. One call would consume the other's
+result and the loser would block forever, since these methods deliberately have no timeout.
+Both shells now serialise dialog presentation and refuse to run on the UI thread. Worth
+recording because the same shape applies to any future provider that blocks for a user
+answer: **"only one can be on screen" is not the same as "only one can be in flight."**
+
+**Re-running this:** `docs/ios-device-verification.md` is the hand-over sheet — setup,
+the eighteen checks, and what to do when the generated Swift protocol signatures disagree
+with what was written blind.
+
+**The general lesson, which is why this entry is long:** every one of (1), (2) and (3) is a
+*silent* failure — a suppressed notification, an unregistered provider, a nil presenter. None
+raised an exception, none failed a build, and the simulator run that preceded this one
+(`BUILD SUCCEEDED`) said nothing about any of them. Mobile host features cannot be validated by
+compilation; the checklist is the test.
+
+## Mobile — the WebView permission gates were not gates (2026-08-10)
+
+Follow-up review after the iOS device spike, looking for the same *shape* of defect
+elsewhere rather than the same symptom. The native shells decide camera, microphone and
+geolocation on behalf of the WebView, and **neither shell restricts navigation** — both let
+the WebView follow any link — so those gates answer for whatever page it reaches, not just
+for the app's own UI. Three separate holes:
+
+1. **iOS granted everything, unconditionally.** `GoleoWebPermissionDelegate` received
+   `origin` in both callbacks and ignored it, calling `decisionHandler(.grant)` outright.
+2. **Android matched a string prefix.** `request.getOrigin().toString().startsWith(
+   "http://127.0.0.1")` — and `http://127.0.0.1.evil.com` is an ordinary registrable domain
+   that satisfies it. The dev shell had the same bug spelled `http://localhost`.
+3. **Android's geolocation callback had no origin check at all**, so any page could read the
+   device's location as long as the app itself held the runtime permission. The camera/mic
+   path next to it was gated; this one simply was not.
+
+All three now parse the origin and compare the **host for equality**, which is what
+`devOriginAllowed` in `runtime/server.go` already did — the Go side was right and the shells
+had each invented their own weaker version. `10.0.2.2` (the Android emulator's alias for the
+host's loopback) is accepted by the **dev** shell only; a test asserts the release shell does
+not trust it.
+
+Worth noting how this was found, because the symptom was invisible: nothing failed, no log
+line appeared, and every checklist item still passed. It came from asking "where else does
+this codebase decide something on behalf of a caller it did not authenticate?" — the same
+question the `goleo:openURL` scheme allow-list and the WS origin allow-list already answer.
+**A permission check that is never observed failing is not evidence that it works.**
+
+The corresponding regression check on hardware is that camera and location STILL prompt —
+the gate is new code in the path of two checks that previously passed.

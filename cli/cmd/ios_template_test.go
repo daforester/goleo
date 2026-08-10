@@ -173,12 +173,13 @@ func TestIOSShellUsesTheGeneratedBindingNames(t *testing.T) {
 		"GomobileSetHomeDir(", "GomobileSetNotifier(", "GomobileSetBatteryProvider(",
 		"GomobileSetWakeLockProvider(", "GomobileSetSensorsProvider(",
 		"GomobileSetBackgroundProvider(", "GomobileSetClipboardProvider(",
-		"GomobileSetShareProvider(", "GomobileStartServer(", "GomobileStopServer(",
+		"GomobileSetShareProvider(", "GomobileSetDialogsProvider(",
+		"GomobileStartServer(", "GomobileStopServer(",
 		"GomobileEmitSensorReading(", "GomobileEmitBackgroundSync(",
 		"GomobileNotifierProtocol", "GomobileBatteryProviderProtocol",
 		"GomobileWakeLockProviderProtocol", "GomobileSensorsProviderProtocol",
 		"GomobileBackgroundProviderProtocol", "GomobileClipboardProviderProtocol",
-		"GomobileShareProviderProtocol",
+		"GomobileShareProviderProtocol", "GomobileDialogsProviderProtocol",
 	} {
 		if !strings.Contains(src, sym) {
 			t.Errorf("AppDelegate.swift does not reference %s, which the generated "+
@@ -205,6 +206,92 @@ func TestIOSShellUsesTheGeneratedBindingNames(t *testing.T) {
 			t.Errorf("AppDelegate.swift passes %q as a labelled argument; the gomobile "+
 				"entry points are C functions and take none", bad)
 		}
+	}
+}
+
+// DEVELOPMENT_TEAM must appear only when one is configured. Emitting it unconditionally
+// would write `DEVELOPMENT_TEAM: ` into every project, including Simulator builds that do
+// not sign at all — and an empty team is not the same as no team to xcodebuild.
+func TestXcodegenEmitsTheDevelopmentTeamOnlyWhenSet(t *testing.T) {
+	render := func(team string) string {
+		t.Helper()
+		raw, err := mobileTemplates.ReadFile("templates/ios/xcodegen.yml")
+		if err != nil {
+			t.Fatal(err)
+		}
+		tmpl, err := template.New("t").Parse(string(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg := mobileConfig{
+			IOSBundleID:         "com.example.ios",
+			IOSDeploymentTarget: "16.2",
+			IOSDevelopmentTeam:  team,
+		}
+		var out strings.Builder
+		if err := tmpl.Execute(&out, cfg); err != nil {
+			t.Fatal(err)
+		}
+		return out.String()
+	}
+
+	withTeam := render("ABCDE12345")
+	if !strings.Contains(withTeam, "DEVELOPMENT_TEAM: ABCDE12345") {
+		t.Errorf("mobile.ios.development_team did not reach the project, so a device build "+
+			"still cannot be signed:\n%s", withTeam)
+	}
+	if !strings.Contains(withTeam, "CODE_SIGN_STYLE: Automatic") {
+		t.Error("a configured team should use automatic signing; manual signing needs a " +
+			"provisioning profile goleo does not manage")
+	}
+
+	withoutTeam := render("")
+	if strings.Contains(withoutTeam, "DEVELOPMENT_TEAM") {
+		t.Errorf("an unset team must emit no DEVELOPMENT_TEAM key at all:\n%s", withoutTeam)
+	}
+}
+
+// Each of these is a defect the 2026-08-09 device spike found, in the form that would
+// bring it back. They are string assertions on a template because that is the only check
+// this repo can run off a Mac — the real verification is a device run.
+func TestIOSShellFixesFromTheDeviceSpike(t *testing.T) {
+	raw, err := mobileTemplates.ReadFile("templates/ios/App/AppDelegate.swift")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(raw)
+
+	// Notifications: the permission prompt appeared and nothing was ever delivered,
+	// because iOS suppresses a foreground notification unless a delegate asks for it.
+	// GoleoNotifier posts with `trigger: nil`, so every notification is a foreground one.
+	if !strings.Contains(src, "UNUserNotificationCenter.current().delegate = self") {
+		t.Error("AppDelegate must set itself as the UNUserNotificationCenter delegate, or " +
+			"notifications are silently discarded while the app is in the foreground")
+	}
+	if !strings.Contains(src, "willPresent notification") {
+		t.Error("AppDelegate must implement willPresent; without it the default is to " +
+			"present nothing")
+	}
+
+	// The share sheet: UIApplication.shared.windows is deprecated since iOS 15 and empty
+	// under the scene lifecycle, so the presenter resolved to nil and present() was a
+	// silent no-op — no sheet, no error, and ShareProvider.share returns void so Go never
+	// found out.
+	// Checked against CODE only: GoleoUI's explanatory comment names the deprecated API
+	// too, so a plain Contains passes with the fix reverted. The same trap as the
+	// `import Goleo` assertion above, which was found by mutating the fix away.
+	for i, line := range strings.Split(src, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "//") {
+			continue
+		}
+		if strings.Contains(line, "UIApplication.shared.windows") {
+			t.Errorf("line %d uses UIApplication.shared.windows, which returns an empty "+
+				"array under the scene lifecycle — resolve the presenter through "+
+				"GoleoUI.topViewController() instead:\n%s", i+1, line)
+		}
+	}
+	if !strings.Contains(src, "GoleoUI.topViewController()") {
+		t.Error("anything that presents must resolve its presenter via GoleoUI.topViewController()")
 	}
 }
 

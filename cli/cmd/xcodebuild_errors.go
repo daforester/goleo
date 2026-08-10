@@ -11,6 +11,12 @@ import (
 // objectVersion.
 var xcodeFutureFormatRe = regexp.MustCompile(`future Xcode project file format \((\d+)\)`)
 
+// xcodeNoTeamRe matches xcodebuild refusing to sign a device build with no team selected.
+// goleo now refuses this before building (validateIOSSigning), so reaching it means the
+// team was rejected rather than missing — a Team ID that is not on this machine's Apple
+// ID, most often.
+var xcodeNoTeamRe = regexp.MustCompile(`requires a development team`)
+
 // objectVersionXcode maps a pbxproj objectVersion to the Xcode release that introduced it,
 // so the error can name the version the user would need. From XcodeGen's ProjectFormat.
 var objectVersionXcode = map[string]string{
@@ -47,6 +53,17 @@ func explainXcodebuildFailure(output string, err error) error {
 			"  Xcode rather than yours. Either upgrade Xcode, or lower `options.projectFormat`\n"+
 			"  in .goleo/ios/xcodegen.yml (xcode14_0 is the most compatible) and rebuild.\n"+
 			"  xcodebuild: %w", objVersion, needs, err)
+	}
+	if xcodeNoTeamRe.MatchString(output) {
+		return fmt.Errorf("xcodebuild could not sign the app: no usable Apple Developer Team.\n"+
+			"  goleo checks that a team is CONFIGURED before building, so this means Xcode\n"+
+			"  rejected the one it was given — usually because that Team ID is not on any\n"+
+			"  Apple ID signed into Xcode (Xcode > Settings > Accounts), or the device is not\n"+
+			"  registered to it. Note that goleo regenerates .goleo/ios/ on every build, so a\n"+
+			"  team selected by hand in Xcode does not survive one — set\n"+
+			"  mobile.ios.development_team in goleo.json instead.\n"+
+			"  For a build that needs no signing at all: goleo build ios --simulator\n"+
+			"  xcodebuild: %w", err)
 	}
 	return fmt.Errorf("xcodebuild failed: %w", err)
 }

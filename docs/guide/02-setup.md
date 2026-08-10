@@ -88,10 +88,15 @@ The project manifest. Key sections:
   },
   "mobile": {
     "android": { "min_sdk": 24, "package_name": "com.example.myapp" },
-    "ios":     { "deployment_target": "15.0", "bundle_identifier": "com.example.myapp" }
+    "ios":     { "deployment_target": "15.0", "bundle_identifier": "com.example.myapp",
+                  "development_team": "ABCDE12345" }   // only for iOS DEVICE builds
   }
 }
 ```
+
+`mobile.ios.development_team` is your Apple Developer Team ID, and only a **device** build
+needs it — `goleo build ios --simulator` does not sign at all. It belongs here rather than
+in Xcode because goleo regenerates the Xcode project on every build.
 
 ## The npm scripts
 

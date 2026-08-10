@@ -41,6 +41,9 @@ type mobileConfig struct {
 	IOSBundleID string
 	// IOSDeploymentTarget is the minimum iOS version.
 	IOSDeploymentTarget string
+	// IOSDevelopmentTeam is the Apple Developer Team ID used to sign device builds.
+	// Empty for a Simulator build, which needs no signing.
+	IOSDevelopmentTeam string
 }
 
 // Defaults for the mobile toolchain. These mirror what the templates hardcoded
@@ -103,6 +106,7 @@ func loadMobileConfig(projectDir string) mobileConfig {
 	if raw.Mobile.IOS.DeploymentTarget != "" {
 		cfg.IOSDeploymentTarget = raw.Mobile.IOS.DeploymentTarget
 	}
+	cfg.IOSDevelopmentTeam = strings.TrimSpace(raw.Mobile.IOS.DevelopmentTeam)
 	return cfg
 }
 

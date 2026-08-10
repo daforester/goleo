@@ -126,9 +126,17 @@ npm run goleo:build-ios        # -> GoleoApp.app, a DEBUG build (macOS + Xcode)
   is nothing to integrate by hand.
 
   ```bash
-  goleo build ios                 # device build; needs a signing certificate
+  goleo build ios                 # device build; needs an Apple Developer Team ID
   goleo build ios --simulator     # Simulator build; needs NO Apple account
   ```
+
+  A **device** build must be signed, so it needs your 10-character Team ID — set
+  `mobile.ios.development_team` in `goleo.json`, or pass `--ios-team ABCDE12345`. The build
+  refuses to start without one rather than failing at the last step. It has to live in
+  config because goleo regenerates the Xcode project under `.goleo/ios/` on every build, so
+  a team selected by hand in Xcode is overwritten. `--simulator` needs no team and refuses
+  one, since an unsigned build is the whole point of that path. Find it under Xcode > Settings >
+  Accounts, or in Membership details at developer.apple.com/account.
 
   `--simulator` is the path that needs no Apple Developer account: it compiles against the
   iOS Simulator SDK with code signing off, so you can run the app in the Simulator on any

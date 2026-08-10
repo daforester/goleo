@@ -71,7 +71,6 @@ func TestFutureProjectFormatMapsEveryFormatXcodegenCanWrite(t *testing.T) {
 func TestOtherXcodebuildFailuresArePassedThrough(t *testing.T) {
 	for _, out := range []string{
 		"error: No signing certificate \"iOS Development\" found",
-		"error: Signing for \"App\" requires a development team.",
 		"** BUILD FAILED **",
 		"",
 	} {
@@ -81,6 +80,33 @@ func TestOtherXcodebuildFailuresArePassedThrough(t *testing.T) {
 		}
 		if strings.Contains(err.Error(), "projectFormat") {
 			t.Errorf("unrelated failure %q was given the project-format explanation:\n%v", out, err)
+		}
+	}
+}
+
+// The signing failure that ended every CLI device build. It used to pass through as
+// "xcodebuild failed: exit status 65", which names neither the setting nor the file — and
+// the obvious fix, picking a team in Xcode, is undone by the next build because goleo
+// regenerates the project. So the explanation has to say that.
+func TestMissingDevelopmentTeamIsExplained(t *testing.T) {
+	const realOutput = `/Users/x/app/.goleo/ios/GoleoApp.xcodeproj: error: Signing for "App" ` +
+		`requires a development team. Select a development team in the Signing & Capabilities ` +
+		`editor. (in target 'App' from project 'GoleoApp')
+** BUILD FAILED **
+`
+	err := explainXcodebuildFailure(realOutput, errors.New("exit status 65"))
+	if err == nil {
+		t.Fatal("a failed build must still be an error")
+	}
+	msg := err.Error()
+	for _, want := range []string{
+		"mobile.ios.development_team", // the knob
+		"regenerates",                 // why choosing it in Xcode does not stick
+		"--simulator",                 // the way out with no Apple account
+		"exit status 65",              // the original error is still wrapped
+	} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("the signing explanation should mention %q:\n%s", want, msg)
 		}
 	}
 }

@@ -32,6 +32,13 @@
         <string>UIInterfaceOrientationLandscapeLeft</string>
         <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
+    <!-- Publishes the app's Documents directory to the Files app. goleo:dialogSaveFile
+         returns a path in there (iOS has no "pick a destination then write" primitive),
+         so without these two the saved file exists but the user can never reach it. -->
+    <key>UIFileSharingEnabled</key>
+    <true/>
+    <key>LSSupportsOpeningDocumentsInPlace</key>
+    <true/>
     <key>NSAppTransportSecurity</key>
     <dict>
         <key>NSAllowsLocalNetworking</key>

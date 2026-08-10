@@ -76,6 +76,11 @@ type androidSection struct {
 type iosSection struct {
 	BundleIdentifier string `json:"bundle_identifier"`
 	DeploymentTarget string `json:"deployment_target"`
+	// DevelopmentTeam is the 10-character Apple Developer Team ID that signs a
+	// DEVICE build. Without it xcodebuild stops at "Signing for \"App\" requires a
+	// development team", which is why `goleo build ios` could only ever produce a
+	// Simulator app from the CLI. Not needed for --simulator, which does not sign.
+	DevelopmentTeam string `json:"development_team"`
 }
 
 // windowsSection is reserved for MSIX identity (Microsoft Store), which must

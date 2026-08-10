@@ -21,6 +21,7 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.database.Cursor;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
@@ -34,9 +35,12 @@ import android.nfc.tech.Ndef;
 import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Looper;
+import android.provider.OpenableColumns;
 import android.util.Base64;
 import android.view.WindowManager;
 import android.webkit.GeolocationPermissions;
+import android.webkit.MimeTypeMap;
 import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -44,8 +48,10 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.webkit.WebSettings;
 import android.webkit.WebResourceRequest;
+import android.widget.EditText;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.app.NotificationCompat;
@@ -64,6 +70,9 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -72,6 +81,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -79,6 +89,7 @@ import gomobile.BackgroundProvider;
 import gomobile.BatteryProvider;
 import gomobile.BLEProvider;
 import gomobile.ClipboardProvider;
+import gomobile.DialogsProvider;
 import gomobile.Gomobile;
 import gomobile.NFCProvider;
 import gomobile.Notifier;
@@ -148,6 +159,32 @@ public class MainActivity extends AppCompatActivity {
                 pendingFileChooser = null;
             });
 
+    // Backs GoleoDialogs.openFileJSON. A field initializer for the same reason as
+    // fileChooserLauncher above: registerForActivityResult must run before onStart.
+    private volatile CountDownLatch documentPickLatch;
+    private volatile List<Uri> documentPickResult;
+
+    private final ActivityResultLauncher<Intent> documentPickerLauncher = registerForActivityResult(
+            new ActivityResultContracts.StartActivityForResult(), result -> {
+                List<Uri> uris = new ArrayList<>();
+                Intent data = result.getData();
+                if (result.getResultCode() == RESULT_OK && data != null) {
+                    if (data.getClipData() != null) {
+                        int count = data.getClipData().getItemCount();
+                        for (int i = 0; i < count; i++) {
+                            uris.add(data.getClipData().getItemAt(i).getUri());
+                        }
+                    } else if (data.getData() != null) {
+                        uris.add(data.getData());
+                    }
+                }
+                documentPickResult = uris;
+                CountDownLatch latch = documentPickLatch;
+                if (latch != null) {
+                    latch.countDown();
+                }
+            });
+
     @SuppressLint("SetJavaScriptEnabled")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -167,6 +204,7 @@ public class MainActivity extends AppCompatActivity {
         Gomobile.setBLEProvider(new GoleoBle());
         Gomobile.setClipboardProvider(new GoleoClipboard());
         Gomobile.setShareProvider(new GoleoShare());
+        Gomobile.setDialogsProvider(new GoleoDialogs());
 
         nfcAdapter = NfcAdapter.getDefaultAdapter(this);
         if (nfcAdapter != null) {
@@ -219,7 +257,7 @@ public class MainActivity extends AppCompatActivity {
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onPermissionRequest(PermissionRequest request) {
-                if (!request.getOrigin().toString().startsWith("http://localhost")) {
+                if (!isAppOrigin(request.getOrigin().toString())) {
                     request.deny();
                     return;
                 }
@@ -245,6 +283,13 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onGeolocationPermissionsShowPrompt(String origin,
                     GeolocationPermissions.Callback callback) {
+                // This had no origin check at all, so any page the WebView reached could
+                // read the device's location as long as the app itself held the runtime
+                // permission — the camera/mic path above was gated and this one was not.
+                if (!isAppOrigin(origin)) {
+                    callback.invoke(origin, false, false);
+                    return;
+                }
                 if (hasPermission(Manifest.permission.ACCESS_FINE_LOCATION)
                         || hasPermission(Manifest.permission.ACCESS_COARSE_LOCATION)) {
                     callback.invoke(origin, true, false);
@@ -334,8 +379,33 @@ public class MainActivity extends AppCompatActivity {
         Gomobile.setBLEProvider(null);
         Gomobile.setClipboardProvider(null);
         Gomobile.setShareProvider(null);
+        Gomobile.setDialogsProvider(null);
         Gomobile.stopServer();
         super.onDestroy();
+    }
+
+    // Whether a WebView permission request came from the app's own UI.
+    //
+    // Compares the parsed HOST for equality rather than matching a string prefix:
+    // "http://localhost.evil.com/".startsWith("http://localhost") is TRUE, and that is an
+    // ordinary registrable domain anyone can own. Nothing here restricts navigation, so an
+    // app that links out — or renders a link in user content — could reach such a page.
+    //
+    // The port is deliberately not checked: the Vite dev server moves when its port is
+    // taken. 10.0.2.2 is the Android emulator's alias for the host's loopback, so in DEV
+    // it is the dev machine's own origin — the release shell does not accept it. Same
+    // dev-vs-production split as devOriginAllowed() in runtime/server.go.
+    private boolean isAppOrigin(String origin) {
+        if (origin == null) {
+            return false;
+        }
+        Uri uri = Uri.parse(origin);
+        String host = uri.getHost();
+        if (!"http".equals(uri.getScheme()) || host == null) {
+            return false;
+        }
+        return "127.0.0.1".equals(host) || "localhost".equals(host)
+                || "::1".equals(host) || "10.0.2.2".equals(host);
     }
 
     private boolean hasPermission(String permission) {
@@ -531,6 +601,299 @@ public class MainActivity extends AppCompatActivity {
                 }
             });
         }
+    }
+
+    // Native dialogs and file pickers. Implements the gomobile-generated DialogsProvider
+    // interface. Kept identical to the release shell — a provider that behaves differently
+    // in dev is a defect you only find after shipping.
+    //
+    // Every method takes and returns a JSON string: gobind cannot bind the runtime's
+    // option structs across package boundaries (backend/gomobile/dialogs.go records the
+    // detail), and a method it cannot bind is silently OMITTED from the generated proxy
+    // rather than reported at build time.
+    //
+    // Every method BLOCKS its calling thread until the user answers. That is safe only
+    // because the Go bridge handlers run on goroutines, never on the UI thread.
+    private class GoleoDialogs implements DialogsProvider {
+        @Override
+        public String showMessageJSON(String optsJSON) throws Exception {
+            return withDialogLock(() -> presentMessage(optsJSON));
+        }
+
+        private String presentMessage(String optsJSON) throws Exception {
+            JSONObject opts = new JSONObject(optsJSON);
+            List<String> buttons = stringList(opts.optJSONArray("buttons"));
+            if (buttons.isEmpty()) {
+                buttons.add("OK");
+            }
+            final String[] result = {""};
+            final CountDownLatch latch = new CountDownLatch(1);
+            runOnUiThread(() -> {
+                AlertDialog.Builder builder = new AlertDialog.Builder(MainActivity.this)
+                        .setTitle(opts.optString("title"))
+                        .setMessage(opts.optString("message"));
+                // Dismissing reports the LAST button — the dismissive one by convention,
+                // and what iOS's .cancel action reports. Never the first, so a
+                // "Delete everything?" confirmation cannot be answered by a back press.
+                builder.setOnCancelListener(d -> settle(result, latch, buttons.get(buttons.size() - 1)));
+                if (buttons.size() > 3) {
+                    // AlertDialog has exactly three button slots, so a longer list has to
+                    // be rendered as items or the extra choices would not be shown at all.
+                    String[] items = buttons.toArray(new String[0]);
+                    builder.setItems(items, (d, which) -> settle(result, latch, items[which]));
+                } else {
+                    builder.setPositiveButton(buttons.get(0), (d, w) -> settle(result, latch, buttons.get(0)));
+                    if (buttons.size() == 3) {
+                        builder.setNeutralButton(buttons.get(1), (d, w) -> settle(result, latch, buttons.get(1)));
+                    }
+                    if (buttons.size() >= 2) {
+                        String last = buttons.get(buttons.size() - 1);
+                        builder.setNegativeButton(last, (d, w) -> settle(result, latch, last));
+                    }
+                }
+                builder.show();
+            });
+            latch.await();
+            return result[0];
+        }
+
+        @Override
+        public String showPromptJSON(String optsJSON) throws Exception {
+            return withDialogLock(() -> presentPrompt(optsJSON));
+        }
+
+        private String presentPrompt(String optsJSON) throws Exception {
+            JSONObject opts = new JSONObject(optsJSON);
+            final String[] result = {""};
+            final CountDownLatch latch = new CountDownLatch(1);
+            runOnUiThread(() -> {
+                EditText input = new EditText(MainActivity.this);
+                input.setText(opts.optString("defaultValue"));
+                new AlertDialog.Builder(MainActivity.this)
+                        .setTitle(opts.optString("title"))
+                        .setMessage(opts.optString("message"))
+                        .setView(input)
+                        // Empty means cancelled. A cancelled prompt and an empty answer
+                        // are indistinguishable here, as they are on desktop.
+                        .setNegativeButton("Cancel", (d, w) -> settle(result, latch, ""))
+                        .setPositiveButton("OK", (d, w) -> settle(result, latch, input.getText().toString()))
+                        .setOnCancelListener(d -> settle(result, latch, ""))
+                        .show();
+            });
+            latch.await();
+            return result[0];
+        }
+
+        @Override
+        public String openFileJSON(String optsJSON) throws Exception {
+            return withDialogLock(() -> presentOpenFile(optsJSON));
+        }
+
+        private String presentOpenFile(String optsJSON) throws Exception {
+            JSONObject opts = new JSONObject(optsJSON);
+            boolean multiple = opts.optBoolean("multiple", false);
+            String[] mimeTypes = mimeTypesFrom(opts.optJSONArray("filters"));
+
+            documentPickResult = null;
+            final CountDownLatch latch = new CountDownLatch(1);
+            documentPickLatch = latch;
+
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType(mimeTypes.length == 1 ? mimeTypes[0] : "*/*");
+            if (mimeTypes.length > 1) {
+                intent.putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes);
+            }
+            intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, multiple);
+            runOnUiThread(() -> documentPickerLauncher.launch(intent));
+            latch.await();
+            documentPickLatch = null;
+
+            List<Uri> uris = documentPickResult;
+            documentPickResult = null;
+            JSONArray paths = new JSONArray();
+            if (uris != null) {
+                for (Uri uri : uris) {
+                    // Copied into the app's cache rather than returned as a content://
+                    // URI: the Go fs plugin takes filesystem PATHS and SAF never yields
+                    // one. RegisterDialogs grants whatever comes back to the fs scope.
+                    paths.put(copyToCache(uri));
+                }
+            }
+            return paths.toString();
+        }
+
+        // Asks for a FILENAME and returns a path in the app's own documents directory.
+        // Android has no "choose a destination, then write to it" primitive: SAF hands
+        // back a URI to write THROUGH, while the caller needs a path to write TO.
+        @Override
+        public String saveFileJSON(String optsJSON) throws Exception {
+            return withDialogLock(() -> presentSaveFile(optsJSON));
+        }
+
+        private String presentSaveFile(String optsJSON) throws Exception {
+            JSONObject opts = new JSONObject(optsJSON);
+            String suggested = new File(opts.optString("defaultPath")).getName();
+            String title = opts.optString("title");
+            final String[] result = {""};
+            final CountDownLatch latch = new CountDownLatch(1);
+            runOnUiThread(() -> {
+                EditText input = new EditText(MainActivity.this);
+                input.setText(suggested);
+                input.setHint("File name");
+                new AlertDialog.Builder(MainActivity.this)
+                        .setTitle(title.isEmpty() ? "Save File" : title)
+                        .setView(input)
+                        .setNegativeButton("Cancel", (d, w) -> settle(result, latch, ""))
+                        .setPositiveButton("Save", (d, w) -> settle(result, latch, input.getText().toString()))
+                        .setOnCancelListener(d -> settle(result, latch, ""))
+                        .show();
+            });
+            latch.await();
+            if (result[0].isEmpty()) {
+                return ""; // cancelled
+            }
+            // Basename only: a name with separators in it would otherwise write outside
+            // the directory this method promises to return a path inside.
+            return new File(appDocumentsDir(), new File(result[0]).getName()).getAbsolutePath();
+        }
+
+        // Returns the app's own documents directory, without a picker. Same reasoning as
+        // the iOS shell: neither platform can hand back a plain path for an arbitrary
+        // user-chosen directory — SAF yields a tree URI and iOS a security-scoped URL,
+        // and the path-based Go fs plugin can read neither.
+        @Override
+        public String selectFolderJSON(String optsJSON) {
+            return appDocumentsDir().getAbsolutePath();
+        }
+    }
+
+    private interface DialogAction {
+        String run() throws Exception;
+    }
+
+    // Serialises dialog presentation. Only one modal belongs on screen at a time, and
+    // openFileJSON parks its result in documentPickLatch/documentPickResult — fields
+    // shared with the activity's ActivityResultLauncher callback, so two concurrent picks
+    // would have one consume the other's URIs and leave the loser waiting forever.
+    // Concurrent calls are ordinary rather than exotic: the bridge runs every invoke on
+    // its own goroutine (runtime/websocket.go), so a frontend firing two dialogs without
+    // awaiting the first produces exactly that.
+    private final Semaphore dialogLock = new Semaphore(1);
+
+    private String withDialogLock(DialogAction action) throws Exception {
+        // Checked before acquiring: runOnUiThread runs inline when already on the UI
+        // thread, so the dialog would be built and then await() would freeze the very
+        // thread that has to draw it. Doing that while holding the lock would take every
+        // later dialog down with it. The Go bridge handlers never run here — this throws
+        // rather than hangs if that ever changes.
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            throw new Exception("goleo dialogs cannot be shown from the UI thread");
+        }
+        dialogLock.acquire();
+        try {
+            return action.run();
+        } finally {
+            dialogLock.release();
+        }
+    }
+
+    // Records a dialog answer exactly once. A dialog can report twice — a button click
+    // followed by a dismissal — and the second result would otherwise overwrite the
+    // user's actual choice.
+    private static void settle(String[] slot, CountDownLatch latch, String value) {
+        if (latch.getCount() == 0) {
+            return;
+        }
+        slot[0] = value;
+        latch.countDown();
+    }
+
+    // The app-specific external files directory is user-visible over USB and in file
+    // managers and needs no permission. It falls back to internal storage on a device
+    // with no external volume mounted.
+    private File appDocumentsDir() {
+        File dir = getExternalFilesDir(null);
+        return dir != null ? dir : getFilesDir();
+    }
+
+    private String copyToCache(Uri uri) throws Exception {
+        File dir = new File(getCacheDir(), "goleo-picked");
+        dir.mkdirs();
+        File out = new File(dir, displayName(uri));
+        try (InputStream in = getContentResolver().openInputStream(uri);
+                FileOutputStream fos = new FileOutputStream(out)) {
+            if (in == null) {
+                throw new Exception("cannot open the selected document: " + uri);
+            }
+            byte[] buffer = new byte[8192];
+            int n;
+            while ((n = in.read(buffer)) > 0) {
+                fos.write(buffer, 0, n);
+            }
+        }
+        return out.getAbsolutePath();
+    }
+
+    private String displayName(Uri uri) {
+        try (Cursor cursor = getContentResolver().query(uri, null, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                if (index >= 0) {
+                    String name = cursor.getString(index);
+                    if (name != null && !name.isEmpty()) {
+                        // Basename only. DISPLAY_NAME comes from the document provider,
+                        // which is another app: a name containing "../" would otherwise
+                        // land the copy outside the cache directory.
+                        return new File(name).getName();
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // Fall through to the URI-derived name.
+        }
+        String last = uri.getLastPathSegment();
+        return last != null ? new File(last).getName() : "picked-file";
+    }
+
+    private List<String> stringList(JSONArray array) {
+        List<String> values = new ArrayList<>();
+        if (array != null) {
+            for (int i = 0; i < array.length(); i++) {
+                String value = array.optString(i, "");
+                if (!value.isEmpty()) {
+                    values.add(value);
+                }
+            }
+        }
+        return values;
+    }
+
+    // Maps FileDialogOptions.Filters patterns ("*.txt") onto MIME types. A pattern that
+    // does not resolve is dropped rather than guessed at; with none left the picker
+    // accepts any file, which beats presenting one that can select nothing.
+    private String[] mimeTypesFrom(JSONArray filters) {
+        List<String> types = new ArrayList<>();
+        if (filters != null) {
+            for (int i = 0; i < filters.length(); i++) {
+                JSONObject filter = filters.optJSONObject(i);
+                if (filter == null) {
+                    continue;
+                }
+                for (String pattern : stringList(filter.optJSONArray("patterns"))) {
+                    String ext = pattern.replace("*", "").replace(".", "").trim();
+                    if (ext.isEmpty()) {
+                        continue;
+                    }
+                    String mime = MimeTypeMap.getSingleton()
+                            .getMimeTypeFromExtension(ext.toLowerCase());
+                    if (mime != null && !types.contains(mime)) {
+                        types.add(mime);
+                    }
+                }
+            }
+        }
+        return types.toArray(new String[0]);
     }
 
     private class GoleoWakeLock implements WakeLockProvider {

@@ -57,6 +57,7 @@ var (
 	buildVersionCode   int
 	buildWindowsFormat string
 	buildSimulator     bool
+	iosTeam            string
 )
 
 func init() {
@@ -78,6 +79,7 @@ func init() {
 	buildCmd.Flags().IntVar(&buildVersionCode, "version-code", 0, "Override the Android versionCode (default: mobile.android.version_code, else derived from version)")
 	buildCmd.Flags().StringVar(&buildWindowsFormat, "windows-format", "", "With --bundle on Windows: nsis, msix, or both (default: nsis)")
 	buildCmd.Flags().BoolVar(&buildSimulator, "simulator", false, "iOS: build for the Simulator (needs no signing certificate, so it works without an Apple Developer account)")
+	buildCmd.Flags().StringVar(&iosTeam, "ios-team", "", "Apple Developer Team ID signing an iOS device build (default: mobile.ios.development_team)")
 }
 
 // androidArtifactFormat is the Android output kind.
@@ -211,6 +213,14 @@ func runBuild(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		if err := validateAndroidRelease(); err != nil {
+			return err
+		}
+	}
+
+	if targetName == "ios" {
+		// Same reasoning: a device build with no team fails at the very last step, after
+		// a full gomobile bind, with xcodebuild's own wording.
+		if err := validateIOSSigning(); err != nil {
 			return err
 		}
 	}
@@ -910,6 +920,22 @@ func buildForIOS(distDir string) error {
 	if err != nil {
 		return err
 	}
+	// Must be resolved before extractMobileTemplate below, which renders xcodegen.yml —
+	// that is where DEVELOPMENT_TEAM lands.
+	//
+	// A Simulator build gets NO team, even when goleo.json configures one. It passes
+	// CODE_SIGNING_ALLOWED=NO, so a team is meaningless there — and writing
+	// DEVELOPMENT_TEAM + CODE_SIGN_STYLE: Automatic into the project would put automatic
+	// provisioning in the path of the one iOS build that is supposed to work with no Apple
+	// account at all, on a machine that by definition may not have that team. Keeping the
+	// project byte-identical to what CI already builds is worth more than honouring a
+	// setting that cannot apply. (--ios-team with --simulator is refused outright by
+	// validateTargetFlags; this drops the *config* value, which is not a per-build request.)
+	if buildSimulator {
+		mobileCfg.IOSDevelopmentTeam = ""
+	} else {
+		mobileCfg.IOSDevelopmentTeam = resolveIOSTeam(iosTeam, mobileCfg.IOSDevelopmentTeam)
+	}
 
 	gomobileArgs := []string{
 		"bind", "-v",
@@ -1014,7 +1040,25 @@ func buildForIOS(distDir string) error {
 			"CODE_SIGNING_ALLOWED=NO",
 		)
 	} else {
-		fmt.Println("  Compiling with xcodebuild...")
+		// WITHOUT AN EXPLICIT DESTINATION xcodebuild silently picks the first of the
+		// matching ones, and on a Mac with "Designed for iPad" support that is
+		//   { platform:macOS, arch:arm64, variant:Designed for [iPad,iPhone], name:My Mac }
+		// so `goleo build ios` compiled a MAC app. The only hint is a warning it prints
+		// among hundreds of lines: "Using the first of multiple matching destinations".
+		fmt.Println("  Compiling for iOS devices with xcodebuild...")
+		args = append(args,
+			"-sdk", "iphoneos",
+			"-destination", "generic/platform=iOS",
+			// Lets automatic signing register the device and create or refresh the
+			// provisioning profile, which otherwise only the Xcode UI can do.
+			"-allowProvisioningUpdates",
+		)
+		// validateIOSSigning has already refused an unsigned device build, so this is
+		// set; passed on the command line as well as in the project so it wins over
+		// anything xcodegen's own settingPresets contribute.
+		if team := mobileCfg.IOSDevelopmentTeam; team != "" {
+			args = append(args, "DEVELOPMENT_TEAM="+team)
+		}
 	}
 	// Tee the output as well as streaming it: xcodebuild reports some failures only in
 	// prose and exits 74, so the exit status alone cannot be turned into a useful message.
@@ -1384,6 +1428,29 @@ func validateTargetFlags(targetName string, target buildTarget) error {
 		return fmt.Errorf("--simulator only applies to the ios target")
 	}
 
+	// The minimum-version and signing overrides belong to one mobile target each. All
+	// three were accepted everywhere and read by one target, so `goleo build windows
+	// --ios-target 17.0` reported success having ignored it — the same silent no-op that
+	// --release on iOS was, and the reason the flag x target matrix test exists.
+	if targetName != "ios" {
+		if iosDeployTarget != "" {
+			return fmt.Errorf("--ios-target only applies to the ios target")
+		}
+		if iosTeam != "" {
+			return fmt.Errorf("--ios-team only applies to the ios target")
+		}
+	}
+	// A Simulator build is not signed, so a team cannot affect it. Refused rather than
+	// ignored, for the same reason --windows-format without --bundle is: asking for
+	// something that cannot happen should say so.
+	if iosTeam != "" && buildSimulator {
+		return fmt.Errorf("--ios-team does not apply to --simulator: a Simulator build is " +
+			"not signed, which is what makes it work without an Apple Developer account")
+	}
+	if targetName != "android" && androidAPI > 0 {
+		return fmt.Errorf("--android-api only applies to the android target")
+	}
+
 	// --windows-format is meaningless unless a Windows installer is actually being built.
 	if buildWindowsFormat != "" {
 		if !buildBundle {
@@ -1428,6 +1495,37 @@ func validateTargetFlags(targetName string, target buildTarget) error {
 	}
 
 	return nil
+}
+
+// resolveIOSTeam returns the Apple Developer Team ID for a device build. --ios-team wins
+// over mobile.ios.development_team, mirroring how --ios-target overrides
+// mobile.ios.deployment_target.
+func resolveIOSTeam(flagValue, configured string) string {
+	if v := strings.TrimSpace(flagValue); v != "" {
+		return v
+	}
+	return strings.TrimSpace(configured)
+}
+
+// validateIOSSigning refuses a device build that cannot possibly be signed.
+//
+// The generated Xcode project is rewritten on every build, so a team picked by hand in
+// Xcode does not survive one. Without a configured team every `goleo build ios` ran a full
+// gomobile bind and then stopped at xcodebuild's 'Signing for "App" requires a development
+// team' — which names neither goleo.json nor the flag that fixes it.
+func validateIOSSigning() error {
+	if buildSimulator {
+		return nil // a Simulator build is not signed at all
+	}
+	if resolveIOSTeam(iosTeam, loadMobileConfig(".").IOSDevelopmentTeam) != "" {
+		return nil
+	}
+	return fmt.Errorf("an iOS device build must be signed, and no Apple Developer Team ID is set.\n" +
+		"  Add it to goleo.json:\n" +
+		`    "mobile": { "ios": { "development_team": "ABCDE12345" } }` + "\n" +
+		"  or pass --ios-team ABCDE12345. The Team ID is the 10-character string under\n" +
+		"  Xcode > Settings > Accounts, or Membership details at developer.apple.com/account.\n" +
+		"  With no Apple Developer account: `goleo build ios --simulator` needs no signing.")
 }
 
 // validateAndroidRelease checks the release/signing flags before any expensive work.
