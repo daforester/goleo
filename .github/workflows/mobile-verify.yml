@@ -403,7 +403,34 @@ jobs:
             total=$(grep -cE "@protocol|@interface|FOUNDATION_EXPORT" "$h" || true)
             echo "($total declarations)"
             grep -nE "@protocol|@interface|FOUNDATION_EXPORT" "$h" | head -200 || true
+
+            # The declaration lines above name the protocols but NOT their methods, which
+            # is the only thing a shell author actually needs — the signature to write in
+            # Swift. 0.10.7 shipped an iOS build that could not compile because a provider
+            # method's shape was wrong, and this step printed "GomobileDialogsProvider
+            # exists" while staying silent about the shape. Print the bodies.
+            echo "--- protocol bodies (the signatures AppDelegate.swift must match) ---"
+            awk '/^@protocol .*<NSObject>/ { inblk = 1 }
+                 inblk { print }
+                 /^@end/ { if (inblk) { print ""; inblk = 0 } }' "$h" || true
           done
+
+          # A reverse-bound method that returns a _Nonnull object AND takes error:(NSError**)
+          # is unimplementable from Swift: Swift only rewrites a trailing NSError** into a
+          # throwing method when the result can express failure, so no signature conforms
+          # and the build fails with the unhelpful "does not conform to protocol". gobind
+          # emits exactly that for a Go method returning (value, error) — see SPIKES.md,
+          # 2026-08-10. Swift already fails the build on its own; this only turns that into
+          # a message that names the cause.
+          echo "--- unimplementable (value, error) methods, if any ---"
+          if grep -rnE '_Nonnull\)[a-zA-Z]+:.*error:\(NSError' \
+              .goleo/ios --include="*.objc.h" 2>/dev/null; then
+            echo "::warning::the methods above return a _Nonnull object alongside error:(NSError**)."
+            echo "::warning::No Swift signature can conform to those. The Go interface method must"
+            echo "::warning::return a value OR an error, not both — carry failures in the reply."
+          else
+            echo "none"
+          fi
 
       - name: Fail if the iOS build failed
         if: steps.iosbuild.outcome == 'failure'

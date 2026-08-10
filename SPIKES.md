@@ -1423,7 +1423,14 @@ Two process notes worth as much as the finding:
   was unimplementable in Swift. Any change to a provider interface needs the
   `ios-simulator` job, not just the Android ones.
 - The `mobile-verify` step named *"Generated Objective-C API surface (ground truth for
-  AppDelegate.swift)"* greps only `@protocol|@interface|FOUNDATION_EXPORT`, so it prints
+  AppDelegate.swift)"* grepped only `@protocol|@interface|FOUNDATION_EXPORT`, so it printed
   which protocols exist and **not their method signatures** — the one thing it is there to
   establish. It confirmed `GomobileDialogsProvider` existed while saying nothing about the
-  shape that was wrong. Worth widening to print protocol bodies.
+  shape that was wrong.
+
+  **Fixed the same day.** The step now prints each protocol body in full, and flags any
+  method matching `_Nonnull)<name>:… error:(NSError` as unimplementable from Swift, naming
+  the cause instead of leaving "does not conform to protocol" to be decoded. Both halves
+  were checked against a synthetic header before landing: the detector fires on the 0.10.7
+  shape and stays quiet on both working ones — a lone value (`readText`) and `BOOL` +
+  `NSError**` (`startSensor`, which is how a Go error-only result imports as `throws`).
