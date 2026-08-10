@@ -9,11 +9,19 @@
          Battery and wake lock need no permission at all. Remove any of
          these you don't use — see AGENTS.md's feature table. -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- MODIFY_AUDIO_SETTINGS is required ALONGSIDE RECORD_AUDIO: Chromium's WebView
+         media stack refuses to enumerate any input device without both, and logs
+         "Requires MODIFY_AUDIO_SETTINGS and RECORD_AUDIO. No audio device will be
+         available for recording". It is a normal permission, so leaving it out is
+         invisible — the RECORD_AUDIO prompt still appears and is granted, and
+         getUserMedia({audio:true}) still throws NotReadableError. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
     <!-- NFC and BLE demo pages. NFC is a normal (manifest-only) permission;
          BLUETOOTH_SCAN/CONNECT are runtime "nearby devices" permissions on

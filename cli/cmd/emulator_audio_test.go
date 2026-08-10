@@ -142,6 +142,62 @@ func TestMicrophoneDerivesBothAudioPermissions(t *testing.T) {
 	}
 }
 
+// The dev and release Android manifests are built two different ways, and only one of them
+// tracks featureRegistry.
+//
+//   - release (templates/android/…/AndroidManifest.xml) RENDERS {{range .Perms.Permissions}},
+//     so it follows resolveAndroidPermissions automatically.
+//   - dev (templates/android-dev/…) is a STATIC list, deliberately a superset so every demo
+//     page works under `goleo emulate android` without re-deriving anything.
+//
+// Static means it drifts. Adding MODIFY_AUDIO_SETTINGS to the Microphone feature fixed
+// `goleo build android` and did nothing for `goleo emulate android`, so the microphone stayed
+// broken on the emulator through a released fix that looked complete — the same permission was
+// missing in a file nothing pointed at.
+//
+// So: every permission a feature derives must either be in the dev manifest or be listed
+// below with a reason. The reverse is fine — dev is allowed extras.
+//
+// devManifestMayOmit is deliberately explicit rather than a blanket exemption. Each of these
+// was checked against what the demo pages actually do; a NEW feature permission with no entry
+// here fails the test, which forces the same check instead of letting it slide.
+var devManifestMayOmit = map[string]string{
+	"android.permission.WAKE_LOCK":          "contributed by the WorkManager library manifest at merge time",
+	"android.permission.FOREGROUND_SERVICE": "contributed by the WorkManager library manifest at merge time",
+	"android.permission.READ_EXTERNAL_STORAGE": "legacy: superseded by READ_MEDIA_* on API 33+, " +
+		"and the fs plugin works in app-private storage, which needs no permission",
+	"android.permission.WRITE_EXTERNAL_STORAGE": "legacy: a no-op since API 29, and the fs " +
+		"plugin works in app-private storage",
+	"android.permission.BODY_SENSORS": "only gates body sensors (heart rate); the sensors demo " +
+		"uses accelerometer/gyroscope/magnetometer, which need no permission",
+}
+
+func TestDevManifestCoversEveryFeaturePermission(t *testing.T) {
+	manifest, err := mobileTemplates.ReadFile(
+		"templates/android-dev/app/src/main/AndroidManifest.xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dev := string(manifest)
+
+	for _, f := range featureRegistry {
+		for _, perm := range f.Permissions {
+			if _, ok := devManifestMayOmit[perm]; ok {
+				continue
+			}
+			// The dev manifest spells legacy Bluetooth grants with maxSdkVersion, so match
+			// on the permission name rather than a whole element.
+			if !strings.Contains(dev, perm) {
+				t.Errorf("the %s feature derives %s, which the DEV manifest does not declare "+
+					"— `goleo build android` would have it and `goleo emulate android` would "+
+					"not, so the feature silently fails on the emulator. Add it there, or add "+
+					"it to devManifestMayOmit with the reason it does not matter.",
+					f.Name, perm)
+			}
+		}
+	}
+}
+
 // An AVD's data directory is NOT necessarily <name>.avd — it is whatever its <name>.ini
 // registration points at, and the two diverge the moment an AVD is renamed. A real machine
 // had emulator-5562.ini -> Medium_Phone.avd/, a perfectly healthy AVD that goleo could not

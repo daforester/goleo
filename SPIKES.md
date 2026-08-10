@@ -1630,3 +1630,34 @@ nonexistent version, and true for the linux platform package; the step passes `b
 and this one was tuned on the failure that prompted it (~63s) rather than on the worst case.
 Two releases later a different runner exceeded it. Prefer waiting for a cheap positive signal
 over retrying an expensive negative one.
+
+**The fix was incomplete, and the reason is structural (same day).** Adding
+`MODIFY_AUDIO_SETTINGS` to the Microphone feature fixed `goleo build android` and changed
+nothing for `goleo emulate android` — the microphone stayed broken on the emulator through a
+released fix that looked complete.
+
+The two Android manifests are built **two different ways**:
+
+- `templates/android/…/AndroidManifest.xml` **renders** `{{range .Perms.Permissions}}`, so it
+  follows `resolveAndroidPermissions` automatically.
+- `templates/android-dev/…/AndroidManifest.xml` is a **static list**, deliberately a superset
+  so every demo page works under `emulate` without re-deriving anything.
+
+Static means it drifts, and nothing pointed at it: `scan.go` is where permissions look like
+they live, and it is authoritative for exactly one of the two paths.
+`TestDevManifestCoversEveryFeaturePermission` now fails when a derived permission is missing
+from the dev manifest.
+
+Writing that test immediately surfaced five more divergences — `WAKE_LOCK`,
+`FOREGROUND_SERVICE`, `READ`/`WRITE_EXTERNAL_STORAGE`, `BODY_SENSORS`. All five turned out to
+be harmless (the first two arrive via WorkManager's library manifest at merge time; the rest
+are inert on modern API levels or unnecessary for what the demos do), so they are listed in
+`devManifestMayOmit` **with the reason** rather than bulk-added. A new feature permission with
+no entry there fails the test, which forces the same check instead of letting it slide.
+
+**The pattern, now the fourth instance this session:** a value resolved on one path and passed
+raw on another, a provider registered by one shell and not the other, a permission gate on one
+callback and not its neighbour, and now a permission list derived in one manifest and hardcoded
+in the other. Every one was invisible because the path that was checked was the correct one.
+When two artifacts serve the same purpose by different mechanisms, the guard has to compare
+them to each other — testing either alone proves nothing about the pair.
