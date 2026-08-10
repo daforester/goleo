@@ -110,19 +110,47 @@ jobs:
           echo "smoke-testing @goleo/cli@$v"
           echo "SMOKE_VERSION=$v" >> "$GITHUB_ENV"
 
-          # Retry: the registry can 404 an exact version briefly after publish, and
-          # this job deliberately runs immediately after. Without this the whole
-          # matrix fails on propagation timing rather than on anything about the
-          # release. (The scaffold step below retries for the same reason, against
-          # the Go module proxy.)
-          for attempt in 1 2 3 4; do
+          # WAIT for visibility before installing, rather than retrying the install.
+          #
+          # This job runs seconds after the release workflow, so the registry has often
+          # not propagated the exact version to whichever edge this runner reaches. The
+          # old loop retried `npm install -g` 4x30s ≈ 90s and ubuntu-latest still lost
+          # the race on 0.10.12 with ETARGET, while windows and macOS won it — the
+          # release itself was fine and installable minutes later. Polling `npm view` is
+          # a cheap metadata query rather than a full failed install per attempt, so the
+          # window can be much wider for less noise and less time.
+          #
+          # BOTH packages are waited on. @goleo/cli pulls its os/cpu binary through
+          # optionalDependencies, and npm drops an unresolvable OPTIONAL dependency
+          # silently — so a lagging platform package yields a successful install of a
+          # CLI that then reports "no prebuilt binary found". Node computes the exact
+          # name the launcher will look for, so this cannot drift from bin/goleo.js.
+          platform_pkg="@goleo/cli-$(node -p 'process.platform')-$(node -p 'process.arch')"
+          for pkg in "@goleo/cli" "$platform_pkg"; do
+            echo "waiting for $pkg@$v to be visible on the registry"
+            for attempt in $(seq 1 20); do
+              if npm view "$pkg@$v" version >/dev/null 2>&1; then
+                echo "  $pkg@$v is visible"
+                break
+              fi
+              if [ "$attempt" = 20 ]; then
+                echo "::error::$pkg@$v never became visible on npm after 5 minutes"
+                exit 1
+              fi
+              sleep 15
+            done
+          done
+
+          # One retry left in place: visible metadata does not guarantee every edge is
+          # serving the tarball yet.
+          for attempt in 1 2 3; do
             if npm install -g "@goleo/cli@$v"; then break; fi
-            if [ "$attempt" = 4 ]; then
-              echo "::error::@goleo/cli@$v never became installable from npm"
+            if [ "$attempt" = 3 ]; then
+              echo "::error::@goleo/cli@$v is visible but would not install"
               exit 1
             fi
-            echo "not on the registry yet, retrying in 30s"
-            sleep 30
+            echo "install failed despite visible metadata, retrying in 20s"
+            sleep 20
           done
           goleo version
 

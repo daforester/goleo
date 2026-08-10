@@ -1595,3 +1595,38 @@ Extended Controls toggle was the missing piece (unconfirmed; it was enabled and 
 **`adb logcat` answered in one command what three rounds of reasoning about the emulator did
 not.** For anything WebView-related on Android, read the device log first — `cr_media`,
 `AudioRecord` and `AudioFlinger` say precisely what they want.
+
+## Release — release-smoke lost the npm propagation race again, on a different runner (2026-08-10)
+
+`release-smoke` failed on **ubuntu-latest** for 0.10.12 with
+
+	npm error code ETARGET
+	npm error notarget No matching version found for @goleo/cli@0.10.12.
+
+while windows and macOS passed. **The release itself was fine** — `npm view @goleo/cli@0.10.12`
+resolves, as does `@goleo/cli-linux-x64@0.10.12`. Purely propagation timing: the job runs
+seconds after the release workflow and one runner reached an edge that had not caught up.
+
+This is the same race that hit the **windows** job on 0.10.5 (see the entry above, where the
+fix was to publish `@goleo/bridge` first because it is resolved last). That fix was correct and
+did not cover this: `@goleo/cli` is published **last** and installed **first**, so it has the
+least propagation time of anything in the release. Reordering cannot fix that — something has
+to be published last.
+
+So the job now **waits for visibility instead of retrying the install**. `npm view` is a cheap
+metadata query rather than a full failed install per attempt, so the window widened from
+4x30s ≈ 90s to 20x15s = 5 min while producing less noise and usually finishing faster.
+
+It waits on **both** `@goleo/cli` and the runner's own `@goleo/cli-<platform>-<arch>`, because
+npm drops an unresolvable **optional** dependency silently — a lagging platform package would
+otherwise yield a successful install of a CLI that then reports "no prebuilt binary found".
+The package name is computed with `node -p process.platform/process.arch` so it cannot drift
+from what `bin/goleo.js` looks for.
+
+Verified before committing: the predicate returns true for the published 0.10.12, false for a
+nonexistent version, and true for the linux platform package; the step passes `bash -n`.
+
+**The general point:** a retry loop's window is a guess about someone else's infrastructure,
+and this one was tuned on the failure that prompted it (~63s) rather than on the worst case.
+Two releases later a different runner exceeded it. Prefer waiting for a cheap positive signal
+over retrying an expensive negative one.
