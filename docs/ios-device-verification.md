@@ -14,19 +14,30 @@ macOS 26.5.2, Go 1.26.5 darwin/arm64, XcodeGen 2.46.0.
 Upgrade the CLI:
 
 ```bash
-npm install -g @goleo/cli@0.10.9
+npm install -g @goleo/cli@0.10.10
 # or, if you installed with Go:
-#   go install github.com/daforester/goleo/cli/goleo@v0.10.9
+#   go install github.com/daforester/goleo/cli/goleo@v0.10.10
 
-goleo version      # must print 0.10.9
+goleo version      # must print 0.10.10
 ```
 
 If the CLI reports a *version mismatch* between `@goleo/cli` and its native binary package,
 follow its instructions and reinstall — npm can leave the platform binary on an older
 release, which silently runs the old CLI.
 
-There is nothing to edit in the demo app. The CLI re-pins the project's Go dependency to its
-own version on every build, so upgrading the CLI upgrades the app.
+**Scaffold a fresh demo app — do not reuse an older one.**
+
+```bash
+goleo new ios-check --demo
+cd ios-check
+```
+
+Upgrading the CLI upgrades *most* of an existing app: the native shells under `.goleo/`, the
+generated `backend/gomobile/*` files, and the pinned Go runtime are all rewritten on every
+build. But `backend/app/app.go` and `frontend/src/**` are yours — scaffolded once and never
+regenerated. So an older demo app has **no Microphone page and no `RegisterMicrophone` call**,
+and items 13, 13a and 13b below cannot be run in it at all. Everything else would work; that
+one section would silently have nothing to click.
 
 Add your Team ID to the app's `goleo.json`:
 
@@ -46,9 +57,9 @@ a personal team that can install on your own device, with the profile expiring a
 **Do not set the team in Xcode instead.** goleo regenerates the Xcode project under
 `.goleo/ios/` on every build and will overwrite it. It must be in `goleo.json`.
 
-> Prefer a clean slate? `goleo new ios-check --demo` with the upgraded CLI scaffolds a fresh
-> demo app already on `0.10.9`. Reusing your existing app is more useful, but if it
-> fights you for more than a few minutes, scaffold a new one.
+> If you *also* want to exercise the upgrade path real users take, run your existing app
+> through `goleo build ios` afterwards as a second pass — it should still build and pass
+> items 1–12 and 14–19. That is a bonus, not the main run.
 
 ---
 
@@ -64,10 +75,10 @@ goleo build ios            2>&1 | tee build-device.log
 Then confirm the CLI and the Go runtime agree:
 
 ```bash
-grep goleo go.mod          # must show github.com/daforester/goleo v0.10.9
+grep goleo go.mod          # must show github.com/daforester/goleo v0.10.10
 ```
 
-**If it does not say `0.10.9`, stop and re-run the build.** The Go module tag can lag a
+**If it does not say `0.10.10`, stop and re-run the build.** The Go module tag can lag a
 few minutes behind the npm release; goleo says so when it happens (`not tagged as a Go
 module yet — using @latest`). A mismatch here shows up as `undefined:
 runtime.FileDialogOptions` and means you are testing new code against an old runtime.
