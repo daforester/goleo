@@ -1470,3 +1470,36 @@ Two things that cost time and are worth not rediscovering:
 Both the frontend build and the type-check were run locally against a real scaffold before
 the job was added, precisely so the gate would not land red on pre-existing errors. It is
 clean today.
+
+## Android — `goleo emulate android` passed API level 0 to gomobile (2026-08-10)
+
+Reported from a real run: `goleo emulate android` on NDK 28 failed with
+
+	ANDROID_NDK_HOME specifies .../ndk/28.2.13676358, which is unusable:
+	unsupported API version 0 (not in 21..35)
+
+Nothing is wrong with that NDK. `emulate.go` passed the raw `androidAPI` global to
+`gomobile bind -androidapi`. That global is **`goleo build`'s `--android-api` flag**, and
+`emulate` does not declare that flag at all — so it was always **0**. gomobile validates the
+level against the NDK's `meta/platforms.json` (present since NDK r23, so every current NDK)
+and refuses anything outside 21..35.
+
+`goleo build android` was never affected: it resolves via `resolveAndroidMinAPI(androidAPI,
+cfg.MinSDK)` at both of its call sites. Two paths assembling the same argument list, one of
+them resolving and one not — which is also why "Android is emulator-verified" in this repo
+stayed true while the emulate path was broken.
+
+The message is worth noting on its own: it names the **NDK**, so it reads as a broken SDK
+install. Nothing in it points at goleo passing 0, and the obvious response — reinstalling
+the NDK, or pinning an older one — cannot work.
+
+Fixed by resolving identically to `build`. `TestEveryGomobileCallSiteResolvesTheAndroidAPI`
+greps both files and fails any `-androidapi` argument that is not `minAPI`; mutation-tested
+by deleting the resolve and reverting the argument, which the guard catches by file and
+line. A second test pins the default resolution at >= 21, the floor gomobile accepts.
+
+**The general shape, which has now appeared three times this session:** a value resolved
+correctly on one path and passed raw on another (this), a provider registered by one shell
+and not the other (dialogs), a permission gate applied to one callback and not its
+neighbour (geolocation). Duplicated call sites drift; the guard has to check *every* site,
+not the one that was broken.

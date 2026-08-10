@@ -285,12 +285,28 @@ func buildAndDeployDev(deps *androidDeps, deviceID, pkgName string, vitePort int
 	if err != nil {
 		return fmt.Errorf("detecting feature usage: %w", err)
 	}
+	// Resolve the API level the same way `goleo build android` does. This used to pass the
+	// raw androidAPI global — but that is `goleo build`'s --android-api flag, and `emulate`
+	// does not declare it, so it was ALWAYS 0 here. gomobile validates the level against
+	// the NDK's meta/platforms.json (present since NDK r23, i.e. every current NDK) and
+	// refused with:
+	//
+	//	ANDROID_NDK_HOME specifies .../ndk/28.2.13676358, which is unusable:
+	//	unsupported API version 0 (not in 21..35)
+	//
+	// which names the NDK, so it reads as a broken NDK install rather than as goleo passing
+	// a nonsense value. `goleo build android` was unaffected, which is why it survived:
+	// the two paths construct these args separately and only one resolved the level.
+	minAPI, err := resolveAndroidMinAPI(androidAPI, loadMobileConfig(".").MinSDK)
+	if err != nil {
+		return err
+	}
 	gomobileArgs := []string{
 		"bind", "-v",
 		"-tags", bindTags,
 		"-o", aanPath,
 		"-target", "android",
-		"-androidapi", fmt.Sprintf("%d", androidAPI),
+		"-androidapi", fmt.Sprintf("%d", minAPI),
 		gomobilePkgDir(),
 	}
 	gomobile := exec.Command(deps.Gomobile, gomobileArgs...)
