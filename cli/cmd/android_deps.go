@@ -31,6 +31,10 @@ type androidDeps struct {
 	Gomobile     string
 	AdbPath      string
 	EmulatorPath string
+	// hostAudio caches the -allow-host-audio probe (see supportsHostAudio);
+	// hostAudioProbed distinguishes "probed and unsupported" from "not asked yet".
+	hostAudio       bool
+	hostAudioProbed bool
 	// dryRun makes every resolve*() stop at "not found" instead of prompting
 	// to install — used by `goleo doctor android` to report status without
 	// side effects. Discovery (env vars, PATH, common paths, the project's
@@ -981,27 +985,107 @@ func avdHomeDir() string {
 	return filepath.Join(home, ".android", "avd")
 }
 
-// avdSystemImageSysdir reads <name>.avd/config.ini under the AVD home
-// directory and returns its image.sysdir.1 value (e.g.
-// "system-images/android-34/google_apis/x86_64/", the path the emulator
-// resolves relative to whichever SDK root it's launched with). Returns ""
-// if the AVD directory or config.ini can't be found or doesn't contain that
-// key — callers treat that as "unknown, can't validate" rather than "empty".
-func avdSystemImageSysdir(name string) string {
-	data, err := os.ReadFile(filepath.Join(avdHomeDir(), name+".avd", "config.ini"))
+// avdConfigPath returns where an AVD's config.ini lives. The file may not exist:
+// `emulator -list-avds` enumerates the *.ini files at the AVD home root, which can
+// name an AVD whose .avd directory is missing — a real state seen on a dev machine,
+// where a stray emulator-5562.ini was listed while the only real AVD had no .ini at
+// all. Callers that give advice about config.ini must check this separately from a
+// key simply being absent, or they tell the user to edit a file that is not there.
+func avdConfigPath(name string) string {
+	return filepath.Join(avdHomeDir(), name+".avd", "config.ini")
+}
+
+// avdConfigValue reads <name>.avd/config.ini under the AVD home directory and
+// returns the value recorded for key. Returns "" when the AVD directory,
+// config.ini, or the key itself is absent — callers treat that as "unknown,
+// can't validate" rather than "empty".
+func avdConfigValue(name, key string) string {
+	data, err := os.ReadFile(avdConfigPath(name))
 	if err != nil {
 		return ""
 	}
 	for _, line := range strings.Split(string(data), "\n") {
-		key, value, ok := strings.Cut(line, "=")
+		k, value, ok := strings.Cut(line, "=")
 		if !ok {
 			continue
 		}
-		if strings.TrimSpace(key) == "image.sysdir.1" {
+		if strings.TrimSpace(k) == key {
 			return strings.TrimSpace(value)
 		}
 	}
 	return ""
+}
+
+// avdSystemImageSysdir returns an AVD's image.sysdir.1 value (e.g.
+// "system-images/android-34/google_apis/x86_64/", the path the emulator
+// resolves relative to whichever SDK root it's launched with).
+func avdSystemImageSysdir(name string) string {
+	return avdConfigValue(name, "image.sysdir.1")
+}
+
+// supportsHostAudio reports whether this emulator accepts -allow-host-audio,
+// the flag that lets the guest hear the host's microphone. Without it the
+// emulator "zeroes out audio" (its own words), so a granted RECORD_AUDIO still
+// yields no usable input device.
+//
+// Probed rather than assumed because an unrecognised flag makes the emulator
+// refuse to start, which would break `goleo emulate android` outright for the
+// sake of a microphone. `-help-<topic>` is unambiguous: exit 0 and a
+// description for a known flag, exit 1 and "unknown option: ..." otherwise, so
+// the exit status alone is enough and there is no output to parse.
+//
+// Cached: findDevice and `goleo doctor android` both ask.
+func (d *androidDeps) supportsHostAudio() bool {
+	if d.EmulatorPath == "" {
+		return false
+	}
+	if !d.hostAudioProbed {
+		d.hostAudioProbed = true
+		d.hostAudio = exec.Command(d.EmulatorPath, "-help-allow-host-audio").Run() == nil
+	}
+	return d.hostAudio
+}
+
+// avdAudioStatus describes whether microphone capture can work on the emulator:
+// the AVD needs hw.audioInput=yes (virtual mic hardware) AND the emulator has to
+// pass the host's input through. Read-only, and never an error — a machine with
+// no microphone is not a broken build environment.
+func (d *androidDeps) avdAudioStatus() string {
+	if d.EmulatorPath == "" {
+		return "unknown (Android emulator not found — see above)"
+	}
+	hostAudio := d.supportsHostAudio()
+	existing := d.listAVDNames()
+	if len(existing) == 0 {
+		if hostAudio {
+			return "emulator can pass host audio through; no AVD yet to check for hw.audioInput"
+		}
+		return "this emulator does not support -allow-host-audio; microphone capture will be silent"
+	}
+	name := existing[0]
+	// Distinguish "no config.ini" from "key absent". Telling someone to add
+	// hw.audioInput to a file that does not exist sends them somewhere with nothing
+	// in it — and a listed AVD with no .avd directory is a real state, not a
+	// hypothetical (see avdConfigPath).
+	if _, err := os.Stat(avdConfigPath(name)); err != nil {
+		return fmt.Sprintf("%q has no readable config.ini at %s, so its audio settings "+
+			"cannot be checked (the AVD may be registered but not actually present)",
+			name, avdConfigPath(name))
+	}
+	switch avdConfigValue(name, "hw.audioInput") {
+	case "yes":
+		if hostAudio {
+			return fmt.Sprintf("%q has hw.audioInput=yes and goleo will pass host audio through", name)
+		}
+		return fmt.Sprintf("%q has hw.audioInput=yes, but this emulator does not support "+
+			"-allow-host-audio — capture will be silent", name)
+	case "":
+		return fmt.Sprintf("%q does not record hw.audioInput; microphone capture may not work "+
+			"(add hw.audioInput=yes to its config.ini)", name)
+	default:
+		return fmt.Sprintf("%q has hw.audioInput disabled; microphone capture will not work "+
+			"(set hw.audioInput=yes in its config.ini)", name)
+	}
 }
 
 // systemImagePackageFromSysdir converts an image.sysdir.1 value as recorded

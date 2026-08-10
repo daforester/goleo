@@ -395,6 +395,31 @@ func buildAndDeployDev(deps *androidDeps, deviceID, pkgName string, vitePort int
 	return nil
 }
 
+// emulatorLaunchArgs builds the emulator's command line.
+//
+// Extracted from findDevice so it can be tested — the same reasoning as
+// validateTargetFlags in build.go, which was inline and untested until a flag turned out to
+// do nothing.
+//
+// -allow-host-audio is what lets the guest hear the host's microphone. Without it the
+// emulator "zeroes out audio" (its own -help text), so RECORD_AUDIO can be granted and
+// getUserMedia still finds no usable input device — which is exactly how it presented. It is
+// gated on hostAudio because an unrecognised flag makes the emulator refuse to start; see
+// androidDeps.supportsHostAudio.
+//
+// Headless is deliberately the opposite: CI wants no audio at all, and -no-audio and
+// -allow-host-audio contradict each other, so they are never both passed.
+func emulatorLaunchArgs(avd string, headless, hostAudio bool) []string {
+	args := []string{"-avd", avd, "-no-snapshot-load"}
+	if headless {
+		return append(args, "-no-audio", "-no-window")
+	}
+	if hostAudio {
+		args = append(args, "-allow-host-audio")
+	}
+	return args
+}
+
 func findDevice(deps *androidDeps) (string, error) {
 	// 1. Check for already-running devices
 	if deviceID := findRunningDevice(deps.AdbPath); deviceID != "" {
@@ -417,10 +442,7 @@ func findDevice(deps *androidDeps) (string, error) {
 
 	fmt.Printf("  Starting emulator: %s\n", avd)
 
-	emuArgs := []string{"-avd", avd, "-no-snapshot-load"}
-	if emulateHeadless {
-		emuArgs = append(emuArgs, "-no-audio", "-no-window")
-	}
+	emuArgs := emulatorLaunchArgs(avd, emulateHeadless, deps.supportsHostAudio())
 	emu := exec.Command(deps.EmulatorPath, emuArgs...)
 	// Surface the emulator's own output (crash reasons, missing/corrupt image,
 	// GPU init failures, ...) instead of discarding it, matching viteCmd above.

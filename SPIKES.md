@@ -1503,3 +1503,41 @@ correctly on one path and passed raw on another (this), a provider registered by
 and not the other (dialogs), a permission gate applied to one callback and not its
 neighbour (geolocation). Duplicated call sites drift; the guard has to check *every* site,
 not the one that was broken.
+
+## Android — the emulator zeroes out audio input unless told not to (2026-08-10)
+
+The Microphone demo's permission prompt appeared and was granted on an emulator, and
+`getUserMedia({audio:true})` still could not obtain a device. The cause is one missing
+launch flag, and the emulator says so itself:
+
+	$ emulator -help-allow-host-audio
+	Allows sending of audio from audio input devices. Otherwise, zeroes out audio.
+
+`emulate.go` launched with `-avd <name> -no-snapshot-load` and nothing else, so the guest's
+audio input was zeroed. `hw.audioInput=yes` was already set on the AVD — the virtual mic
+hardware was never the problem, which is worth knowing because that is where the search
+naturally starts.
+
+Now passed for windowed runs, and deliberately NOT in headless mode, where `-no-audio` is
+correct for CI and directly contradicts it. `emulatorLaunchArgs` was extracted from
+`findDevice` so this is testable at all — the same move `validateTargetFlags` needed, for the
+same reason: inline argument construction that nothing can assert on.
+
+**The flag is probed, not assumed.** An unrecognised flag makes the emulator refuse to start,
+which would trade a silent microphone for a dead `goleo emulate android`. `-help-<topic>` is
+unambiguous — exit 0 plus a description for a known flag, exit 1 and `unknown option: ...`
+otherwise — so `androidDeps.supportsHostAudio` just checks the exit status.
+
+Two things this turned up on the way:
+
+- **`emulator -list-avds` enumerates the `*.ini` files at the AVD home root**, not the
+  `.avd` directories, so it can name an AVD that does not exist. The dev machine had a stray
+  `emulator-5562.ini` with no `emulator-5562.avd/`, while the only real AVD
+  (`Medium_Phone.avd`) had no `.ini` and so was invisible. `ensureAVD` takes `listAVDNames()[0]`,
+  so `goleo emulate android` there would try to boot a phantom. Not fixed here — noted
+  because the symptom (an AVD that "exists" and cannot be booted) looks nothing like the cause.
+- The first cut of the doctor line read that phantom and advised "add hw.audioInput=yes to
+  its config.ini" — a file that does not exist. A status line that gives advice must
+  distinguish *no config* from *no key*, or it sends people somewhere empty. `avdConfigPath`
+  exists to make that distinction possible; `avdSystemImageSysdir` was generalised into
+  `avdConfigValue(name, key)` rather than adding a second config.ini parser.

@@ -42,6 +42,25 @@ async function requestPermission() {
   }
 }
 
+// Mirrors CameraDemo.vue's describeError. The distinction matters more here than the raw
+// DOMException does: "denied" and "no device" look identical from the demo but need opposite
+// responses, and on an emulator the usual cause is neither — the emulator zeroes out audio
+// input unless it was started with -allow-host-audio (goleo passes it; an emulator started
+// from Android Studio needs Extended Controls -> Microphone).
+function describeError(e: unknown): string {
+  const name = (e as { name?: string })?.name
+  if (name === 'NotAllowedError' || name === 'SecurityError') {
+    return `${e} — microphone permission was denied.`
+  }
+  if (name === 'NotFoundError' || name === 'OverconstrainedError') {
+    return `${e} — no microphone was found. On an emulator, audio input is off unless the emulator was started with host audio enabled; on a real device, check that a mic is present.`
+  }
+  if (name === 'NotReadableError' || name === 'AbortError') {
+    return `${e} — a microphone exists but could not be opened. It may be in use by another app, or the emulator is zeroing out audio input.`
+  }
+  return String(e)
+}
+
 async function start() {
   err.value = ''
   clipUrl.value = ''
@@ -56,7 +75,7 @@ async function start() {
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
   } catch (e) {
-    err.value = `Microphone denied or unavailable: ${e}`
+    err.value = describeError(e)
     return
   }
   chunks = []

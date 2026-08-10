@@ -27,6 +27,25 @@ Attach a device first:
 adb devices          # confirm your phone shows up (authorize the prompt on-device)
 ```
 
+### Microphone capture on the emulator
+
+The emulator has a virtual microphone, but it **zeroes out audio input** unless it is
+started with host audio enabled — so `getUserMedia({audio:true})` finds no usable device
+even after `RECORD_AUDIO` is granted. goleo passes `-allow-host-audio` when it starts the
+emulator itself, so `goleo emulate android` just works.
+
+Two cases where you still have to act:
+
+- **An emulator you started yourself** (Android Studio, or a bare `emulator -avd …`) cannot
+  be changed after the fact from goleo. Enable **Extended Controls → Microphone → "Virtual
+  microphone uses host audio input"**, which defaults off, or restart it via
+  `goleo emulate android`.
+- **The AVD needs `hw.audioInput=yes`** in its `config.ini`. Most device profiles set it
+  already.
+
+`goleo doctor android` reports both halves — whether the AVD declares the virtual mic and
+whether the emulator supports host audio — without starting anything.
+
 ## Sideload a build (Android)
 
 Build an installable APK and push it to the connected device:

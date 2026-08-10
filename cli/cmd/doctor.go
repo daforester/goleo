@@ -61,6 +61,9 @@ func doctorAndroid() error {
 	}
 
 	fmt.Printf("  %-20s %s\n", "AVD (emulate only):", deps.avdStatus())
+	// Reported but never fatal: an environment with no working microphone builds
+	// and runs everything else perfectly well.
+	fmt.Printf("  %-20s %s\n", "Microphone:", deps.avdAudioStatus())
 	fmt.Println()
 
 	if requiredMissing {
