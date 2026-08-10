@@ -1692,3 +1692,18 @@ since a binary that shows up in `npm ls` and is not what runs is confusing on it
 in package.json reads as "always current" while the lockfile quietly says otherwise. The two
 disagreeing is invisible until something compares them — here, a version guard that only
 exists because a previous release shipped a mismatched pair.
+
+**Confirmed working on Android (2026-08-10).** With the dev-manifest fix in place, the
+Microphone demo records and plays back on the emulator. That closes a chain of four separate
+causes, each of which fully masked the next: the emulator zeroing audio input
+(`-allow-host-audio`), a stale AVD path assumption, the missing `MODIFY_AUDIO_SETTINGS`
+permission, and that permission reaching only the derived release manifest and not the static
+dev one. The checklist item that started it — "microphone permission prompt appears" — was
+untestable at the outset because no demo page could reach the microphone at all.
+
+Desktop is marked `yes` in the demo registry on the same evidence path rather than a separate
+run: recording is plain `getUserMedia` + `MediaRecorder` in the webview, and every desktop has
+an explicit permission route — Linux auto-grants the WebKitGTK `permission-request` signal
+(`webview_glaze_permissions_linux.go`), Windows goes through WebView2 plus the glaze fork''s
+auto-grant, macOS through the WKUIDelegate. Only the permission *query* has no desktop
+equivalent, and the demo says so inline instead of degrading the page.

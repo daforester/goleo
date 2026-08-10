@@ -110,7 +110,12 @@ export const demos: Demo[] = [
     title: 'Microphone',
     icon: '🎤',
     description: 'Record audio and play it back; check and request mic permission.',
-    support: { desktop: 'partial', android: 'yes', ios: 'yes', pwa: 'yes' },
+    // Desktop is 'yes': recording and playback work in the webview on all three
+    // desktops — Linux auto-grants the WebKitGTK permission request, Windows goes
+    // through WebView2 (plus the glaze fork's auto-grant), macOS through the
+    // WKUIDelegate. Only the *permission query* has no desktop equivalent, and the
+    // demo says so inline rather than degrading what the page can do.
+    support: { desktop: 'yes', android: 'yes', ios: 'yes', pwa: 'yes' },
     load: () => import('./MicrophoneDemo.vue'),
   },
   {

@@ -75,7 +75,7 @@ Every feature package now exposes a `Provider` interface + `SetProvider`/`runtim
 | **Vibration** | `runtime/vibration/` | `goleo_vibration` | Unsupported (no desktop vibrator) | Provider | `navigator.vibrate()` |
 | **Sensors** | `runtime/sensors/` | `goleo_sensors` | Unsupported (no portable desktop sensor API) | Provider | Generic Sensor API |
 | **Camera** | `runtime/camera/` | `goleo_camera` | Unsupported — intentionally routes to WebView `getUserMedia` | Provider | `getUserMedia` + canvas |
-| **Microphone** | `runtime/microphone/` | `goleo_microphone` | Unsupported — no OS-level permission to query; the `getUserMedia` prompt is the model | Provider (permission only) | `getUserMedia` + `MediaRecorder` |
+| **Microphone** | `runtime/microphone/` | `goleo_microphone` | Unsupported — intentionally routes to WebView `getUserMedia` + `MediaRecorder`, which record fine on all three; only the permission *query* has no desktop equivalent | Provider (permission only) | `getUserMedia` + `MediaRecorder` |
 | **Bluetooth** | `runtime/bluetooth/` | `goleo_ble` | Unsupported — intentionally routes to Web Bluetooth | Provider | Web Bluetooth API |
 | **NFC** | `runtime/nfc/` | `goleo_nfc` | Linux only, opt-in: a cgo libnfc backend behind `-tags goleo_libnfc` (needs libnfc-dev + a reader); unsupported on Windows/macOS | Provider | Web NFC API |
 | **Background** | `runtime/background/` | `goleo_background` | Unsupported — desktop process runs continuously, no OS scheduler needed | Provider | Service Worker Sync |
