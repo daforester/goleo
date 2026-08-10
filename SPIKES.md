@@ -1384,3 +1384,46 @@ question the `goleo:openURL` scheme allow-list and the WS origin allow-list alre
 
 The corresponding regression check on hardware is that camera and location STILL prompt —
 the gate is new code in the path of two checks that previously passed.
+
+## Mobile — gobind's (value, error) result does not bind to Swift (2026-08-10)
+
+**0.10.7 shipped an iOS build that does not compile.** The dialogs provider was introduced
+with Go methods shaped `XxxJSON(optsJSON string) (string, error)`. That compiles fine for
+Android — both `android` and `android-release` jobs were green — and fails on iOS with
+
+	type 'GoleoDialogs' does not conform to protocol 'GomobileDialogsProviderProtocol'
+
+The reason, read out of gomobile's own generator rather than guessed
+(`bind/genobjc.go` in `x/mobile@v0.0.0-20260803200217`):
+
+- the 2-result case (line ~507) sets `s.ret = g.objcType(typ)`,
+- `objcType` maps a Go `string` to **`NSString* _Nonnull`** (line ~1322),
+- so the emitted declaration is
+  `-(NSString* _Nonnull)openFileJSON:(NSString* _Nullable)optsJSON error:(NSError**)error`.
+
+Swift only rewrites a trailing `NSError**` into a throwing method when the result can
+express failure. A `_Nonnull` object cannot, so **no Swift signature conforms** — not
+`throws -> String`, not `-> String`. The method is unimplementable from Swift.
+
+gomobile's own source comment on that branch says *"Return is nullable, so satisfies the
+ObjC/Swift error protocol"* — but the annotation it emits says `_Nonnull`. The comment
+describes an intent the code does not carry out, which is why reading the comment (or
+reasoning from it) leads you straight into the wall.
+
+**The rule to keep:** a reverse-bound provider method may return a value **or** an error,
+never both. Both shapes already in this repo are safe — `ClipboardProvider.ReadText() string`
+(lone value) and `SensorsProvider.StartSensor(string) error` (error only, which becomes
+`BOOL` + `NSError**` and imports as `throws`). Dialogs now returns a lone string and carries
+failures inside a JSON envelope: `{"error":...}` / `{"value":...}` / `{"paths":[...]}`.
+`TestDialogsProviderIsWiredEndToEnd` fails the build if an error result comes back.
+
+Two process notes worth as much as the finding:
+
+- **Android green is not evidence for iOS.** The same interface bound cleanly for Java and
+  was unimplementable in Swift. Any change to a provider interface needs the
+  `ios-simulator` job, not just the Android ones.
+- The `mobile-verify` step named *"Generated Objective-C API surface (ground truth for
+  AppDelegate.swift)"* greps only `@protocol|@interface|FOUNDATION_EXPORT`, so it prints
+  which protocols exist and **not their method signatures** — the one thing it is there to
+  establish. It confirmed `GomobileDialogsProvider` existed while saying nothing about the
+  shape that was wrong. Worth widening to print protocol bodies.

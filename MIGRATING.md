@@ -717,3 +717,31 @@ now user-visible and user-deletable. If that is wrong for your app, write to App
 Support instead (`goleo:fsAppDataDir`), which stays private, and remove the two keys from the
 generated `Info.plist` — note that goleo regenerates `.goleo/ios/` on every build, so that
 edit does not survive; open an issue if you need it configurable.
+
+---
+
+## 0.10.8 — 0.10.7 does not build for iOS; upgrade past it
+
+**Affects:** anyone on 0.10.7 building for iOS. Android, desktop and PWA builds are
+unaffected — 0.10.7 is fine for those.
+
+### What changed
+
+0.10.7 introduced the mobile dialogs provider with Go methods returning `(string, error)`.
+gobind emits that as a `_Nonnull` NSString return alongside `error:(NSError**)`, which Swift
+will not import as a throwing method, so no Swift signature can conform and every iOS build
+fails with:
+
+	type 'GoleoDialogs' does not conform to protocol 'GomobileDialogsProviderProtocol'
+
+It reached the registry because the Android CI jobs were green and the release was tagged
+before the macOS job reported. The provider methods now return a lone string and carry
+failures inside the reply, which is a shape gobind binds cleanly on both platforms.
+
+### Do I need to change anything?
+
+No — upgrade to 0.10.8. Nothing in your project needs editing; the affected files are
+generated (`backend/gomobile/dialogs.go`) or regenerated from the CLI (`.goleo/ios/`). If you
+pinned 0.10.7, move the pin forward and rebuild.
+
+The 0.10.7 notes above still apply: they describe changes that are also in 0.10.8.

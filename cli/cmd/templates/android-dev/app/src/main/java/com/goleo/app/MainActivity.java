@@ -616,7 +616,7 @@ public class MainActivity extends AppCompatActivity {
     // because the Go bridge handlers run on goroutines, never on the UI thread.
     private class GoleoDialogs implements DialogsProvider {
         @Override
-        public String showMessageJSON(String optsJSON) throws Exception {
+        public String showMessageJSON(String optsJSON) {
             return withDialogLock(() -> presentMessage(optsJSON));
         }
 
@@ -654,11 +654,11 @@ public class MainActivity extends AppCompatActivity {
                 builder.show();
             });
             latch.await();
-            return result[0];
+            return dialogValue(result[0]);
         }
 
         @Override
-        public String showPromptJSON(String optsJSON) throws Exception {
+        public String showPromptJSON(String optsJSON) {
             return withDialogLock(() -> presentPrompt(optsJSON));
         }
 
@@ -681,11 +681,11 @@ public class MainActivity extends AppCompatActivity {
                         .show();
             });
             latch.await();
-            return result[0];
+            return dialogValue(result[0]);
         }
 
         @Override
-        public String openFileJSON(String optsJSON) throws Exception {
+        public String openFileJSON(String optsJSON) {
             return withDialogLock(() -> presentOpenFile(optsJSON));
         }
 
@@ -720,14 +720,14 @@ public class MainActivity extends AppCompatActivity {
                     paths.put(copyToCache(uri));
                 }
             }
-            return paths.toString();
+            return dialogPaths(paths);
         }
 
         // Asks for a FILENAME and returns a path in the app's own documents directory.
         // Android has no "choose a destination, then write to it" primitive: SAF hands
         // back a URI to write THROUGH, while the caller needs a path to write TO.
         @Override
-        public String saveFileJSON(String optsJSON) throws Exception {
+        public String saveFileJSON(String optsJSON) {
             return withDialogLock(() -> presentSaveFile(optsJSON));
         }
 
@@ -751,11 +751,12 @@ public class MainActivity extends AppCompatActivity {
             });
             latch.await();
             if (result[0].isEmpty()) {
-                return ""; // cancelled
+                return dialogValue(""); // cancelled
             }
             // Basename only: a name with separators in it would otherwise write outside
             // the directory this method promises to return a path inside.
-            return new File(appDocumentsDir(), new File(result[0]).getName()).getAbsolutePath();
+            return dialogValue(
+                    new File(appDocumentsDir(), new File(result[0]).getName()).getAbsolutePath());
         }
 
         // Returns the app's own documents directory, without a picker. Same reasoning as
@@ -764,7 +765,7 @@ public class MainActivity extends AppCompatActivity {
         // and the path-based Go fs plugin can read neither.
         @Override
         public String selectFolderJSON(String optsJSON) {
-            return appDocumentsDir().getAbsolutePath();
+            return dialogValue(appDocumentsDir().getAbsolutePath());
         }
     }
 
@@ -781,21 +782,55 @@ public class MainActivity extends AppCompatActivity {
     // awaiting the first produces exactly that.
     private final Semaphore dialogLock = new Semaphore(1);
 
-    private String withDialogLock(DialogAction action) throws Exception {
+    // Returns a reply envelope, never throws: the bound methods have no error result, so a
+    // failure has to travel inside the JSON. See backend/gomobile/dialogs.go.
+    private String withDialogLock(DialogAction action) {
         // Checked before acquiring: runOnUiThread runs inline when already on the UI
         // thread, so the dialog would be built and then await() would freeze the very
         // thread that has to draw it. Doing that while holding the lock would take every
-        // later dialog down with it. The Go bridge handlers never run here — this throws
-        // rather than hangs if that ever changes.
+        // later dialog down with it. The Go bridge handlers never run here — this reports
+        // an error rather than hanging if that ever changes.
         if (Looper.myLooper() == Looper.getMainLooper()) {
-            throw new Exception("goleo dialogs cannot be shown from the UI thread");
+            return dialogError("goleo dialogs cannot be shown from the UI thread");
         }
-        dialogLock.acquire();
+        try {
+            dialogLock.acquire();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return dialogError("interrupted while waiting for another dialog to close");
+        }
         try {
             return action.run();
+        } catch (Exception e) {
+            return dialogError(e.getMessage() != null ? e.getMessage() : e.toString());
         } finally {
             dialogLock.release();
         }
+    }
+
+    // The reply envelope the Go adapter decodes.
+    private static String dialogValue(String value) {
+        try {
+            return new JSONObject().put("value", value == null ? "" : value).toString();
+        } catch (JSONException e) {
+            return dialogError("could not encode the dialog reply");
+        }
+    }
+
+    private static String dialogPaths(JSONArray paths) {
+        try {
+            return new JSONObject().put("paths", paths).toString();
+        } catch (JSONException e) {
+            return dialogError("could not encode the dialog reply");
+        }
+    }
+
+    // Built by hand rather than through JSONObject, so the error path cannot itself fail.
+    // Never empty: an empty reply reads as a cancellation on the Go side, which would turn
+    // a real failure into "the user dismissed it".
+    private static String dialogError(String message) {
+        String text = (message == null || message.isEmpty()) ? "the dialog failed" : message;
+        return "{\"error\":" + JSONObject.quote(text) + "}";
     }
 
     // Records a dialog answer exactly once. A dialog can report twice — a button click

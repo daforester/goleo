@@ -1040,6 +1040,7 @@ package gomobile
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/daforester/goleo/runtime"
@@ -1058,19 +1059,36 @@ import (
 // proxy, so the failure would arrive at runtime as "unrecognized selector",
 // not at build time.
 //
-// Encodings:
-//   - the argument is the matching runtime option struct, marshaled
-//   - OpenFileJSON returns a JSON array of absolute paths; "[]" or "" means the
-//     user cancelled
-//   - the others return a bare string — path, folder, button label, or entered
-//     text — where EMPTY MEANS CANCELLED. That matches what the desktop
-//     implementations return, so callers need no mobile special case.
+// NOTE the methods return ONLY a string — no error. That is not an oversight, and
+// adding an error result back breaks the iOS build. For a Go method returning
+// (string, error), gobind emits
+//
+//	-(NSString* _Nonnull)openFileJSON:(NSString* _Nullable)optsJSON error:(NSError**)error
+//
+// (genobjc.go: the 2-result case sets ret = objcType(string), and objcType maps
+// string to "NSString* _Nonnull"). Swift only rewrites a trailing NSError** into
+// a throwing method when the result can express failure, which _Nonnull cannot —
+// so no Swift signature conforms, and the shell fails with "type 'GoleoDialogs'
+// does not conform to protocol 'GomobileDialogsProviderProtocol'". gomobile's own
+// source comments claim that return is nullable; the emitted annotation says
+// otherwise. Returning a lone string is the shape ClipboardProvider.ReadText
+// already uses and is known to compile on both platforms.
+//
+// Errors therefore travel INSIDE the reply, which loses nothing:
+//   - {"error":"..."}      the call failed; the adapter turns it into a Go error
+//   - {"paths":["..."]}    OpenFileJSON; absent or empty means the user cancelled
+//   - {"value":"..."}      the others: path, folder, button label, entered text.
+//     EMPTY MEANS CANCELLED, matching the desktop implementations, so callers
+//     need no mobile special case.
+//
+// An empty reply is treated as a cancellation, so a shell that returns nothing
+// degrades to "the user dismissed it" rather than to a crash.
 type DialogsProvider interface {
-	OpenFileJSON(optsJSON string) (string, error)
-	SaveFileJSON(optsJSON string) (string, error)
-	SelectFolderJSON(optsJSON string) (string, error)
-	ShowMessageJSON(optsJSON string) (string, error)
-	ShowPromptJSON(optsJSON string) (string, error)
+	OpenFileJSON(optsJSON string) string
+	SaveFileJSON(optsJSON string) string
+	SelectFolderJSON(optsJSON string) string
+	ShowMessageJSON(optsJSON string) string
+	ShowPromptJSON(optsJSON string) string
 }
 
 // SetDialogsProvider registers the native dialogs backend.
@@ -1084,44 +1102,71 @@ func SetDialogsProvider(p DialogsProvider) {
 
 type dialogsAdapter struct{ p DialogsProvider }
 
-// call marshals opts, hands the JSON to the shell, and returns its raw reply.
-func dialogsCall(opts any, fn func(string) (string, error)) (string, error) {
+// dialogsReply is the envelope every shell method returns. See DialogsProvider.
+type dialogsReply struct {
+	Error string   ` + "`" + `json:"error,omitempty"` + "`" + `
+	Value string   ` + "`" + `json:"value,omitempty"` + "`" + `
+	Paths []string ` + "`" + `json:"paths,omitempty"` + "`" + `
+}
+
+// dialogsCall marshals opts, hands the JSON to the shell, and decodes its reply.
+func dialogsCall(opts any, fn func(string) string) (dialogsReply, error) {
+	var reply dialogsReply
 	encoded, err := json.Marshal(opts)
 	if err != nil {
-		return "", fmt.Errorf("dialogs: encoding options: %w", err)
+		return reply, fmt.Errorf("dialogs: encoding options: %w", err)
 	}
-	return fn(string(encoded))
+	raw := fn(string(encoded))
+	if raw == "" {
+		return reply, nil // nothing to report: treated as a cancellation
+	}
+	if err := json.Unmarshal([]byte(raw), &reply); err != nil {
+		return reply, fmt.Errorf("dialogs: the native shell returned invalid JSON (%q): %w", raw, err)
+	}
+	if reply.Error != "" {
+		return reply, errors.New(reply.Error)
+	}
+	return reply, nil
 }
 
 func (a *dialogsAdapter) OpenFile(opts runtime.FileDialogOptions) ([]string, error) {
-	out, err := dialogsCall(opts, a.p.OpenFileJSON)
+	reply, err := dialogsCall(opts, a.p.OpenFileJSON)
 	if err != nil {
 		return nil, err
 	}
-	if out == "" {
-		return nil, nil // cancelled
-	}
-	var paths []string
-	if err := json.Unmarshal([]byte(out), &paths); err != nil {
-		return nil, fmt.Errorf("dialogs: the native shell returned invalid JSON from OpenFile (%q): %w", out, err)
-	}
-	return paths, nil
+	return reply.Paths, nil
 }
 
 func (a *dialogsAdapter) SaveFile(opts runtime.FileDialogOptions) (string, error) {
-	return dialogsCall(opts, a.p.SaveFileJSON)
+	reply, err := dialogsCall(opts, a.p.SaveFileJSON)
+	if err != nil {
+		return "", err
+	}
+	return reply.Value, nil
 }
 
 func (a *dialogsAdapter) SelectFolder(opts runtime.FileDialogOptions) (string, error) {
-	return dialogsCall(opts, a.p.SelectFolderJSON)
+	reply, err := dialogsCall(opts, a.p.SelectFolderJSON)
+	if err != nil {
+		return "", err
+	}
+	return reply.Value, nil
 }
 
 func (a *dialogsAdapter) ShowMessage(opts runtime.MessageBoxOptions) (string, error) {
-	return dialogsCall(opts, a.p.ShowMessageJSON)
+	reply, err := dialogsCall(opts, a.p.ShowMessageJSON)
+	if err != nil {
+		return "", err
+	}
+	return reply.Value, nil
 }
 
 func (a *dialogsAdapter) ShowPrompt(opts runtime.PromptOptions) (string, error) {
-	return dialogsCall(opts, a.p.ShowPromptJSON)
+	reply, err := dialogsCall(opts, a.p.ShowPromptJSON)
+	if err != nil {
+		return "", err
+	}
+	return reply.Value, nil
 }
 `
 

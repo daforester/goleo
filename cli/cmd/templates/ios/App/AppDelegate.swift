@@ -432,16 +432,25 @@ class GoleoNotifier: NSObject, GomobileNotifierProtocol {
 /// Shows native dialogs and file pickers via UIKit. Implements the gomobile-generated
 /// DialogsProvider interface.
 ///
-/// Method shapes: each Go method is `XxxJSON(optsJSON string) (string, error)`, which
-/// gobind emits as `-(NSString*)xxxJSON:(NSString*)optsJSON error:(NSError**)error`, so
-/// Swift sees `func xxxJSON(_ optsJSON: String?) throws -> String`. The JSON envelope is
-/// not decoration — backend/gomobile/dialogs.go records why gobind cannot bind the option
-/// structs directly, and that a method it cannot bind is silently omitted rather than
-/// rejected at build time.
+/// Method shapes, which are load-bearing and were got wrong once: each Go method is
+/// `XxxJSON(optsJSON string) string` — a lone string result, NO error — so gobind emits
+/// `-(NSString* _Nonnull)xxxJSON:(NSString* _Nullable)optsJSON` and Swift sees
+/// `func xxxJSON(_ optsJSON: String?) -> String`. Same shape as
+/// `GoleoClipboardImpl.readText`, which has compiled here for several releases.
+///
+/// Do NOT "improve" this by giving the Go methods an `(string, error)` result. gobind then
+/// emits a **_Nonnull** NSString return alongside `error:(NSError**)`, Swift will not turn
+/// that into a throwing method (a non-optional result cannot signal failure), and NO Swift
+/// signature conforms — the build fails with "type 'GoleoDialogs' does not conform to
+/// protocol 'GomobileDialogsProviderProtocol'". That shipped in 0.10.7.
+///
+/// Failures therefore travel inside the returned JSON as {"error":"..."}; see
+/// backend/gomobile/dialogs.go for the envelope.
 ///
 /// Every method BLOCKS its calling thread until the user answers. That is safe only
 /// because the Go bridge handlers run on goroutines; a call that finds itself on the main
-/// thread throws rather than deadlocking the UI behind a dialog that can never appear.
+/// thread reports an error rather than deadlocking the UI behind a dialog that can never
+/// appear.
 class GoleoDialogs: NSObject, GomobileDialogsProviderProtocol {
     // UIDocumentPickerViewController holds its delegate WEAKLY, so it has to be owned
     // here. A delegate left to the local scope is deallocated before the user picks
@@ -500,11 +509,12 @@ class GoleoDialogs: NSObject, GomobileDialogsProviderProtocol {
         return result
     }
 
-    func showMessageJSON(_ optsJSON: String?) throws -> String {
+    func showMessageJSON(_ optsJSON: String?) -> String {
         let opts = GoleoDialogs.decode(optsJSON)
         var buttons = opts["buttons"] as? [String] ?? []
         if buttons.isEmpty { buttons = ["OK"] }
-        return try presentBlocking { presenter, finish in
+        do {
+            return GoleoDialogs.reply(value: try presentBlocking { presenter, finish in
             let alert = UIAlertController(
                 title: opts["title"] as? String,
                 message: opts["message"] as? String,
@@ -520,13 +530,17 @@ class GoleoDialogs: NSObject, GomobileDialogsProviderProtocol {
             }
             GoleoUI.anchorAsPopover(alert, in: presenter)
             presenter.present(alert, animated: true)
+            })
+        } catch {
+            return GoleoDialogs.reply(error: error.localizedDescription)
         }
     }
 
-    func showPromptJSON(_ optsJSON: String?) throws -> String {
+    func showPromptJSON(_ optsJSON: String?) -> String {
         let opts = GoleoDialogs.decode(optsJSON)
         let defaultValue = opts["defaultValue"] as? String ?? ""
-        return try presentBlocking { presenter, finish in
+        do {
+            return GoleoDialogs.reply(value: try presentBlocking { presenter, finish in
             let alert = UIAlertController(
                 title: opts["title"] as? String,
                 message: opts["message"] as? String,
@@ -541,10 +555,13 @@ class GoleoDialogs: NSObject, GomobileDialogsProviderProtocol {
                 finish(alert.textFields?.first?.text ?? "", nil)
             })
             presenter.present(alert, animated: true)
+            })
+        } catch {
+            return GoleoDialogs.reply(error: error.localizedDescription)
         }
     }
 
-    func openFileJSON(_ optsJSON: String?) throws -> String {
+    func openFileJSON(_ optsJSON: String?) -> String {
         let opts = GoleoDialogs.decode(optsJSON)
         let multiple = opts["multiple"] as? Bool ?? false
         let types = GoleoDialogs.contentTypes(from: opts["filters"])
@@ -552,7 +569,10 @@ class GoleoDialogs: NSObject, GomobileDialogsProviderProtocol {
         // already returned by the time this runs, so releasing it here cannot cut short a
         // picker that is still on screen.
         defer { pickerDelegate = nil }
-        return try presentBlocking { presenter, finish in
+        do {
+            // The picker's callback builds the final envelope directly, so there is no
+            // array to re-encode on the way out.
+            return try presentBlocking { presenter, finish in
             // asCopy: true copies the chosen file into this app's temporary directory and
             // hands back a plain readable path. The alternative is a security-scoped URL,
             // which the Go fs plugin could not open: it takes paths and knows nothing
@@ -561,12 +581,15 @@ class GoleoDialogs: NSObject, GomobileDialogsProviderProtocol {
             let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: true)
             picker.allowsMultipleSelection = multiple
             let delegate = GoleoDocumentPickerDelegate { urls in
-                finish(GoleoDialogs.encode(urls.map { $0.path }), nil)
+                finish(GoleoDialogs.reply(paths: urls.map { $0.path }), nil)
             }
             self.pickerDelegate = delegate
             picker.delegate = delegate
             GoleoUI.anchorAsPopover(picker, in: presenter)
             presenter.present(picker, animated: true)
+            }
+        } catch {
+            return GoleoDialogs.reply(error: error.localizedDescription)
         }
     }
 
@@ -577,10 +600,12 @@ class GoleoDialogs: NSObject, GomobileDialogsProviderProtocol {
     /// afterwards. Documents is the platform-idiomatic answer, and Info.plist publishes it
     /// to the Files app (UIFileSharingEnabled + LSSupportsOpeningDocumentsInPlace) so the
     /// saved file is reachable once written.
-    func saveFileJSON(_ optsJSON: String?) throws -> String {
+    func saveFileJSON(_ optsJSON: String?) -> String {
         let opts = GoleoDialogs.decode(optsJSON)
         let suggested = (((opts["defaultPath"] as? String) ?? "") as NSString).lastPathComponent
-        let name = try presentBlocking { presenter, finish in
+        let name: String
+        do {
+            name = try presentBlocking { presenter, finish in
             let alert = UIAlertController(
                 title: opts["title"] as? String ?? "Save File",
                 message: nil,
@@ -596,9 +621,12 @@ class GoleoDialogs: NSObject, GomobileDialogsProviderProtocol {
                 finish(alert.textFields?.first?.text ?? "", nil)
             })
             presenter.present(alert, animated: true)
+            }
+        } catch {
+            return GoleoDialogs.reply(error: error.localizedDescription)
         }
         if name.isEmpty {
-            return "" // cancelled
+            return GoleoDialogs.reply(value: "") // cancelled
         }
         // Basename only. A typed name containing "/" would otherwise name a path in a
         // subdirectory that does not exist, so the write this method exists to enable
@@ -606,9 +634,10 @@ class GoleoDialogs: NSObject, GomobileDialogsProviderProtocol {
         // the two platforms disagreed about the same input.
         let safeName = (name as NSString).lastPathComponent
         if safeName.isEmpty {
-            return ""
+            return GoleoDialogs.reply(value: "")
         }
-        return GoleoDialogs.documentsDirectory().appendingPathComponent(safeName).path
+        return GoleoDialogs.reply(
+            value: GoleoDialogs.documentsDirectory().appendingPathComponent(safeName).path)
     }
 
     /// Returns the app's Documents directory, without a picker.
@@ -619,8 +648,8 @@ class GoleoDialogs: NSObject, GomobileDialogsProviderProtocol {
     /// the Go fs plugin — which takes paths — can read neither. A sandboxed app's own
     /// document directory is the only directory it can both name and actually read, so
     /// both shells return that rather than a path that would fail on first use.
-    func selectFolderJSON(_ optsJSON: String?) throws -> String {
-        return GoleoDialogs.documentsDirectory().path
+    func selectFolderJSON(_ optsJSON: String?) -> String {
+        return GoleoDialogs.reply(value: GoleoDialogs.documentsDirectory().path)
     }
 
     private static func documentsDirectory() -> URL {
@@ -634,10 +663,26 @@ class GoleoDialogs: NSObject, GomobileDialogsProviderProtocol {
         return object
     }
 
-    private static func encode(_ paths: [String]) -> String {
-        guard let data = try? JSONSerialization.data(withJSONObject: paths),
+    /// The reply envelope the Go adapter decodes — see backend/gomobile/dialogs.go.
+    /// Failures travel in here because the bound methods cannot return an error.
+    private static func reply(value: String) -> String {
+        return encodeReply(["value": value])
+    }
+
+    private static func reply(paths: [String]) -> String {
+        return encodeReply(["paths": paths])
+    }
+
+    private static func reply(error: String) -> String {
+        // Never empty: an empty reply reads as a cancellation on the Go side, which would
+        // turn a real failure into "the user dismissed it".
+        return encodeReply(["error": error.isEmpty ? "the dialog failed" : error])
+    }
+
+    private static func encodeReply(_ object: [String: Any]) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: object),
               let text = String(data: data, encoding: .utf8)
-        else { return "[]" }
+        else { return "{\"error\":\"goleo: could not encode the dialog reply\"}" }
         return text
     }
 

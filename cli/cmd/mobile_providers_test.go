@@ -38,20 +38,55 @@ func TestDialogsProviderIsWiredEndToEnd(t *testing.T) {
 		t.Error("dialogs.go must expose SetDialogsProvider to the native shells")
 	}
 
-	// Each method must take and return a string. gobind cannot bind the runtime's option
-	// structs across packages, and — this is the trap — it does not reject a method it
-	// cannot bind, it OMITS it from the generated proxy. The failure then arrives at
-	// runtime as an unrecognised selector on a device.
+	// Each method must take a string and return a LONE string. Two separate gobind traps
+	// meet here:
+	//
+	//  1. It cannot bind the runtime's option structs across packages, and it does not
+	//     reject a method it cannot bind — it OMITS it from the generated proxy, so the
+	//     failure arrives at runtime as an unrecognised selector on a device.
+	//  2. A (string, error) result compiles on Android and breaks iOS. gobind emits a
+	//     _Nonnull NSString return alongside error:(NSError**), Swift will not rewrite that
+	//     into a throwing method, and no Swift signature conforms to the protocol. That
+	//     shipped in 0.10.7 and had to be fixed in 0.10.8.
+	//
+	// Hence the envelope: failures come back as {"error":"..."} inside the reply.
 	for _, method := range []string{
-		"OpenFileJSON(optsJSON string) (string, error)",
-		"SaveFileJSON(optsJSON string) (string, error)",
-		"SelectFolderJSON(optsJSON string) (string, error)",
-		"ShowMessageJSON(optsJSON string) (string, error)",
-		"ShowPromptJSON(optsJSON string) (string, error)",
+		"OpenFileJSON(optsJSON string) string",
+		"SaveFileJSON(optsJSON string) string",
+		"SelectFolderJSON(optsJSON string) string",
+		"ShowMessageJSON(optsJSON string) string",
+		"ShowPromptJSON(optsJSON string) string",
 	} {
 		if !strings.Contains(src, method) {
-			t.Errorf("DialogsProvider is missing %s — every method must take and return a "+
-				"JSON string, because gobind silently drops the ones it cannot bind", method)
+			t.Errorf("DialogsProvider is missing %q — every method must take and return a "+
+				"JSON string, with no error result", method)
+		}
+	}
+	if strings.Contains(src, "JSON(optsJSON string) (string, error)") {
+		t.Error("a DialogsProvider method returns (string, error). gobind emits a _Nonnull " +
+			"NSString return with error:(NSError**), which Swift will not import as a " +
+			"throwing method, so the iOS shell cannot conform to the generated protocol. " +
+			"Errors belong in the reply envelope instead. This is what broke 0.10.7.")
+	}
+}
+
+// The iOS shell must not declare the dialog methods as throwing, for the same reason: the
+// generated protocol methods are non-throwing, so `throws` does not satisfy them.
+func TestIOSDialogMethodsAreNotThrowing(t *testing.T) {
+	swift, err := mobileTemplates.ReadFile("templates/ios/App/AppDelegate.swift")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, method := range []string{
+		"openFileJSON", "saveFileJSON", "selectFolderJSON", "showMessageJSON", "showPromptJSON",
+	} {
+		if strings.Contains(string(swift), "func "+method+"(_ optsJSON: String?) throws -> String") {
+			t.Errorf("GoleoDialogs.%s is declared `throws`, which cannot satisfy the "+
+				"generated non-throwing protocol method — the 0.10.7 iOS build failure", method)
+		}
+		if !strings.Contains(string(swift), "func "+method+"(_ optsJSON: String?) -> String") {
+			t.Errorf("GoleoDialogs.%s must be `func %s(_ optsJSON: String?) -> String`",
+				method, method)
 		}
 	}
 }
