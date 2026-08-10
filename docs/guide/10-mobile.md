@@ -29,22 +29,29 @@ adb devices          # confirm your phone shows up (authorize the prompt on-devi
 
 ### Microphone capture on the emulator
 
-The emulator has a virtual microphone, but it **zeroes out audio input** unless it is
-started with host audio enabled — so `getUserMedia({audio:true})` finds no usable device
-even after `RECORD_AUDIO` is granted. goleo passes `-allow-host-audio` when it starts the
-emulator itself, so `goleo emulate android` just works.
+Getting audio into the guest takes **three** things, and goleo can only do the first two.
+Verified on a real emulator run, because two of them look like the same thing and are not:
 
-Two cases where you still have to act:
+1. **`-allow-host-audio` at launch.** Without it the emulator "zeroes out audio" (its own
+   `-help` text), so `getUserMedia({audio:true})` fails even after `RECORD_AUDIO` is granted.
+   goleo passes this whenever it starts the emulator.
+2. **`hw.audioInput=yes` in the AVD's `config.ini`** — the virtual mic hardware. Most device
+   profiles set it already.
+3. **Extended Controls (⋮) → Microphone → "Virtual microphone uses host audio input".**
+   This is a *runtime* toggle, separate from (1): the flag permits the emulator process to
+   use host audio, this routes it into the guest. **It defaults off and does not persist
+   across restarts**, so it is the step you will keep having to redo — and the one that
+   still bites after goleo has done its part.
 
-- **An emulator you started yourself** (Android Studio, or a bare `emulator -avd …`) cannot
-  be changed after the fact from goleo. Enable **Extended Controls → Microphone → "Virtual
-  microphone uses host audio input"**, which defaults off, or restart it via
-  `goleo emulate android`.
-- **The AVD needs `hw.audioInput=yes`** in its `config.ini`. Most device profiles set it
-  already.
+`goleo doctor android` reports (1) and (2) without starting anything. It cannot see (3),
+which lives inside a running emulator.
 
-`goleo doctor android` reports both halves — whether the AVD declares the virtual mic and
-whether the emulator supports host audio — without starting anything.
+If capture still fails with all three in place, check the **default recording device** in
+Windows — the emulator opens whatever Windows considers default, not a device you pick — and
+**Settings → Privacy & security → Microphone → "Let desktop apps access your microphone"**.
+
+A real device sidesteps every one of these, which is why the iOS/Android device checklists
+use one.
 
 ## Sideload a build (Android)
 

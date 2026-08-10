@@ -1552,3 +1552,19 @@ Two things this turned up on the way:
   distinguish *no config* from *no key*, or it sends people somewhere empty. `avdConfigPath`
   exists to make that distinction possible; `avdSystemImageSysdir` was generalised into
   `avdConfigValue(name, key)` rather than adding a second config.ini parser.
+
+**Currency note (same day).** The `-allow-host-audio` fix above is verified working and was
+still not sufficient. On the dev machine, with the flag confirmed in the AVD's
+`emu-launch-params.txt` and `hw.audioInput = true` in its `hardware-qemu.ini`, and an active
+host microphone, capture still failed with `NotReadableError: Could not start audio source`.
+
+There is a **third** requirement, and it is a runtime one the CLI cannot reach: Extended
+Controls → Microphone → "Virtual microphone uses host audio input". The launch flag permits
+the emulator process to use host audio; that toggle routes it into the guest. It defaults off
+and does not persist across restarts.
+
+Worth separating carefully, because the first two look like they should be enough and the
+evidence for them is easy to find: the flag is in the launch params, the hardware is in
+hardware-qemu.ini, and both say yes while the guest still gets nothing. `goleo doctor android`
+reports the two it can see and says nothing about the third, which is honest but incomplete
+by construction — the state lives inside a running emulator.

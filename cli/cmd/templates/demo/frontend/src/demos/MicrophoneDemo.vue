@@ -56,7 +56,7 @@ function describeError(e: unknown): string {
     return `${e} — no microphone was found. On an emulator, audio input is off unless the emulator was started with host audio enabled; on a real device, check that a mic is present.`
   }
   if (name === 'NotReadableError' || name === 'AbortError') {
-    return `${e} — a microphone exists but could not be opened. It may be in use by another app, or the emulator is zeroing out audio input.`
+    return `${e} — a microphone exists but could not be opened. On an emulator this is usually Extended Controls (⋮) → Microphone → "Virtual microphone uses host audio input", which defaults off and resets between runs. Otherwise the mic may be in use by another app, or the host's default recording device may be unavailable.`
   }
   return String(e)
 }
