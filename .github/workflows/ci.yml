@@ -146,3 +146,63 @@ jobs:
       - name: Bridge tests (TypeScript)
         working-directory: bridge
         run: npm test
+
+  # The demo scaffold is compiled by NOTHING else. mobile-verify scaffolds the MINIMAL
+  # template, and the demo's .vue files live under cli/cmd/templates/ where no tsconfig
+  # reaches them — so a broken demo page (a missing import, a typo in an SFC, a registry
+  # entry pointing at a file that does not exist) only surfaced when a user ran
+  # `goleo new --demo`. Scaffold it and build both halves.
+  demo-scaffold:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # The scaffolded frontend depends on @goleo/bridge. `goleo new` npm-links the local
+      # checkout when GOLEO_ROOT is set, but the package resolves to dist/ — so without
+      # building the bridge first, every bridge import in every demo page is unresolved.
+      - name: Build the bridge
+        run: |
+          npm ci
+          npm run build:bridge
+
+      - name: Build the CLI
+        run: go build -o /tmp/goleo ./cli/goleo
+
+      # GOLEO_ROOT wires the local checkout in via a go.mod replace AND links the local
+      # bridge, so this tests the working tree rather than the last release.
+      - name: Scaffold the demo project
+        working-directory: /tmp
+        env:
+          GOLEO_ROOT: ${{ github.workspace }}
+        run: /tmp/goleo new demoapp --demo
+
+      # vite build is the real gate: it parses every SFC and resolves every import, so a
+      # page that cannot compile fails here. It does NOT type-check — esbuild strips types
+      # without looking at them — which is what the next step is for.
+      - name: Build the demo frontend
+        working-directory: /tmp/demoapp/frontend
+        run: npm run build
+
+      # vue-tsc is installed into the PROJECT, not run through `npx vue-tsc@2`. npx pulls
+      # its own TypeScript, and vue-tsc 2.x requires typescript/lib/tsc, which recent TS
+      # no longer exports — so the npx form dies with ERR_PACKAGE_PATH_NOT_EXPORTED before
+      # checking anything. Installed locally it uses the template's own typescript ^5.3.
+      # Deliberately not added to the demo template's devDependencies: this is goleo's
+      # gate, not a dependency every scaffolded project should carry.
+      - name: Type-check the demo frontend
+        working-directory: /tmp/demoapp/frontend
+        run: |
+          npm install --no-save vue-tsc@^2.1
+          npx vue-tsc --noEmit
+
+      # app.go.tmpl gains a Register* call whenever a feature is added, so the demo's Go
+      # side has to build too — against the checkout, via the replace GOLEO_ROOT wrote.
+      - name: Build the demo backend
+        working-directory: /tmp/demoapp
+        run: go build ./...

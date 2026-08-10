@@ -1434,3 +1434,39 @@ Two process notes worth as much as the finding:
   were checked against a synthetic header before landing: the detector fires on the 0.10.7
   shape and stays quiet on both working ones — a lone value (`readText`) and `BOOL` +
   `NSError**` (`startSensor`, which is how a Go error-only result imports as `throws`).
+
+## Demo scaffold — nothing compiled it, so a checklist item was untestable (2026-08-10)
+
+The iOS device checklist asked for a microphone permission prompt and got "?" both times.
+The reason was not iOS: **no demo page could reach the microphone.** `CameraDemo.vue` passed
+`audio: false` explicitly and nothing else touched audio — while both shells carried live
+audio-capture permission branches (`RESOURCE_AUDIO_CAPTURE` on Android, the `WKUIDelegate` on
+iOS) and the iOS `Info.plist` declared `NSMicrophoneUsageDescription` with no feature behind
+it. Live code, a declared purpose string, and no way to exercise either.
+
+Fixed by making Microphone its own opt-in feature (`RegisterMicrophone`, `goleo_microphone`)
+rather than folding `RECORD_AUDIO` into Camera — most camera apps only want stills, and that
+permission is one users see and Play flags. Detail in `docs/agents/host-features.md`.
+
+**The structural finding is the one to keep.** The demo scaffold's Vue pages were compiled by
+**nothing**: `mobile-verify` scaffolds the MINIMAL template, and the demo's `.vue` files live
+under `cli/cmd/templates/` where no tsconfig reaches them. A broken demo page — a bad import,
+a registry entry pointing at a file that does not exist, a typo in an SFC — would only
+surface when a user ran `goleo new --demo`. `ci.yml` now has a `demo-scaffold` job that
+scaffolds the demo against the working tree and builds **both** halves: `vite build` (parses
+every SFC, resolves every import), `vue-tsc --noEmit` (types), and `go build ./...` (the
+backend, which gains a `Register*` call whenever a feature is added).
+
+Two things that cost time and are worth not rediscovering:
+
+- `npx vue-tsc@2` does **not** work. npx installs its own TypeScript, vue-tsc 2.x requires
+  `typescript/lib/tsc`, and recent TS no longer exports that subpath — it dies with
+  `ERR_PACKAGE_PATH_NOT_EXPORTED` before checking a single file. Install it into the project
+  so it uses the template's own `typescript ^5.3`.
+- The bridge must be **built** before scaffolding: `goleo new` npm-links the local checkout
+  when `GOLEO_ROOT` is set, but the package resolves to `dist/`, so without `npm run
+  build:bridge` every bridge import in every demo page is unresolved.
+
+Both the frontend build and the type-check were run locally against a real scaffold before
+the job was added, precisely so the gate would not land red on pre-existing errors. It is
+clean today.
