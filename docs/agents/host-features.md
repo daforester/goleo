@@ -83,7 +83,7 @@ Every feature package now exposes a `Provider` interface + `SetProvider`/`runtim
 
 "Unsupported" packages return `fmt.Errorf("...: %w", errors.ErrUnsupported)` rather than a generic error, so callers can `errors.Is(err, errors.ErrUnsupported)` to detect "no native path on this platform, use the fallback" instead of a real failure. On Android, the Android WebView (`cli/cmd/templates/{android,android-dev}/.../MainActivity.java`) now wires `WebChromeClient.onPermissionRequest` (camera/mic) and `onGeolocationPermissionsShowPrompt` to runtime permission requests, so the getUserMedia/geolocation browser fallbacks actually work instead of silently failing; on iOS, `AppDelegate.swift` sets a `WKUIDelegate` that grants the equivalent WKWebView permission callbacks, and `Info.plist` declares the required `NS*UsageDescription` strings. **All of these are gated on the request's origin** (`isAppOrigin`): the parsed host must equal a loopback name, plus `10.0.2.2` in the Android dev shell only. That gate is load-bearing because neither shell restricts navigation, so it answers for whatever page the WebView reaches — iOS used to grant camera, mic and location unconditionally, Android matched a string prefix (which accepts `http://127.0.0.1.evil.com`), and Android's geolocation path had no check at all. Compare the parsed host, never a prefix.
 
-### Microphone is its own feature, not part of Camera (added in 0.10.11)
+### Microphone is its own feature, not part of Camera (added in 0.10.12)
 
 `RegisterMicrophone` exists **separately from `RegisterCamera`** because `RECORD_AUDIO` is a
 permission users see and Play flags, and most camera apps only want stills — folding it into
