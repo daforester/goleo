@@ -46,6 +46,18 @@ go build -o goleo.exe .\cli\goleo\
 if ($LASTEXITCODE -ne 0) { Write-Host "Go build failed" -ForegroundColor Red; exit 1 }
 Write-Host "   goleo.exe built" -ForegroundColor Green
 
+# Drop any published platform binary a workspace install pulled in. cli/npm declares
+# @goleo/cli-<os>-<arch> as optionalDependencies for END USERS, so `npm install` in this
+# repo fetches one at whatever package-lock.json pins — a version that lags the working
+# tree (it sat at 0.9.1 while the tree was 0.10.12). bin/goleo.js now prefers the local
+# build, so this is belt-and-braces, but leaving a stale binary in node_modules is
+# confusing on its own: `npm ls` shows it and it is not what runs.
+$stale = Get-ChildItem "$PSScriptRoot\..\node_modules\@goleo" -Directory -Filter "cli-*" -ErrorAction SilentlyContinue
+foreach ($d in $stale) {
+    Remove-Item -Recurse -Force $d.FullName
+    Write-Host "   removed stale platform package $($d.Name)" -ForegroundColor Green
+}
+
 # Place it where @goleo/cli expects it
 $cliBinDir = "$PSScriptRoot\..\cli\npm\bin"
 if (-not (Test-Path $cliBinDir)) { New-Item -ItemType Directory -Path $cliBinDir -Force }

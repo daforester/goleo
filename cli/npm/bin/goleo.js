@@ -23,21 +23,34 @@ const pkgName = `@goleo/cli-${platform}-${arch}`
 let resolvedFrom = null
 
 function findBinary() {
-  // 1. The os/cpu-specific package installed via optionalDependencies. Resolved
-  //    through Node so it works regardless of hoisting / install layout.
+  // 1. A local development build in the goleo repo itself (scripts/setup.* builds it
+  //    at the repo root and `npm link`s this package). This is checked FIRST, and the
+  //    go.mod test is what makes that safe.
+  //
+  //    Why first: cli/npm declares the platform packages as optionalDependencies, so a
+  //    workspace `npm install` — which scripts/setup.* runs — pulls one into the repo's
+  //    own node_modules at whatever version package-lock.json pins. That pin lags the
+  //    working tree (it sat at 0.9.1 while the tree was 0.10.12), so resolving the
+  //    platform package first meant a dev's freshly built binary was shadowed by a
+  //    months-old published one, and the version guard below then refused to run at all.
+  //
+  //    Requiring go.mod alongside the binary keeps this from ever firing for an end
+  //    user: a published install has no go.mod three levels up from bin/, so this falls
+  //    straight through to the platform package.
+  const repoRoot = resolve(__dirname, '..', '..', '..')
+  const localBinary = resolve(repoRoot, binaryName)
+  if (existsSync(localBinary) && existsSync(resolve(repoRoot, 'go.mod'))) {
+    resolvedFrom = 'local-dev-build'
+    return localBinary
+  }
+
+  // 2. The os/cpu-specific package installed via optionalDependencies — the end-user
+  //    path. Resolved through Node so it works regardless of hoisting / install layout.
   try {
     const binary = require.resolve(`${pkgName}/${binaryName}`)
     resolvedFrom = 'platform-package'
     return binary
   } catch {}
-
-  // 2. Local development build at the repo root (created by scripts/setup.* when
-  //    the package is `npm link`ed from a clone).
-  const localBinary = resolve(__dirname, '..', '..', '..', binaryName)
-  if (existsSync(localBinary)) {
-    resolvedFrom = 'local-dev-build'
-    return localBinary
-  }
 
   // 3. A binary bundled next to this launcher (manual placement).
   const bundled = resolve(__dirname, binaryName)
@@ -77,8 +90,11 @@ if (resolvedFrom === 'platform-package') {
       console.error('[goleo] this usually means a partial/stale npm install left the platform')
       console.error('[goleo] package behind. Reinstall to fix it:')
       console.error(`  npm install -g @goleo/cli@${cliVersion}`)
-      console.error('[goleo] (or, in a workspace/monorepo checkout, delete node_modules and')
-      console.error('[goleo] reinstall.) Set GOLEO_ALLOW_VERSION_MISMATCH=1 to run anyway.')
+      console.error('[goleo] In the goleo repo itself, reinstalling does NOT help: the lockfile')
+      console.error('[goleo] pins the platform package, so npm install restores the same old')
+      console.error('[goleo] binary. Build locally instead and let it take precedence:')
+      console.error('[goleo]   scripts/setup.ps1   (or setup.sh)')
+      console.error('[goleo] Set GOLEO_ALLOW_VERSION_MISMATCH=1 to run anyway.')
       process.exit(1)
     }
   } catch {}

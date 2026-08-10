@@ -55,6 +55,18 @@ pushd "$ROOT" > /dev/null
 go build -o goleo ./cli/goleo/ || fail "Go build failed"
 ok "goleo binary built"
 
+# Drop any published platform binary a workspace install pulled in. cli/npm declares
+# @goleo/cli-<os>-<arch> as optionalDependencies for END USERS, so `npm install` in this
+# repo fetches one at whatever package-lock.json pins — a version that lags the working
+# tree (it sat at 0.9.1 while the tree was 0.10.12). bin/goleo.js now prefers the local
+# build, so this is belt-and-braces, but leaving a stale binary in node_modules is
+# confusing on its own: `npm ls` shows it and it is not what runs.
+for stale in "$ROOT"/node_modules/@goleo/cli-*; do
+  [ -d "$stale" ] || continue
+  rm -rf "$stale"
+  ok "removed stale platform package $(basename "$stale")"
+done
+
 mkdir -p "$ROOT/cli/npm/bin"
 cp goleo "$ROOT/cli/npm/bin/goleo"
 ok "goleo binary copied to cli/npm/bin/"

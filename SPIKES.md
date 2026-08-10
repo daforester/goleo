@@ -1661,3 +1661,34 @@ callback and not its neighbour, and now a permission list derived in one manifes
 in the other. Every one was invisible because the path that was checked was the correct one.
 When two artifacts serve the same purpose by different mechanisms, the guard has to compare
 them to each other — testing either alone proves nothing about the pair.
+
+## Dev setup — the lockfile shadowed every developer''s local build (2026-08-10)
+
+`scripts/setup.ps1` produced a CLI that refused to run:
+
+	[goleo] version mismatch: @goleo/cli is 0.10.12 but the installed
+	[goleo] native binary (@goleo/cli-win32-x64) is 0.9.1.
+
+Nothing was stale in the usual sense — this is reproducible from a clean clone.
+`cli/npm/package.json` declares the platform packages as `optionalDependencies` so END USERS
+get the right binary, and `"latest"` is the committed pin (see RELEASING.md for why exact
+versions there broke `npm ci`). But **`package-lock.json` froze what `latest` resolved to**,
+and that entry sat at `0.9.1` while the tree was at `0.10.12`. A workspace `npm install` —
+which `setup.*` runs — therefore fetched a months-old published binary into the repo''s own
+`node_modules`, and `bin/goleo.js` resolved the platform package BEFORE the local build. Every
+`scripts/setup.*` run on this repo hit it.
+
+The version guard worked exactly as designed: it caught a genuinely wrong binary. Its ADVICE
+was wrong — "delete node_modules and reinstall" reinstates the same 0.9.1 from the lockfile.
+
+`bin/goleo.js` now checks for a local dev build first, gated on `go.mod` sitting beside it.
+That gate is what makes reordering safe: three levels up from `bin/` is the repo root in a
+checkout and `<prefix>/node_modules` in a published install, and only one of those has a
+`go.mod`. Verified both layouts before committing, and `goleo version` now reports the local
+build instead of refusing to start. `setup.*` also deletes the pulled-in platform packages,
+since a binary that shows up in `npm ls` and is not what runs is confusing on its own.
+
+**The transferable bit:** a lockfile pin is a *snapshot of a floating range*, and `"latest"`
+in package.json reads as "always current" while the lockfile quietly says otherwise. The two
+disagreeing is invisible until something compares them — here, a version guard that only
+exists because a previous release shipped a mismatched pair.
