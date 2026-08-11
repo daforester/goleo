@@ -297,6 +297,116 @@ func TestIOSShellFixesFromTheDeviceSpike(t *testing.T) {
 	}
 }
 
+// The UIScene lifecycle has to be adopted in TWO files that cannot see each other, and the
+// failure mode of a mismatch is a black screen at launch with no build-time signal.
+//
+// Info.plist names the delegate as a STRING; the class lives in Swift. If the string is
+// wrong — a renamed class, a PRODUCT_NAME change breaking $(PRODUCT_MODULE_NAME), a missing
+// module prefix — UIKit finds no delegate, the scene connects to nothing and the app shows a
+// black screen. AppDelegate.configurationForConnecting therefore sets delegateClass in code
+// as well, so the string is a declaration with a real guarantee behind it. This test
+// requires all three parts, because any two of them look complete.
+func TestSceneLifecycleIsAdoptedInBothFiles(t *testing.T) {
+	plistRaw, err := mobileTemplates.ReadFile("templates/ios/App/Info.plist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	swiftRaw, err := mobileTemplates.ReadFile("templates/ios/App/AppDelegate.swift")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plist, swift := string(plistRaw), string(swiftRaw)
+
+	if !strings.Contains(plist, "<key>UIApplicationSceneManifest</key>") {
+		t.Fatal("Info.plist declares no UIApplicationSceneManifest, so the app runs the " +
+			"legacy app-delegate lifecycle: \"UIScene lifecycle will soon be required. " +
+			"Failure to adopt will result in an assert in the future.\"")
+	}
+	// The module prefix is not optional for a Swift class, and it is the part most likely to
+	// be dropped by someone copying the class name out of the .swift file.
+	if !strings.Contains(plist, "<string>$(PRODUCT_MODULE_NAME).SceneDelegate</string>") {
+		t.Error("UISceneDelegateClassName must be $(PRODUCT_MODULE_NAME).SceneDelegate — a " +
+			"bare class name does not resolve for a Swift class, and a hardcoded module " +
+			"name breaks if PRODUCT_NAME changes")
+	}
+	if !strings.Contains(swift, "class SceneDelegate") {
+		t.Error("Info.plist names a SceneDelegate that AppDelegate.swift does not define")
+	}
+	if !strings.Contains(swift, "func scene(") || !strings.Contains(swift, "willConnectTo") {
+		t.Error("SceneDelegate must implement scene(_:willConnectTo:options:) — nothing " +
+			"else creates the window once the scene manifest exists")
+	}
+	if !strings.Contains(swift, "configuration.delegateClass = SceneDelegate.self") {
+		t.Error("configurationForConnecting must set delegateClass, so a plist string that " +
+			"fails to resolve cannot black-screen the app")
+	}
+	// The configuration name is the key the two sides agree on.
+	if !strings.Contains(plist, "<string>Default Configuration</string>") ||
+		!strings.Contains(swift, `name: "Default Configuration"`) {
+		t.Error("the UISceneConfigurationName in Info.plist and the name passed to " +
+			"UISceneConfiguration must be the same string")
+	}
+	// The window is per-scene now. An app-delegate window created unconditionally would be
+	// ignored by UIKit and would hand GoleoUI a window nothing is presenting in.
+	for i, line := range strings.Split(swift, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "//") {
+			continue
+		}
+		if strings.Contains(line, "UIWindow(frame:") && !strings.Contains(line, "legacyWindow") {
+			t.Errorf("line %d builds a UIWindow from a frame outside the pre-iOS-13 "+
+				"fallback; under the scene lifecycle it must be UIWindow(windowScene:):\n%s",
+				i+1, line)
+		}
+	}
+}
+
+// An iPad-capable app that does not require full screen must declare all four orientations
+// for iPad, or xcodebuild warns "All interface orientations must be supported unless the app
+// requires full screen" (2026-08-10 device build) and App Store review flags the same thing.
+//
+// The condition is XcodeGen's, not goleo's: its application preset sets
+// TARGETED_DEVICE_FAMILY = "1,2", so every generated project is iPad-capable whether or not
+// anyone asked for it. Setting UIRequiresFullScreen would also silence the warning, by opting
+// out of Split View — so this test pins WHICH of the two answers is in force, and fails if a
+// future edit trims the iPad list back without taking the other route.
+func TestIPadSupportsEveryOrientationOrRequiresFullScreen(t *testing.T) {
+	raw, err := mobileTemplates.ReadFile("templates/ios/App/Info.plist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := string(raw)
+
+	// The other valid answer. Matched as a KEY, not as text: the plist explains the choice
+	// in a comment that names the alternative, and a plain Contains would read that as the
+	// alternative being taken.
+	if strings.Contains(info, "<key>UIRequiresFullScreen</key>") {
+		return
+	}
+
+	ipad := strings.Index(info, "<key>UISupportedInterfaceOrientations~ipad</key>")
+	if ipad < 0 {
+		t.Fatal("Info.plist declares no UISupportedInterfaceOrientations~ipad. The iPhone " +
+			"list is a subset, so iPad inherits it and the build warns that all interface " +
+			"orientations must be supported unless the app requires full screen")
+	}
+	end := strings.Index(info[ipad:], "</array>")
+	if end < 0 {
+		t.Fatal("UISupportedInterfaceOrientations~ipad is not followed by an array")
+	}
+	block := info[ipad : ipad+end]
+	for _, orientation := range []string{
+		"UIInterfaceOrientationPortrait<",
+		"UIInterfaceOrientationPortraitUpsideDown",
+		"UIInterfaceOrientationLandscapeLeft",
+		"UIInterfaceOrientationLandscapeRight",
+	} {
+		if !strings.Contains(block, orientation) {
+			t.Errorf("the iPad orientation list omits %s; all four are required unless the "+
+				"app requires full screen", strings.TrimSuffix(orientation, "<"))
+		}
+	}
+}
+
 // Both branches of the app-icon setting must be present.
 //
 // XcodeGen applies its own settingPresets to an application target, and those include

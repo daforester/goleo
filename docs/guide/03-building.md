@@ -69,6 +69,10 @@ what the native project declares. The two must agree — a Go library with a *hi
 minimum than the app fails to link — so overriding one flag without changing the config
 is how you break that.
 
+iOS will not go below **13.0**, from either the flag or the config. The generated Xcode
+project adopts the UIScene lifecycle, which older systems ignore — the app would build,
+sign, install and then show a black screen, so goleo refuses the target instead.
+
 ## PWA
 
 ```bash

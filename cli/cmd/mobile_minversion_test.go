@@ -43,12 +43,21 @@ func TestIOSMinVersionPrefersTheFlagThenConfig(t *testing.T) {
 	// Note "34" is NOT here. It looks like an Android API level pasted into an iOS field,
 	// but since Apple renumbered to iOS 26 a major in the thirties is plausible, so the
 	// range cannot catch that mistake without rejecting a legitimate future version.
-	for _, bad := range []string{"0", "1.2.3.4", "15.x", "-1", "8", "100"} {
+	// "9.0" and "12" used to be accepted. The shell's Info.plist now declares a
+	// UIApplicationSceneManifest and SceneDelegate builds the window, so anything below
+	// iOS 13 builds and signs cleanly and then launches to a black screen — refusing it
+	// here is the only place that can say so.
+	for _, bad := range []string{"0", "1.2.3.4", "15.x", "-1", "8", "9.0", "12", "100"} {
 		if _, err := resolveIOSMinVersion(bad, ""); err == nil {
 			t.Errorf("--ios-target %q should be refused", bad)
 		}
 	}
-	for _, ok := range []string{"15", "15.0", "15.4.1", "9.0", "26"} {
+	if _, err := resolveIOSMinVersion("12.0", ""); err == nil {
+		t.Error("iOS 12 should be refused")
+	} else if !strings.Contains(err.Error(), "UIScene") {
+		t.Errorf("the error should say why 13 is the floor, not just that 12 is invalid:\n%v", err)
+	}
+	for _, ok := range []string{"15", "15.0", "15.4.1", "13.0", "26"} {
 		if _, err := resolveIOSMinVersion(ok, ""); err != nil {
 			t.Errorf("--ios-target %q should be accepted: %v", ok, err)
 		}

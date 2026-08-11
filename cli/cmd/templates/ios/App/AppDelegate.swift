@@ -21,7 +21,9 @@ let backgroundSyncTaskID = "{{.IOSBundleID}}.sync"
 
 @main
 class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate {
-    var window: UIWindow?
+    // No `window` property. Under the scene lifecycle UIKit ignores UIApplicationDelegate's
+    // window entirely — SceneDelegate owns it, and a second one here would look like the
+    // app's window while nothing ever presented in it.
     var webView: WKWebView?
     let notifier = GoleoNotifier()
     let batteryProvider = GoleoBatteryStatus()
@@ -74,19 +76,40 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         config.allowsInlineMediaPlayback = true
         config.mediaTypesRequiringUserActionForPlayback = []
 
-        webView = WKWebView(frame: UIScreen.main.bounds, configuration: config)
+        // .zero, not UIScreen.main.bounds: this view becomes a view controller's root
+        // view, so the window sizes it. UIScreen.main is also deprecated under the scene
+        // lifecycle, where a screen is a property of the scene rather than of the app.
+        webView = WKWebView(frame: .zero, configuration: config)
         webView?.uiDelegate = permissionDelegate
         webView?.load(URLRequest(url: url))
 
-        window = UIWindow(frame: UIScreen.main.bounds)
-        window?.rootViewController = makeViewController()
-        window?.makeKeyAndVisible()
-        // Anything that presents a sheet or an alert resolves its presenter through
-        // GoleoUI, which needs this window — see GoleoUI for why asking UIApplication
-        // for it does not work.
-        GoleoUI.window = window
-
+        // No window is built here. Under the scene lifecycle the window belongs to the
+        // scene, and SceneDelegate creates it when the scene connects — right after this
+        // method returns. There is deliberately no pre-iOS-13 fallback: the scene manifest
+        // makes iOS 13 this shell's floor, and resolveIOSMinVersion refuses a lower
+        // deployment target rather than letting it launch to a black screen.
         return true
+    }
+
+    /// Names the scene delegate in CODE as well as in Info.plist's
+    /// UIApplicationSceneManifest.
+    ///
+    /// The manifest entry is `$(PRODUCT_MODULE_NAME).SceneDelegate`, which only resolves
+    /// because ProcessInfoPlistFile runs with -expandbuildsettings and PRODUCT_NAME is
+    /// pinned to GoleoApp in xcodegen.yml. If that expansion ever fails, UIKit cannot find
+    /// the class and the app launches to a black screen with one line in the device log.
+    /// Setting delegateClass here overrides the string, so the plist is the declaration and
+    /// this is the guarantee.
+    @available(iOS 13.0, *)
+    func application(
+        _ application: UIApplication,
+        configurationForConnecting connectingSceneSession: UISceneSession,
+        options: UIScene.ConnectionOptions
+    ) -> UISceneConfiguration {
+        let configuration = UISceneConfiguration(
+            name: "Default Configuration", sessionRole: connectingSceneSession.role)
+        configuration.delegateClass = SceneDelegate.self
+        return configuration
     }
 
     /// Shows notifications that arrive while the app is in the foreground. Returning an
@@ -105,27 +128,73 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         }
     }
 
+    /// Best-effort shutdown. Under the scene lifecycle this is NOT guaranteed — iOS calls it
+    /// when it terminates a running app, but a suspended app is killed without it. That is
+    /// acceptable because the process is going away with the server inside it; it is
+    /// deliberately not moved to sceneDidDisconnect, which fires when the system releases a
+    /// scene the app may well outlive, and would stop the backend under a live app.
     func applicationWillTerminate(_ application: UIApplication) {
         GomobileStopServer()
     }
 
-    private func makeViewController() -> UIViewController {
+    /// fileprivate rather than private: SceneDelegate is a separate type in this file and
+    /// needs it to build the scene's root.
+    fileprivate func makeViewController() -> UIViewController {
         let vc = UIViewController()
         vc.view = webView
         return vc
     }
 }
 
+/// Owns the window under the UIScene lifecycle.
+///
+/// Adopted because the device log said so, in as many words: "`UIScene` lifecycle will soon
+/// be required. Failure to adopt will result in an assert in the future." (iPhone, iOS 26,
+/// 2026-08-10). The app-delegate window still worked at that point — this is the migration,
+/// not a fix for a break.
+///
+/// The split is deliberately minimal. Everything that is per-APP stays in AppDelegate:
+/// starting the Go server, registering providers, the BGTaskScheduler registration (which
+/// MUST happen before didFinishLaunching returns), the notification delegate. Only the
+/// window, which is per-SCENE, moves here. The WebView is still created in
+/// didFinishLaunching and simply gets attached when the scene connects, so the server start
+/// and the page load keep the ordering they were device-verified with.
+@available(iOS 13.0, *)
+class SceneDelegate: UIResponder, UIWindowSceneDelegate {
+    var window: UIWindow?
+
+    func scene(
+        _ scene: UIScene,
+        willConnectTo session: UISceneSession,
+        options connectionOptions: UIScene.ConnectionOptions
+    ) {
+        guard let windowScene = scene as? UIWindowScene else { return }
+        guard let app = UIApplication.shared.delegate as? AppDelegate else { return }
+
+        let window = UIWindow(windowScene: windowScene)
+        window.rootViewController = app.makeViewController()
+        window.makeKeyAndVisible()
+        self.window = window
+        // Anything that presents a sheet or an alert resolves its presenter through
+        // GoleoUI, which needs this window — see GoleoUI for why asking UIApplication
+        // for it does not work.
+        GoleoUI.window = window
+    }
+}
+
 /// Resolves the view controller that sheets and alerts are presented from.
 ///
 /// This exists because `UIApplication.shared.windows` does not work here. It has been
-/// deprecated since iOS 15 and returns an empty array under the scene lifecycle (the
-/// runtime says as much: "UIScene lifecycle will soon be required"), so the share sheet
-/// resolved a nil root view controller and `present` did nothing at all — no sheet, no
-/// exception, and no error path back to Go, since ShareProvider.share returns void.
+/// deprecated since iOS 15 and returns an empty array under the scene lifecycle, so the
+/// share sheet resolved a nil root view controller and `present` did nothing at all — no
+/// sheet, no exception, and no error path back to Go, since ShareProvider.share returns
+/// void.
 ///
-/// The window the app actually created is therefore handed over directly in
-/// didFinishLaunching, and the scene lookup is only a fallback.
+/// The window the app actually created is therefore handed over directly — by SceneDelegate
+/// when the scene connects — and the scene lookup below is only a fallback. It stays a
+/// fallback rather than becoming the primary now that scenes are adopted: it is what answers
+/// for the sliver between the server starting and the scene connecting, and for any future
+/// window this file does not create.
 enum GoleoUI {
     static weak var window: UIWindow?
 

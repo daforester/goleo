@@ -58,11 +58,23 @@ func validIOSVersion(v string) error {
 		if n < 0 {
 			return fmt.Errorf("not an iOS version (want MAJOR[.MINOR[.PATCH]])")
 		}
-		// iOS 9 predates gomobile's own floor and 99 is beyond anything real. The range
-		// deliberately stops there: a major in the thirties reads like an Android API
-		// level, but Apple's renumbering to iOS 26 makes it a plausible version too, so
-		// narrowing further would reject a legitimate target to catch a typo.
-		if i == 0 && (n < 9 || n > 99) {
+		// iOS 13 is the SHELL's floor, not gomobile's: templates/ios/App/Info.plist
+		// declares a UIApplicationSceneManifest and the window is built by SceneDelegate,
+		// both of which are iOS 13+. A lower target still compiles and still signs — the
+		// scene manifest is simply ignored by an older system, no window is ever created,
+		// and the app launches to a BLACK SCREEN with nothing in the build output. Refuse
+		// it here instead, where the message can say why.
+		//
+		// 99 is beyond anything real. The range deliberately stops there: a major in the
+		// thirties reads like an Android API level, but Apple's renumbering to iOS 26 makes
+		// it a plausible version too, so narrowing further would reject a legitimate target
+		// to catch a typo.
+		if i == 0 && n < 13 {
+			return fmt.Errorf("iOS %d is below goleo's floor of 13 — the generated shell "+
+				"uses the UIScene lifecycle, which an older system ignores, leaving the "+
+				"app with no window at all", n)
+		}
+		if i == 0 && n > 99 {
 			return fmt.Errorf("iOS %d is not a plausible deployment target", n)
 		}
 	}
