@@ -446,129 +446,17 @@ func buildForDesktop(target buildTarget, distDir string) error {
 	return nil
 }
 
-func buildAndroidDev(deps *androidDeps) (string, error) {
-	defer snapshotModFiles(".")() // keep go.mod/go.sum clean of x/mobile afterward
-	cwd, _ := os.Getwd()
-	buildDir := filepath.Join(cwd, ".goleo", "android-dev")
-	os.RemoveAll(buildDir)
-
-	fmt.Println("  Resolving Go dependencies...")
-	if err := ensureLocalReplace("."); err != nil {
-		return "", fmt.Errorf("go module resolution: %w", err)
-	}
-	tidy := exec.Command("go", "mod", "tidy")
-	tidy.Stdout = os.Stdout
-	tidy.Stderr = os.Stderr
-	if err := tidy.Run(); err != nil {
-		return "", fmt.Errorf("go mod tidy failed: %w", err)
-	}
-
-	fmt.Println("  Building Go mobile library with gomobile...")
-	goGet := exec.Command("go", "get", "-tool", "golang.org/x/mobile/cmd/gobind")
-	goGet.Env = modModEnv() // `go get` refuses to run in a vendored project's -mod=vendor
-	goGet.Stdout = os.Stdout
-	goGet.Stderr = os.Stderr
-	if err := goGet.Run(); err != nil {
-		fmt.Println("  Warning: could not add tool dependency:", err)
-	}
-
-	gomobileInit := exec.Command(deps.Gomobile, "init")
-	gomobileInit.Stdout = os.Stdout
-	gomobileInit.Stderr = os.Stderr
-	setMobileEnv(gomobileInit, deps)
-	if err := gomobileInit.Run(); err != nil {
-		return "", fmt.Errorf("gomobile init failed: %w", err)
-	}
-
-	aanName := "goleo.aar"
-	aanPath := filepath.Join(cwd, aanName)
-	bindTags, err := mobileBindTags(".")
-	if err != nil {
-		return "", fmt.Errorf("detecting feature usage: %w", err)
-	}
-	bindTarget, err := androidBindTarget()
-	if err != nil {
-		return "", err
-	}
-	// The Go library and Gradle's minSdk must agree; resolve both from one source.
-	minAPI, err := resolveAndroidMinAPI(androidAPI, loadMobileConfig(".").MinSDK)
-	if err != nil {
-		return "", err
-	}
-	gomobileArgs := []string{
-		"bind", "-v",
-		"-tags", bindTags,
-		"-o", aanPath,
-		"-target", bindTarget,
-		"-androidapi", fmt.Sprintf("%d", minAPI),
-		gomobilePkgDir(),
-	}
-	gomobile := exec.Command(deps.Gomobile, gomobileArgs...)
-	gomobile.Stdout = os.Stdout
-	gomobile.Stderr = os.Stderr
-	setMobileEnv(gomobile, deps)
-	if err := gomobile.Run(); err != nil {
-		return "", fmt.Errorf("gomobile bind failed: %w", err)
-	}
-	defer os.Remove(aanPath)
-
-	fmt.Println("  Generating dev Android project...")
-	mobileCfg := loadMobileConfig(".")
-	iconSrc, hasIcon := mobileIconSource()
-	mobileCfg.HasIcon = hasIcon
-	if err := extractMobileTemplate("android-dev", buildDir, &mobileCfg); err != nil {
-		return "", fmt.Errorf("generating dev Android project: %w", err)
-	}
-	if hasIcon {
-		resDir := filepath.Join(buildDir, "app", "src", "main", "res")
-		if err := generateAndroidIcons(iconSrc, resDir); err != nil {
-			fmt.Println("  Warning: could not generate launcher icons:", err)
-		} else {
-			fmt.Println("  Generated launcher icons from bundle.icon")
-		}
-	}
-
-	libsDir := filepath.Join(buildDir, "app", "libs")
-	os.MkdirAll(libsDir, 0755)
-	if err := copyFile(aanPath, filepath.Join(libsDir, aanName)); err != nil {
-		return "", fmt.Errorf("copying .aar: %w", err)
-	}
-
-	outputName := buildOutput
-	if outputName == "" {
-		outputName = "app-dev.apk"
-	}
-	outputPath := filepath.Join(cwd, outputName)
-
-	fmt.Println("  Compiling dev APK with Gradle...")
-	gradlew := filepath.Join(buildDir, "gradlew")
-	if _, err := os.Stat(gradlew); os.IsNotExist(err) {
-		if err := ensureGradleWrapper(buildDir); err != nil {
-			return "", fmt.Errorf("preparing the Gradle wrapper: %w", err)
-		}
-	}
-
-	gradleCmd := exec.Command(gradlew, "assembleDebug")
-	gradleCmd.Dir = buildDir
-	gradleCmd.Stdout = os.Stdout
-	gradleCmd.Stderr = os.Stderr
-	setMobileEnv(gradleCmd, deps)
-	if err := gradleCmd.Run(); err != nil {
-		return "", fmt.Errorf("gradle build failed: %w", err)
-	}
-
-	apkPath := filepath.Join(buildDir, "app", "build", "outputs", "apk", "debug", "app-debug.apk")
-	if _, err := os.Stat(apkPath); err == nil {
-		copyFile(apkPath, outputPath)
-		fmt.Printf("  Dev APK: %s\n", outputPath)
-	} else {
-		return "", fmt.Errorf("APK not found at %s", apkPath)
-	}
-
-	fmt.Printf("  Dev Android build complete!\n")
-	return outputPath, nil
-}
-
+// buildForAndroid is the ONE Android build path: `goleo build android`, with or without
+// --release, renders templates/android and derives its manifest permissions from the
+// Register* calls detectFeatureUsage finds (see cli/cmd/android_permissions.go).
+//
+// A buildAndroidDev() sibling used to sit here, rendering the STATIC templates/android-dev
+// manifest into an app-dev.apk. It had no caller — not one, ever, going back to the initial
+// commit — but its presence implied a dev-vs-release build split that does not exist, and
+// that wrong model has cost real time: the microphone's MODIFY_AUDIO_SETTINGS fix was made
+// against the feature table on the belief that the derived manifest was the tested one,
+// while the artifact under test came from `goleo emulate android` and the static file. The
+// android-dev template is real and still used — by emulate.go, and only by it.
 func buildForAndroid(distDir string, deps *androidDeps) error {
 	defer snapshotModFiles(".")() // keep go.mod/go.sum clean of x/mobile afterward
 	fmt.Println("  Resolving Go dependencies...")

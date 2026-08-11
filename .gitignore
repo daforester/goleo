@@ -27,3 +27,8 @@ prebuilt/
 *.keystore
 *.p12
 *.mobileprovision
+
+# Device/build logs pulled off a Mac or an Android host for analysis. They are
+# session artifacts, not repo content — see the run entries in SPIKES.md for what
+# each one found.
+*.log

@@ -37,7 +37,6 @@ Targets:
 }
 
 var (
-	emulateTarget       string
 	emulateHeadless     bool
 	emulateReversePorts []int
 )

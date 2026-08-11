@@ -9,7 +9,6 @@ import (
 	"os/signal"
 	"runtime"
 	"strconv"
-	"sync"
 	"syscall"
 	"time"
 
@@ -28,10 +27,12 @@ type App struct {
 	instance   *singleinstance.Instance
 	initialURL string
 	port       int
-	mu         sync.Mutex
-	running    bool
-	cancel     context.CancelFunc
-	ctx        context.Context
+	// No mutex and no `running` flag: Quit() is idempotent because
+	// context.CancelFunc is, and the run loop's lifetime is the context's. A
+	// `mu sync.Mutex` and a `running bool` sat here unused, implying a
+	// synchronisation scheme that was never implemented and never needed.
+	cancel context.CancelFunc
+	ctx    context.Context
 	// mainWin is the primary window (set by runWebview); used to marshal native
 	// menu-bar updates onto the GUI main thread. See menu_darwin.go.
 	mainWin *WebviewWindow

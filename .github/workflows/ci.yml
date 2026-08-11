@@ -97,6 +97,58 @@ jobs:
       - name: Vet
         run: go vet ./runtime/... ./cli/...
 
+      # Go does not warn about a function nobody calls, and the CLI accumulated two of
+      # them: buildAndroidDev(), a whole 120-line Android build path that had never had a
+      # caller since the initial commit, and featureForTag(). The first did real damage
+      # without ever executing — it implied a dev-vs-release Android build split that does
+      # not exist, and two microphone permission fixes were made under that wrong model.
+      #
+      # Rooted at the goleo binary's main, which is what makes the answer meaningful: a
+      # function is dead if the shipped CLI cannot reach it. Test files are deliberately NOT
+      # roots (-test is not passed), so a non-test helper used only by tests is reported too
+      # — that is the intent, not a false positive.
+      #
+      # Scoped to ./cli by -filter because runtime/ is a LIBRARY: its exported API exists to
+      # be called by user apps, no main in this repo reaches it, and rooting there would
+      # report the entire public surface. The step below covers runtime/ instead.
+      #
+      # deadcode exits 0 whether or not it finds anything, so the output is the signal —
+      # same shape as the gofmt step above. Pinned rather than @latest: a new release
+      # changing what it reports should be a deliberate bump, not a red build one morning.
+      - name: Dead code (CLI, rooted at the goleo binary)
+        run: |
+          dead=$(go run golang.org/x/tools/cmd/deadcode@v0.48.0 \
+            -filter 'github.com/daforester/goleo/cli' ./cli/goleo)
+          if [ -n "$dead" ]; then
+            echo "::error::unreachable code in cli/ — delete it, or wire it up:"
+            echo "$dead"
+            exit 1
+          fi
+
+      # Covers what the step above structurally cannot: runtime/ is a library with no main
+      # to root a reachability analysis at. U1000 needs no entry point — it reports
+      # UNEXPORTED identifiers nothing references, which is exactly the blind spot, and it
+      # sees fields and vars as well as funcs (deadcode only reports functions).
+      #
+      # Adding it found five, and one was more than clutter: fs_scope.go carried an unused
+      # `dataOnce sync.Once` directly above a comment explaining why once-semantics are WRONG
+      # there (os.UserConfigDir legitimately fails before SetHomeDir on mobile and must be
+      # retried; a Once would latch that failure and leave the filesystem scope with no
+      # root). A field that invites the exact change the comment forbids is worse than dead.
+      # Also found: notify_windows.go's deprecated syscall.StringToUTF16, which PANICS on
+      # app-supplied text containing a NUL.
+      #
+      # ONLY U1000 is enabled. The default set also raises 19 ST1005s (error strings
+      # capitalised / punctuated) — a house-style rule this repo deliberately does not
+      # follow — and an SA4000 false positive on singleinstance_test's determinism check,
+      # which compares a pure function against itself on purpose. Turning the whole suite on
+      # would mean either 20 papercut edits or a wall of ignored noise; a check nobody reads
+      # is a check nobody runs. Widen it deliberately, not by default.
+      #
+      # Unlike deadcode, staticcheck exits non-zero on findings, so no output test is needed.
+      - name: Unused code (runtime + CLI, no entry point needed)
+        run: go run honnef.co/go/tools/cmd/staticcheck@2025.1.1 -checks 'U1000' ./runtime/... ./cli/...
+
       - name: Unit tests
         run: go test ./...
 

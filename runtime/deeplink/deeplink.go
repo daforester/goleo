@@ -28,25 +28,6 @@ func SchemeURL(scheme string, args []string) string {
 	return ""
 }
 
-func slug(s string) string {
-	s = strings.ToLower(strings.TrimSpace(s))
-	var b strings.Builder
-	prevHyphen := false
-	for _, r := range s {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
-			b.WriteRune(r)
-			prevHyphen = false
-		default:
-			if !prevHyphen && b.Len() > 0 {
-				b.WriteRune('-')
-				prevHyphen = true
-			}
-		}
-	}
-	return strings.Trim(b.String(), "-")
-}
-
 // desktopEntry is the Linux .desktop body that registers the scheme handler.
 func desktopEntry(scheme, appName, exePath string) string {
 	return "[Desktop Entry]\n" +

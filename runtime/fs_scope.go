@@ -46,9 +46,15 @@ type fsScopeState struct {
 	// control silently lose its root if anyone ever reordered those two calls,
 	// with no error to notice. Resolving on demand removes the ordering
 	// dependency entirely.
-	appID    string
-	dataDir  string
-	dataOnce sync.Once
+	//
+	// dataDir memoises the result under mu, and NOT with a sync.Once, which is the
+	// obvious-looking simplification and is wrong: os.UserConfigDir can legitimately
+	// fail on the first call (no $HOME yet on mobile) and must be retried, whereas a
+	// Once latches whatever the first attempt produced. Latching the failure would
+	// leave this security control with no root for the life of the process. A
+	// `dataOnce sync.Once` field really did sit here unused — see appDataRoots.
+	appID   string
+	dataDir string
 }
 
 func newFSScopeState() *fsScopeState {
