@@ -4,6 +4,7 @@ package notify
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -168,8 +169,22 @@ func ensureOwnerWindow() (uintptr, error) {
 // copyUTF16 writes s into dst as a NUL-terminated UTF-16 string, truncating to
 // fit. The shell ignores an over-long field outright, so truncating keeps a
 // long body visible instead of dropping it.
+//
+// UTF16FromString rather than the deprecated syscall.StringToUTF16, and the
+// difference is not cosmetic: StringToUTF16 **panics** on a string containing a
+// NUL, where this returns an error. Notification title and body are app-supplied
+// (goleo:notify passes them straight through), so a stray NUL from a byte slice
+// or a truncated read would have taken the whole process down from inside a
+// notification helper. Embedded NULs are stripped rather than rejected — the
+// shell cannot render them, and this function is already lossy by design.
 func copyUTF16(dst []uint16, s string) {
-	encoded := syscall.StringToUTF16(s)
+	encoded, err := syscall.UTF16FromString(s)
+	if err != nil {
+		encoded, err = syscall.UTF16FromString(strings.ReplaceAll(s, "\x00", ""))
+		if err != nil {
+			return // leaves dst zeroed: an empty field, not a crash
+		}
+	}
 	if len(encoded) > len(dst) {
 		encoded = encoded[:len(dst)]
 		encoded[len(encoded)-1] = 0
