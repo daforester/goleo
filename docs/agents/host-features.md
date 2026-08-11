@@ -83,7 +83,13 @@ Every feature package now exposes a `Provider` interface + `SetProvider`/`runtim
 
 "Unsupported" packages return `fmt.Errorf("...: %w", errors.ErrUnsupported)` rather than a generic error, so callers can `errors.Is(err, errors.ErrUnsupported)` to detect "no native path on this platform, use the fallback" instead of a real failure. On Android, the Android WebView (`cli/cmd/templates/{android,android-dev}/.../MainActivity.java`) now wires `WebChromeClient.onPermissionRequest` (camera/mic) and `onGeolocationPermissionsShowPrompt` to runtime permission requests, so the getUserMedia/geolocation browser fallbacks actually work instead of silently failing; on iOS, `AppDelegate.swift` sets a `WKUIDelegate` that grants the equivalent WKWebView permission callbacks, and `Info.plist` declares the required `NS*UsageDescription` strings. **All of these are gated on the request's origin** (`isAppOrigin`): the parsed host must equal a loopback name, plus `10.0.2.2` in the Android dev shell only. That gate is load-bearing because neither shell restricts navigation, so it answers for whatever page the WebView reaches — iOS used to grant camera, mic and location unconditionally, Android matched a string prefix (which accepts `http://127.0.0.1.evil.com`), and Android's geolocation path had no check at all. Compare the parsed host, never a prefix.
 
-### Microphone is its own feature, not part of Camera (added in 0.10.13)
+### Microphone is its own feature, not part of Camera (added in 0.10.9)
+
+<!-- "0.10.9" is the release this feature LANDED in and is not a version to keep current:
+     `git describe --contains` puts the commit at v0.10.9~2. It was bumped to 0.10.10, .11,
+     .12 and .13 by four successive release commits, each reading the marker as "the current
+     version" — the same drift the Dialogs heading below has never had. Leave it alone. -->
+
 
 `RegisterMicrophone` exists **separately from `RegisterCamera`** because `RECORD_AUDIO` is a
 permission users see and Play flags, and most camera apps only want stills — folding it into
@@ -105,6 +111,18 @@ It was added because the device checklist asked for a microphone prompt that **n
 the demo could trigger**: `CameraDemo.vue` passed `audio: false`, and no other page touched
 audio — while both shells carried live audio-capture permission branches and iOS declared
 `NSMicrophoneUsageDescription` with no feature behind it.
+
+**A registry entry alone does not enable a feature — `scanPatterns` has to name it too.**
+0.10.13 shipped the Microphone entry above with no `RegisterMicrophone\(` pattern, so
+`detectFeatureUsage` never returned `goleo_microphone` and `goleo build android` derived a
+release manifest with **neither** audio permission. Everything that would normally show it
+looked right: `nativeShellProviderTags` forces the tag in, so the bind linked
+`runtime/microphone`; `goleo emulate android` uses the STATIC dev manifest, which lists both
+permissions, so the demo worked on every emulator run; and the iOS `Info.plist` hardcodes
+its purpose strings, so the platform that got a hardware run was unaffected. The first
+symptom would have been an installed release build reporting `denied`.
+`TestEveryFeatureIsDetectable` now requires every `featureRegistry` entry to be named by a
+Go scan pattern.
 
 ### Dialogs on mobile (added in 0.10.7, after the iOS device spike)
 

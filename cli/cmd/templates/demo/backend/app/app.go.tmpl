@@ -74,10 +74,12 @@ func New(opts Options) *runtime.App {
 			// pass -tags by hand. Just comment a line out if you don't use
 			// that feature (it also drops the matching manifest permission).
 			//
-			// These have working native providers on Android (+ best-effort,
-			// unverified iOS — no Xcode available to test it — see
-			// AppDelegate.swift) and/or a WebView browser-API fallback that
-			// Just Works, so the bundled demo pages exercise them by default:
+			// These have working native providers on Android and iOS, and/or a
+			// WebView browser-API fallback that Just Works, so the bundled demo
+			// pages exercise them by default. Both platforms have been checked on
+			// real hardware — see the demo's own per-platform support table in
+			// frontend/src/demos/registry.ts, which is kept honest rather than
+			// optimistic:
 			runtime.RegisterGeolocation(a.Bridge())
 			runtime.RegisterCamera(a.Bridge())
 			// Separate from the camera on purpose: this is what puts RECORD_AUDIO in
@@ -93,12 +95,23 @@ func New(opts Options) *runtime.App {
 			runtime.RegisterFS(a.Bridge())
 			runtime.RegisterSensors(a.Bridge())
 			runtime.RegisterBackground(a.Bridge())
-			// NFC: foreground-dispatch scan/write, native provider on
-			// Android (best-effort, unverified iOS — CoreNFC needs a paid
-			// Apple Developer entitlement + physical device either way).
+			// The last two are ANDROID-ONLY. iOS registers no provider for
+			// either (AppDelegate.swift wires nine providers; neither of these
+			// is among them) and WKWebView implements neither Web NFC nor Web
+			// Bluetooth, so on iOS these calls do not degrade to a fallback —
+			// the goleo:nfc*/goleo:ble* commands report that no native provider
+			// is available. registry.ts says ios:'no' for both. Registering them
+			// on an iOS-only app costs you two manifest permissions on Android
+			// and buys nothing, so drop these two lines if you do not ship
+			// Android.
+			//
+			// NFC: foreground-dispatch scan/write via a native Android provider.
+			// A CoreNFC implementation would additionally need the
+			// com.apple.developer.nfc.readersession.formats entitlement (a paid
+			// Apple Developer membership), which goleo does not generate.
 			runtime.RegisterNFC(a.Bridge())
-			// BLE: scan/connect/read/write via BluetoothLeScanner + GATT,
-			// native provider on Android (best-effort, unverified iOS).
+			// BLE: scan/connect/read/write via BluetoothLeScanner + GATT, native
+			// Android provider.
 			runtime.RegisterBLE(a.Bridge())
 			//
 			// Commented out because it needs your own Firebase/Apple

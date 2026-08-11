@@ -30,24 +30,41 @@ Verified against Goleo's actual `cli/cmd/build.go`/`emulate.go` pipeline:
 
 So: **a developer can `go get` this library and import it straight into `backend/app/app.go` (or a new file under `backend/gomobile/`), and it should cross-compile through `goleo build android` / `goleo emulate android` with zero framework changes.**
 
-## The one real gap: Android permissions
+## Android permissions: use `extra_permissions`, never edit the manifest
 
-Goleo regenerates `AndroidManifest.xml` from an embedded CLI template on **every** `goleo build android` / `goleo emulate android` (`cli/cmd/embed.go`'s `extractMobileTemplate()` calls `os.WriteFile` unconditionally, no existence check, no merge). There is currently no `goleo.json` field or other extension point for adding project-specific permissions.
+Goleo regenerates `AndroidManifest.xml` from an embedded CLI template on **every** `goleo build android` / `goleo emulate android` (`cli/cmd/embed.go`'s `extractMobileTemplate()` calls `os.WriteFile` unconditionally, no existence check, no merge). **Any manual edit to `AndroidManifest.xml` is silently wiped on your next build.**
 
-**Practical consequence**: if the Android API you're calling through `AndroidGoLab/jni` needs a permission Goleo's baked-in manifest doesn't already declare, any manual edit to `AndroidManifest.xml` gets silently wiped on your next build.
+The extension point is `goleo.json`:
 
-Permissions Goleo's manifest **already declares** (so these `AndroidGoLab/jni` packages should work today with no changes):
+```json
+{
+  "mobile": {
+    "android": {
+      "extra_permissions": ["android.permission.READ_CONTACTS", "READ_PHONE_STATE"]
+    }
+  }
+}
+```
 
-| Permission | Covers |
+Entries are taken verbatim (a bare name is normalised to `android.permission.<NAME>`) and merged into the generated manifest — see `resolveAndroidPermissions` in `cli/cmd/android_permissions.go`. This field exists precisely for what goleo cannot see, which is exactly the `AndroidGoLab/jni` case: goleo derives the rest of the manifest from the `Register*` calls it finds in your source, and it has no way to know that a `telephony` import needs `READ_PHONE_STATE`.
+
+The build **prints every permission it declared and which feature asked for it**, so check that output rather than the manifest file — a permission you expected and do not see is the signal.
+
+Permissions goleo declares on its own, when the matching `runtime.Register*` call is present (so these `AndroidGoLab/jni` packages need no `extra_permissions`):
+
+| Permission | Asked for by |
 |---|---|
-| `CAMERA`, `RECORD_AUDIO` | camera |
-| `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION` | location |
-| `VIBRATE` | vibration |
-| `NFC` | nfc |
-| `BLUETOOTH_SCAN`, `BLUETOOTH_CONNECT` (+ legacy `BLUETOOTH`/`BLUETOOTH_ADMIN` for API ≤30) | bluetooth |
-| `INTERNET`, `ACCESS_NETWORK_STATE`, `POST_NOTIFICATIONS` | networking/notifications |
+| `CAMERA` | `RegisterCamera` |
+| `RECORD_AUDIO`, `MODIFY_AUDIO_SETTINGS` | `RegisterMicrophone` |
+| `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION` | `RegisterGeolocation` |
+| `VIBRATE` | `RegisterVibration` |
+| `NFC` | `RegisterNFC` |
+| `BLUETOOTH_SCAN`, `BLUETOOTH_CONNECT` (+ legacy `BLUETOOTH`/`BLUETOOTH_ADMIN` for API ≤30) | `RegisterBLE` |
+| `BODY_SENSORS` | `RegisterSensors` |
+| `WAKE_LOCK` | `RegisterWakeLock` |
+| `INTERNET`, `ACCESS_NETWORK_STATE`, `POST_NOTIFICATIONS` | always |
 
-Anything needing a permission outside this list (telephony, contacts, calendar, SMS, broad storage access, etc.) is blocked until Goleo's manifest template gains it — which today means patching `cli/cmd/templates/{android,android-dev}/app/src/main/AndroidManifest.xml` and rebuilding the `goleo` CLI itself, not something a project-level change can do.
+**Two caveats.** A permission that implies a hardware feature also needs a `<uses-feature required="false">`, or Play filters the app off devices lacking that hardware — goleo declares those for its own features (`androidHardwareFeatures`) but **not** for anything you add via `extra_permissions`. And `goleo emulate android` uses a **separate, static** dev manifest (`templates/android-dev/`), which `extra_permissions` does not reach; a permission that works in a release build can be missing under `emulate`.
 
 ## The other gap: callback-driven APIs
 

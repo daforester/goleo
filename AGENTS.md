@@ -155,12 +155,22 @@ nobody wires in surfaces as an accepted no-op instead of shipping as one. `--no-
 one deliberate exception (it asks for something *not* to happen, which a target with no
 signing step satisfies); the reasoning is recorded next to its test.
 
+Related gates, same class: **CI fails on unreachable code in `cli/`** (`deadcode` rooted at
+the `goleo` binary's `main`) **and on unused unexported identifiers anywhere in `runtime/` or
+`cli/`** (`staticcheck -checks U1000`, which needs no entry point and covers fields and vars,
+not just funcs). Both are in `ci.yml`. Do not park a helper, a field or a build path "for
+later" — Go will not warn, but the build will. Only `U1000` is enabled from staticcheck, on
+purpose; SPIKES.md records why, and what the two checks found.
+
 Minimum OS versions have **one** source each (`cli/cmd/mobile_minversion.go`):
 `mobile.android.min_sdk` / `mobile.ios.deployment_target` drive both gomobile
 (`-androidapi`/`-iosversion`) and the native project (`minSdk`/`deploymentTarget`), with
 `--android-api` / `--ios-target` as explicit per-build overrides. They must agree: a Go
 library whose minimum exceeds the app's fails to link. The dev and release Android templates
-are asserted to declare the same levels.
+are asserted to declare the same levels. **iOS will not go below 13.0** — the generated shell
+adopts the UIScene lifecycle (`UIApplicationSceneManifest` + `SceneDelegate`), which an older
+system ignores, so the app would build, sign and launch to a black screen; the version is
+refused instead.
 
 The frontend is embedded in the Go library and served over `http://127.0.0.1:<port>` on
 mobile — it is **not** copied into the native project. A loopback origin is a secure context

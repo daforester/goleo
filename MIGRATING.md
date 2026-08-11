@@ -745,3 +745,64 @@ generated (`backend/gomobile/dialogs.go`) or regenerated from the CLI (`.goleo/i
 pinned 0.10.7, move the pin forward and rebuild.
 
 The 0.10.7 notes above still apply: they describe changes that are also in 0.10.8.
+
+---
+
+## 0.10.14 — `RegisterMicrophone` finally reaches the Android manifest
+
+**Affects:** every artifact `goleo build android` produces — the debug `.apk`, the
+`--release` `.apk` and the `.aab` — for any app that calls `runtime.RegisterMicrophone`,
+which the demo scaffold does. **iOS, desktop, PWA and `goleo emulate android` are
+unaffected**: the microphone was device-verified working on iOS, and `emulate` uses a
+separate static manifest that declares both permissions.
+
+### What changed
+
+0.10.9 added Microphone as its own feature, but the scanner that derives the manifest had no
+pattern for `RegisterMicrophone(`, so every release since produced a built manifest with
+**neither** `RECORD_AUDIO` nor `MODIFY_AUDIO_SETTINGS`. Nothing showed it: the Go library
+still linked (the tag is forced in for the native shells), `goleo emulate android` uses a
+static dev manifest that lists both, and iOS declares its purpose strings in a fixed
+`Info.plist`. On an installed build `getUserMedia({audio:true})` failed and the permission
+the user was never asked for read as `denied`.
+
+0.10.12's "microphone needs MODIFY_AUDIO_SETTINGS" fix did not reach a built app either: it
+added the permission to the feature table that drives the derived manifest, which for
+microphone was never consulted. 0.10.13's fix added it to the static dev manifest, which is
+why the feature works under `emulate` and only there.
+
+Both permissions, plus `<uses-feature android:name="android.hardware.microphone"
+android:required="false" />`, are now declared whenever the scanner sees the call.
+
+### Do I need to change anything?
+
+No, but **check your Play listing after the next upload**: an app that previously shipped
+without `RECORD_AUDIO` now requests it, which is a user-visible permission and appears in the
+data-safety and permissions sections. If you do *not* want it, delete the
+`runtime.RegisterMicrophone(...)` line — that is what the permission follows.
+
+If you worked around this by listing the permissions in
+`mobile.android.extra_permissions`, you can remove them; duplicates are harmless either way.
+
+---
+
+## 0.10.14 — iOS deployment targets below 13.0 are refused
+
+**Affects:** projects that set `mobile.ios.deployment_target` (or pass `--ios-target`) below
+`13.0`. The default is `15.0`, so most projects are unaffected.
+
+### What changed
+
+The generated Xcode project adopts the **UIScene lifecycle**: `Info.plist` declares a
+`UIApplicationSceneManifest` and a `SceneDelegate` creates the window. This is ahead of
+Apple's own deprecation — the device log warns "`UIScene` lifecycle will soon be required.
+Failure to adopt will result in an assert in the future."
+
+A system older than iOS 13 ignores the scene manifest, so nothing would create a window: the
+app would build, sign, install and launch to a black screen with no build-time signal.
+`goleo build ios` now refuses the version instead, naming the reason.
+
+### Do I need to change anything?
+
+Only if you set a target below 13.0. Raise it to `13.0` or higher — `15.0` is the default and
+is what the shell is tested against.

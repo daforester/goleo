@@ -1777,3 +1777,278 @@ Verified all four properties before committing, since this mechanism has broken 
 lockfile are two statements about the same dependency that no tool reconciles, and the more
 reassuring one (`"latest"`) is the one that is not consulted. If a value must not go stale,
 do not express it as a range whose snapshot is stored elsewhere.
+
+## iOS — second device run: two clean builds, and a detection gap they exposed (2026-08-11)
+
+`goleo build ios` (device, signed) and `goleo build ios --simulator` both reached
+`** BUILD SUCCEEDED **` on Xcode 17F113 / iPhoneOS 26.5 SDK, and the signed app ran on
+hardware. The whole build produced **two** warnings, one of them Apple boilerplate
+(`No AppIntents.framework dependency found`). So the interesting output was not an error.
+
+### The finding was a line of ordinary build output, not a failure
+
+The build printed:
+
+```
+Detected mobile features: goleo_ble, goleo_nfc, goleo_vibration, goleo_geolocation,
+goleo_wakelock, goleo_camera, goleo_sensors, goleo_background, goleo_share,
+goleo_clipboard, goleo_dialog, goleo_fs, goleo_battery
+```
+
+Thirteen features for a demo scaffold that registers fourteen. **`goleo_microphone` was
+missing** — `featureRegistry` had the Microphone entry (both audio permissions, the hardware
+feature, the purpose string) but `scanPatterns` had no `RegisterMicrophone\(` pattern, so
+`detectFeatureUsage` could never return it. `goleo build android` therefore derived a
+manifest with neither `RECORD_AUDIO` nor `MODIFY_AUDIO_SETTINGS` — for the debug `.apk`, the
+`--release` `.apk` and the `.aab` alike, since `buildForAndroid` is the only build path.
+
+A `buildAndroidDev()` sibling next to it rendered the static `android-dev` manifest into an
+`app-dev.apk`, and **had no caller — not one, ever, back to the initial commit.** Go does not
+warn about an unused function, so 120 lines of unreachable code sat next to the live path
+implying a dev-vs-release build split that does not exist. It is deleted; the comment on
+`buildForAndroid` now records that there is one path and that `android-dev` belongs to
+`emulate` alone. Worth noting how it did damage without ever running: it made "the dev
+manifest is for dev builds, the derived one is for release builds" look true, which is the
+model both ineffective microphone fixes were made under.
+
+**Two Android microphone fixes had already landed, and neither one reached a built app:**
+
+| Commit | What it edited | Effect on a built artifact |
+|---|---|---|
+| `8a600d2` "microphone needs MODIFY_AUDIO_SETTINGS" | `featureRegistry.Permissions` | **none** — that table is only read for tags the scanner emits, and it never emitted this one |
+| `1983378` "the DEV manifest is static, so the audio permission missed emulate" | `templates/android-dev/.../AndroidManifest.xml` | made `goleo emulate android` work; `emulate` is not a build |
+
+So the state going into this run was: `emulate` had both permissions, every `goleo build
+android` output had neither, and the microphone was believed fixed on Android. The v0.10.13
+release note recorded the inverse — that the dev fix gave `emulate` "the permission the
+derived release manifest already had", and that 0.10.12 "has it in one manifest only".
+0.10.12 had `MODIFY_AUDIO_SETTINGS` in **zero** manifests; 0.10.13 put it in exactly one, the
+one that never ships.
+
+That line exists because of mitigation (2) in `cli/cmd/android_permissions.go`: permissions
+follow enablement, detection can produce false negatives, so **the build prints what it
+detected**. It worked — on an iOS build, for an Android defect, seventeen commits and five
+releases after the feature shipped in 0.10.9.
+
+**The release notes recorded the opposite as fact.** The v0.10.13 message says the dev
+manifest fix gave `emulate` "the permission the derived release manifest already had". The
+derived release manifest never had it. Nobody checked, because the emulator demo recorded
+audio and played it back — the platform where it *was* declared was the platform being
+tested, and a release note is not a test.
+
+### Why four separate mechanisms hid it
+
+| Mechanism | Why it looked fine |
+|---|---|
+| `gomobile bind` | `nativeShellProviderTags` forces `goleo_microphone` in for the shells, so `runtime/microphone` linked and compiled on both platforms |
+| `goleo emulate android` | uses the **static** dev manifest, which lists both audio permissions — so the mic demo worked on every emulator run, and `emulate` is where all the Android microphone work was done |
+| iOS | `templates/ios/App/Info.plist` hardcodes `NSMicrophoneUsageDescription` and iOS has no manifest permissions at all, so the platform that got a hardware run was structurally immune — **the mic was device-tested working on iOS in this very run** |
+| Tests | every one of them hand-wrote the tag list; none asked whether the scanner could *produce* it |
+
+The first real symptom would have been a sideloaded or installed build reporting `denied`
+against a permission the app never asked for.
+
+Note how narrow the broken path is, and how wide the evidence *against* a bug looked. The
+feature was verified working on an iOS device **and** on an Android emulator, by hand, by
+someone deliberately hunting a microphone problem — and it was then "fixed" twice on Android,
+with a logcat trace and a `dumpsys package` confirmation behind the diagnosis. All of that is
+real evidence. None of it touched a `goleo build android` artifact: iOS hardcodes the string,
+`emulate` reads a different manifest, and the `dumpsys` output came from an `emulate` install,
+so the `RECORD_AUDIO` it showed came from the static file rather than from the derived one
+under investigation.
+
+**"I tested it and it worked" bounds a defect; it does not disprove one.** The question is
+which artifact the test built — and here the two most-exercised paths on the platform were
+both paths that bypass the thing that was broken.
+
+**The transferable point, and it is the third time this shape has appeared here** (dialogs
+with no shell registration, `IOSUsageDescs` with no reader, now a registry entry with no
+scanner pattern): a declaration is only load-bearing if something *consumes* it, and two
+lists edited independently drift silently. `TestEveryFeatureIsDetectable` now requires every
+`featureRegistry` entry to be named by a Go scan pattern, and
+`TestEveryScanPatternNamesARealFeature` requires the reverse — a pattern naming a feature the
+registry lacks matches text and discards it.
+
+### The second warning was real too
+
+```
+warning: All interface orientations must be supported unless the app requires full screen.
+```
+
+XcodeGen's application preset sets `TARGETED_DEVICE_FAMILY = "1,2"`, so **every** generated
+project is iPad-capable whether or not anyone asked for it, and an iPad app that does not set
+`UIRequiresFullScreen` can be handed any orientation in Split View. The plist declared three.
+Fixed by adding `UISupportedInterfaceOrientations~ipad` with all four rather than by
+requiring full screen — opting out of multitasking is the worse trade for a WebView UI that
+reflows anyway. The iPhone list still omits upside-down, which is the convention.
+
+### The runtime log's one substantive line, now acted on
+
+```
+`UIScene` lifecycle will soon be required. Failure to adopt will result in an assert in the future.
+```
+
+`AppDelegate.swift` created its `UIWindow` in `didFinishLaunchingWithOptions` with no
+`UIApplicationSceneManifest`. Nothing was broken — this is a migration ahead of the assert,
+and `GoleoUI` already existed precisely because the *partial* scene world broke
+`UIApplication.shared.windows`. **Unverified on hardware at the time of writing**: no test on
+a non-Mac host can run a launch path.
+
+The split is per-app versus per-scene, and only the window is per-scene. Starting the Go
+server, registering providers, the `BGTaskScheduler` registration (which *must* complete
+before `didFinishLaunching` returns) and the notification delegate all stay in `AppDelegate`.
+The WebView is still built in `didFinishLaunching` and merely attached when the scene
+connects, so the server-start / page-load ordering that was device-verified is unchanged.
+
+Three things that are not obvious, each of which fails as a **black screen with no build
+error**:
+
+- `UISceneDelegateClassName` is a **string** naming a Swift class, so it needs the module
+  prefix: `$(PRODUCT_MODULE_NAME).SceneDelegate`. That resolves only because
+  `ProcessInfoPlistFile` runs with `-expandbuildsettings` and `xcodegen.yml` pins
+  `PRODUCT_NAME`. `AppDelegate` therefore *also* sets `configuration.delegateClass` in
+  `configurationForConnecting` — the plist is the declaration, the code is the guarantee, and
+  `TestSceneLifecycleIsAdoptedInBothFiles` requires both plus the class itself.
+- A deployment target below iOS 13 compiles and signs perfectly and then ignores the scene
+  manifest, so nothing creates a window. `validIOSVersion` now refuses anything below 13 and
+  says why. The alternative — a `#available` fallback in the shell — is dead code that Swift
+  warns about at the 15.0 default, i.e. it would trade a fixed warning for a new one.
+- `applicationWillTerminate` is **not** guaranteed under scenes (a suspended app is killed
+  without it). `GomobileStopServer()` stays there anyway rather than moving to
+  `sceneDidDisconnect`: the process is going away with the server inside it, whereas a scene
+  disconnect can happen to an app that keeps running, and stopping the backend under a live
+  app is a real failure rather than a skipped cleanup.
+
+### Ruled out (device runtime log), so nobody re-investigates
+
+| Line | Verdict |
+|---|---|
+| `ios-check starting up...` printed **twice** | not a double start. It is `log.Println` → stderr, which gomobile duplicates on iOS; the `fmt.Printf` port banner next to it appears **once**, and a second `StartServer` would have fallen forward to 9843 and printed a second banner |
+| `Could not create a sandbox extension for .../GoleoApp.app` | normal for a development-signed install |
+| `(Fig) signalled err=-12710` ×3 | CoreMedia internal logging around capture setup; no failure followed it |
+| `xpc_user_sessions_get_foreground_uid() failed`, `DeviceIdHashSaltStorage`, `Unable to hide query parameters` | WebKit/system noise present in any WKWebView app |
+
+### Process note: `(added in X)` markers drift at release time
+
+`docs/agents/host-features.md`'s microphone heading said 0.10.9 when the feature landed and
+said **0.10.13** by the time this run happened — bumped by four consecutive release commits,
+each rewriting it to the version being cut. The Dialogs heading two sections below has said
+0.10.7 throughout, so nothing automated is doing it: the marker reads as "current version" to
+whoever prepares a release, and a "version" in a docs diff looks like something to bump.
+
+It matters because that marker is how anyone later works out which published release first
+contained a feature — and it is the number that ends up in a MIGRATING entry. `git describe
+--contains <commit>` is the authority; the heading now carries a comment saying so.
+
+### CI now fails on unreachable CLI code (2026-08-11)
+
+Go does not warn about a function nobody calls, and the CLI had accumulated two:
+`buildAndroidDev()` (120 lines, above) and `featureForTag()`. Neither had ever had a caller.
+`go build`, `go vet`, the full test suite and the CI matrix were all green with both present.
+
+`golang.org/x/tools/cmd/deadcode` finds them in about ten seconds, and the CI step is worth
+describing because the SCOPE is what makes the output usable:
+
+- **Rooted at `./cli/goleo`**, the binary's `main`. "Dead" then means the shipped CLI cannot
+  reach it, which is the question worth asking.
+- **`-filter github.com/daforester/goleo/cli`.** Without it the run also reports
+  `runtime/updater`, correctly — no `main` in this repo calls it, because it is a LIBRARY
+  whose exported API exists for user apps. Rooting a library reports its whole public
+  surface, so `runtime/` is deliberately not covered by this check. There is no cheap fix:
+  the only honest root would be a real consuming app.
+- **`-test` is NOT passed**, so test files are not roots. A non-test helper used only by
+  tests is therefore reported. That is intended — the CLI has none today, and one appearing
+  is worth a look.
+- **It exits 0 whether or not it finds anything**, like `gofmt -l`; the step fails on
+  non-empty output. Pinned to `v0.48.0` rather than `@latest`, so a release that changes what
+  it reports is a deliberate bump instead of a red build one morning.
+
+Mutation-checked both ways before committing: with a one-line unreachable function added it
+reports `cli\cmd\scan.go:351:6: unreachable func: zzTmpUnreachable`; with it removed the
+output is empty.
+
+**The reason this earns a CI slot rather than a cleanup commit:** `buildAndroidDev` did real
+damage without ever executing. Its existence next to `buildForAndroid` implied a
+dev-vs-release Android build split that does not exist, and that model is what both
+ineffective microphone permission fixes were made under. Dead code is not inert when it is
+also documentation.
+
+### Two scan patterns that could never match, and the scaffold's stale iOS claims (2026-08-11)
+
+Follow-ups from the same sweep, both found by asking "does anything actually consume this?"
+of things that looked settled.
+
+**`scanPatterns` had two `Source: "ts"` entries** — `@goleo/bridge/<feature>` imports and
+`on('goleo:<feature>'` listeners — and neither could ever fire, because `detectFeatureUsage`
+skips any directory named `frontend`, which is where every `.vue`/`.ts` file in a goleo
+project lives. Demonstrated before deleting, with one file containing both patterns:
+
+| Location | Detected |
+|---|---|
+| `frontend/src/Demo.vue` | `[]` |
+| the identical file at the project root | `[goleo_camera goleo_nfc]` |
+
+Harmless in effect — a feature is unusable until its Go-side `Register*` call exists, since
+that call is what installs the `goleo:*` command the frontend invokes, so the Go patterns
+already covered every real project. Deleted anyway, along with the now-single-valued `Source`
+field and the `.ts/.vue/.js` branch of the walk: the danger was not wrong output, it was that
+the scanner *looked* like it read the frontend. Someone would eventually rely on that.
+
+**The scaffold told every new project that iOS was unverified.** `app.go.tmpl` said
+"best-effort, unverified iOS — no Xcode available to test it", which two hardware runs have
+made false. It was also wrong the other way for NFC and BLE, described as having a native
+Android provider and a "best-effort, unverified" iOS one — iOS registers **no** provider for
+either (`AppDelegate.swift` wires nine; neither is among them) and WKWebView implements
+neither Web NFC nor Web Bluetooth, so on iOS those calls do not degrade to a fallback, they
+report no provider. The demo's own `registry.ts` has said `ios:'no'` for both all along, so
+the scaffold contradicted the app it ships with. Both scaffolds now say Android-only, and the
+minimal one gained the `RegisterMicrophone` line it had been missing since 0.10.9.
+
+The pattern across all four items in this session: **the repo's declarations were right and
+its wiring was not.** `featureRegistry` had Microphone, `registry.ts` had `ios:'no'`,
+`IOSUsageDescs` has the purpose strings. What was missing each time was something that reads
+them.
+
+### Closing the deadcode blind spot: U1000 over runtime/ too (2026-08-11)
+
+The `deadcode` gate added earlier is rooted at the `goleo` binary's `main` and filtered to
+`cli/`, because `runtime/` is a library with no entry point to root a reachability analysis
+at. That exemption was documented, and then measured: `staticcheck -checks U1000` needs no
+entry point — it reports **unexported** identifiers nothing references, which is precisely
+the blind spot, and it sees fields and vars as well as funcs (deadcode reports only funcs).
+
+Five findings, and they were not all clutter:
+
+| Finding | Verdict |
+|---|---|
+| `runtime/fs_scope.go` `dataOnce sync.Once` | **the bad one** — see below |
+| `runtime/notify/notify_windows.go` `syscall.StringToUTF16` (SA1019, found in the same sweep) | real: **panics** on app-supplied text containing a NUL |
+| `cli/cmd/emulate.go` `emulateTarget` | dead; declared beside two real flag vars, bound to no flag, read by nothing |
+| `runtime/deeplink` `slug()` | dead helper |
+| `runtime/app.go` `mu`, `running` | vestigial, NOT a missing lock — `Quit()` is idempotent because `context.CancelFunc` is |
+
+**`dataOnce` is why this check earns its runtime.** It sat directly above a comment
+explaining why once-semantics are wrong in that exact spot: `os.UserConfigDir` legitimately
+fails on mobile before `SetHomeDir` runs, so the resolution must be RETRIED, and the code
+memoises under the existing RWMutex with a `cached != ""` test precisely so a failure is not
+latched. A `sync.Once` named `dataOnce` next to that is an invitation to "simplify" the mutex
+away and leave the filesystem scope with no root for the life of the process — a security
+control failing open, from a cleanup that looks like an improvement. **A dead field that
+contradicts a nearby comment is worse than dead code; it is a wrong answer left lying next to
+the right one.**
+
+The notify one is the other kind of value: `StringToUTF16` is deprecated for a reason easy to
+read past — it panics on an embedded NUL where `UTF16FromString` returns an error. Title and
+body come straight from `goleo:notify`, so they are app data. Now strips NULs and encodes
+what remains, with `notify_windows_test.go` covering it (Windows-only, so it is a
+developer-machine guard: CI cross-compiles for Windows but runs its tests on Linux).
+
+**Only U1000 is enabled**, deliberately. The default set also raises 19 `ST1005`s (error
+strings capitalised or punctuated — a house-style rule this repo does not follow) and one
+`SA4000` false positive on `singleinstance_test`'s determinism check, which compares a pure
+function against itself on purpose. Turning the suite on wholesale would mean twenty papercut
+edits or a wall of ignore directives, and a check nobody reads is a check nobody runs.
+
+Mutation-checked like the others: an added `func zzTmpUnused()` in `runtime/deeplink` makes
+the step exit 1; removed, it exits 0. Unlike `deadcode`, staticcheck exits non-zero on
+findings, so the step needs no output test.
