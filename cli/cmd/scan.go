@@ -141,41 +141,44 @@ var featureRegistry = []Feature{
 	},
 }
 
+// scanPatterns match GO source only, and that is sufficient rather than a limitation: a
+// feature is unusable until its `runtime.Register*` call exists, because that call is what
+// installs the `goleo:*` bridge command the frontend invokes. Frontend code cannot enable a
+// feature the Go side did not register, so it cannot be the signal for one either.
+//
+// There used to be two `Source: "ts"` patterns here — `@goleo/bridge/<feature>` imports and
+// `on('goleo:<feature>'` listeners — and **neither could ever match**: detectFeatureUsage
+// skips any directory named `frontend`, which is where every .vue/.ts file in a goleo project
+// lives. Verified before deleting them, with a .vue file containing both patterns:
+//
+//	in frontend/    -> []
+//	same file outside frontend/  -> [goleo_camera goleo_nfc]
+//
+// They were harmless — the Go patterns already covered every real project — but they made the
+// scanner look as though it understood the frontend, which is how someone comes to trust it
+// for a case it never handled. Same class as the buildAndroidDev() that nothing called.
 var scanPatterns = []struct {
 	Pattern *regexp.Regexp
 	Feature string
-	Source  string // "go" or "ts"
 }{
-	// Go: explicit RegisterXxx() calls
-	{Pattern: regexp.MustCompile(`RegisterClipboard\(`), Feature: "Clipboard", Source: "go"},
-	{Pattern: regexp.MustCompile(`RegisterDialogs\(`), Feature: "Dialogs", Source: "go"},
-	{Pattern: regexp.MustCompile(`RegisterFS\(`), Feature: "FileSystem", Source: "go"},
-	{Pattern: regexp.MustCompile(`RegisterGeolocation\(`), Feature: "Geolocation", Source: "go"},
-	{Pattern: regexp.MustCompile(`RegisterBattery\(`), Feature: "Battery", Source: "go"},
-	{Pattern: regexp.MustCompile(`RegisterWakeLock\(`), Feature: "WakeLock", Source: "go"},
-	{Pattern: regexp.MustCompile(`RegisterCamera\(`), Feature: "Camera", Source: "go"},
-	{Pattern: regexp.MustCompile(`RegisterBLE\(`), Feature: "Bluetooth", Source: "go"},
-	{Pattern: regexp.MustCompile(`RegisterNFC\(`), Feature: "NFC", Source: "go"},
-	{Pattern: regexp.MustCompile(`RegisterSensors\(`), Feature: "Sensors", Source: "go"},
-	{Pattern: regexp.MustCompile(`RegisterVibration\(`), Feature: "Vibration", Source: "go"},
-	{Pattern: regexp.MustCompile(`RegisterBackground\(`), Feature: "Background", Source: "go"},
-	{Pattern: regexp.MustCompile(`RegisterPush\(`), Feature: "Push", Source: "go"},
-	{Pattern: regexp.MustCompile(`RegisterShare\(`), Feature: "Share", Source: "go"},
-	// Go: invoke strings containing feature names
-	{Pattern: regexp.MustCompile(`"goleo:(clipboard|nfc|ble|geolocation|camera|fs|dialog|battery|wakelock|vibration|sensor|background|push|share)[A-Z"']`), Feature: "StringRef", Source: "go"},
-	// TS: convenience module imports
-	{Pattern: regexp.MustCompile(`@goleo/bridge/(clipboard|nfc|bluetooth|geolocation|camera|fs|dialog|battery|screen|vibration|sensor|background|push|share)`), Feature: "ImportRef", Source: "ts"},
-	// TS: on() event listeners for feature events
-	{Pattern: regexp.MustCompile(`on\('goleo:(nfc|ble|geolocation|camera|background|push|location|battery)`), Feature: "EventRef", Source: "ts"},
-}
-
-func featureForTag(tag string) *Feature {
-	for _, f := range featureRegistry {
-		if f.BuildTag == tag {
-			return &f
-		}
-	}
-	return nil
+	// Explicit RegisterXxx() calls.
+	{Pattern: regexp.MustCompile(`RegisterClipboard\(`), Feature: "Clipboard"},
+	{Pattern: regexp.MustCompile(`RegisterDialogs\(`), Feature: "Dialogs"},
+	{Pattern: regexp.MustCompile(`RegisterFS\(`), Feature: "FileSystem"},
+	{Pattern: regexp.MustCompile(`RegisterGeolocation\(`), Feature: "Geolocation"},
+	{Pattern: regexp.MustCompile(`RegisterBattery\(`), Feature: "Battery"},
+	{Pattern: regexp.MustCompile(`RegisterWakeLock\(`), Feature: "WakeLock"},
+	{Pattern: regexp.MustCompile(`RegisterCamera\(`), Feature: "Camera"},
+	{Pattern: regexp.MustCompile(`RegisterMicrophone\(`), Feature: "Microphone"},
+	{Pattern: regexp.MustCompile(`RegisterBLE\(`), Feature: "Bluetooth"},
+	{Pattern: regexp.MustCompile(`RegisterNFC\(`), Feature: "NFC"},
+	{Pattern: regexp.MustCompile(`RegisterSensors\(`), Feature: "Sensors"},
+	{Pattern: regexp.MustCompile(`RegisterVibration\(`), Feature: "Vibration"},
+	{Pattern: regexp.MustCompile(`RegisterBackground\(`), Feature: "Background"},
+	{Pattern: regexp.MustCompile(`RegisterPush\(`), Feature: "Push"},
+	{Pattern: regexp.MustCompile(`RegisterShare\(`), Feature: "Share"},
+	// Invoke strings naming a feature, for code that calls the bridge directly.
+	{Pattern: regexp.MustCompile(`"goleo:(clipboard|nfc|ble|geolocation|camera|microphone|fs|dialog|battery|wakelock|vibration|sensor|background|push|share)[A-Z"']`), Feature: "StringRef"},
 }
 
 func tagForName(name string) string {
@@ -217,39 +220,26 @@ func detectFeatureUsage(projectDir string) ([]string, error) {
 			}
 			return nil
 		}
-		ext := filepath.Ext(path)
-		if ext != ".go" && ext != ".ts" && ext != ".tsx" && ext != ".vue" && ext != ".js" && ext != ".jsx" {
+		if filepath.Ext(path) != ".go" {
 			return nil
 		}
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return nil
 		}
-		content := string(data)
-		sourceType := "go"
-		if ext != ".go" {
-			sourceType = "ts"
-		} else {
-			// Strip `//` line comments before matching, so the
-			// commented-out "uncomment to enable" RegisterXxx() boilerplate
-			// in the default backend/app/app.go template isn't detected as
-			// actual usage — otherwise every project would light up all
-			// feature tags regardless of what it really calls.
-			content = stripGoLineComments(content)
-		}
+		// Strip `//` line comments before matching, so the commented-out "uncomment to
+		// enable" RegisterXxx() boilerplate in the default backend/app/app.go template
+		// isn't detected as actual usage — otherwise every project would light up all
+		// feature tags regardless of what it really calls.
+		content := stripGoLineComments(string(data))
 		for _, sp := range scanPatterns {
-			if sp.Source != "go" && sp.Source != sourceType {
-				continue
-			}
-			if sp.Source == "go" && sourceType != "go" {
-				continue
-			}
 			matches := sp.Pattern.FindAllString(content, -1)
 			for _, m := range matches {
 				var name string
 				switch sp.Feature {
-				case "StringRef", "ImportRef", "EventRef":
-					// Extract feature name from match
+				case "StringRef":
+					// The pattern matches the method name, so the feature comes from
+					// the match text rather than from the pattern.
 					for _, f := range featureRegistry {
 						if strings.Contains(m, strings.ToLower(f.Name)) || strings.Contains(m, f.BuildTag[6:]) {
 							name = f.Name
