@@ -32,3 +32,14 @@ prebuilt/
 # session artifacts, not repo content — see the run entries in SPIKES.md for what
 # each one found.
 *.log
+
+# A GOPATH module cache, committed by accident in the initial commit and carried
+# to 0.10.13 — 812 files, 14MB of cobra/pflag/fsnotify/x/sys. Nothing referenced
+# it: every GOPATH reference in this repo is `$(go env GOPATH)`, the real user
+# cache. It reached the published GO MODULE (the 2.3MB under cache/download has
+# no nested go.mod, so it is not excluded as a nested module), though not the npm
+# packages, which copy an explicit allow-list.
+#
+# Scoped to /pkg/mod/ rather than /pkg/ on purpose: pkg/ is a conventional Go
+# source layout, and a future package there must not be silently ignored.
+/pkg/mod/
