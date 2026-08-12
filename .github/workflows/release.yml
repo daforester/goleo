@@ -1,0 +1,102 @@
+name: release
+
+# Publishes all npm packages when a version tag (v1.2.3) is pushed, using npm
+# TRUSTED PUBLISHING (OIDC) — no long-lived NPM_TOKEN secret, and provenance is
+# attached automatically.
+#
+# One-time setup on npmjs.com — for EACH published package add a Trusted
+# Publisher (package → Settings → Trusted Publishing) pointing at:
+#     Provider:   GitHub Actions
+#     Owner:      daforester
+#     Repository: goleo
+#     Workflow:   release.yml
+# Packages: @goleo/bridge, @goleo/cli, and the six @goleo/cli-<os>-<arch>
+# platform packages. See RELEASING.md (incl. the first-publish bootstrap for
+# brand-new package names).
+#
+# Cross-compiles every platform binary CGO_ENABLED=0 from this one Linux runner
+# (the glaze webview backend is cgo-free), so no per-OS runners are needed.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # required for npm trusted publishing (OIDC) + provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # The `secrets` context isn't available in a step-level `if`, so the gate
+    # has to be an env var. Only this boolean is job-wide; the certificate and
+    # its password stay scoped to the signing step that needs them.
+    env:
+      SIGNING_ENABLED: ${{ secrets.WINDOWS_CERT_BASE64 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      # Trusted publishing (OIDC token exchange) needs npm >= 11.5.1; Node 22
+      # ships npm 10, so upgrade explicitly.
+      - name: Use latest npm (trusted publishing / OIDC)
+        run: npm install -g npm@latest
+
+      - name: Install workspace dependencies
+        run: npm install
+
+      - name: Build TypeScript package (@goleo/bridge)
+        run: npm run build:bridge
+
+      - name: Bundle Go source + build platform binary packages
+        run: |
+          node cli/npm/copy-source.js
+          node cli/npm/build-platform-packages.js
+
+      # Authenticode-sign the two Windows binaries before they're packaged.
+      # Unsigned Go executables get quarantined by reputation-based AV — this
+      # happened to @goleo/cli-win32-x64 in the wild. signtool is Windows-only
+      # and this job cross-compiles everything from Linux, so osslsigncode does
+      # it instead. Both steps are inert until the secrets exist, so the
+      # release keeps working unsigned in the meantime.
+      - name: Install Authenticode signing tool
+        if: env.SIGNING_ENABLED == 'true'
+        run: sudo apt-get update && sudo apt-get install -y osslsigncode
+
+      - name: Sign Windows binaries
+        env:
+          WINDOWS_CERT_BASE64: ${{ secrets.WINDOWS_CERT_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: node cli/npm/sign-platform-binaries.js
+
+      # Publish order matters only for propagation, not for correctness — every
+      # package here is independent except @goleo/cli, which needs its platform
+      # packages present so its optionalDependencies resolve for anyone installing
+      # immediately after. No NODE_AUTH_TOKEN: `npm publish` performs the OIDC
+      # exchange automatically when a trusted publisher is set.
+      #
+      # @goleo/bridge goes FIRST because it has no dependencies and no dependents
+      # here, so its slot is free — and it is the package a scaffolded project
+      # resolves LAST (release-smoke installs the CLI, scaffolds, then npm-installs
+      # the frontend). Publishing it last gave the least-propagated package the
+      # latest deadline, and release-smoke's windows-latest job lost that race on
+      # 0.10.5: `ETARGET No matching version found for @goleo/bridge@^0.10.5`, ~63s
+      # after this workflow finished. Putting it first gives it the longest head
+      # start; the retry loop in release-smoke is the defence in depth.
+      - name: Publish @goleo/bridge
+        run: npm publish -w bridge
+
+      - name: Publish @goleo/cli-* platform packages
+        run: node cli/npm/publish-platform-packages.js
+
+      - name: Publish @goleo/cli
+        run: npm publish -w cli/npm

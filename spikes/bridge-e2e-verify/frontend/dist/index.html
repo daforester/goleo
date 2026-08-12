@@ -1,0 +1,137 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>bridge-e2e-verify</title>
+<style>
+  body { font: 13px/1.5 system-ui, sans-serif; margin: 1.2rem; }
+  pre { background: #f4f4f5; padding: .6rem; border-radius: 4px; white-space: pre-wrap; }
+  .ok { color: #15803d } .bad { color: #b91c1c }
+</style>
+<h3>@goleo/bridge end-to-end</h3>
+<pre id="log">running…</pre>
+
+<script>
+  // Watchdog, deliberately NOT a module. If the module below fails to LOAD — an
+  // import a browser cannot resolve, a missing frontend/dist/bridge/ — then none
+  // of its code runs, including its own error reporting, and the run dies by the
+  // backend's 45s timeout with no clue why. This says so instead.
+  window.__moduleRan = false
+  setTimeout(function () {
+    if (window.__moduleRan) return
+    var why = 'the module script never executed — @goleo/bridge could not be ' +
+      'loaded from ./bridge/index.js (unresolvable import, or prepare.mjs not run)'
+    document.getElementById('log').textContent = 'FAIL ' + why
+    if (typeof window.__goleoSend === 'function') {
+      window.__goleoSend(JSON.stringify({
+        type: 'invoke',
+        data: { id: 'wd', method: 'smoke:report', args: { native: false, failures: [why] } },
+      }))
+    }
+  }, 8000)
+</script>
+
+<script type="module">
+  window.__moduleRan = true
+  // The REAL published bridge, loaded as ES modules straight out of its build
+  // output — no bundler, no mocks, no re-implementation. prepare.mjs copies
+  // bridge/dist here. If these imports fail, the built package is not loadable
+  // by a browser, which is itself the finding.
+  import {
+    initBridge, invoke, isNative,
+    writeBinaryFile, readBinaryFile, appDataDir,
+  } from './bridge/index.js'
+
+  const failures = []
+  const lines = []
+  const log = (msg, ok) => {
+    lines.push(msg)
+    document.getElementById('log').innerHTML = lines
+      .map((l) => `<span class="${l.startsWith('FAIL') ? 'bad' : 'ok'}">${l}</span>`)
+      .join('\n')
+    if (ok === false) failures.push(msg)
+  }
+
+  // Escape hatch: if the bridge itself cannot init we still have to tell the Go
+  // side, or the run just times out with no diagnosis. The native shim is
+  // injected by the webview host before navigation, so it is there regardless.
+  const rawReport = (payload) => {
+    if (typeof window.__goleoSend === 'function') {
+      window.__goleoSend(JSON.stringify({
+        type: 'invoke',
+        data: { id: 'raw-' + Date.now(), method: 'smoke:report', args: payload },
+      }))
+    }
+  }
+
+  async function bytesRoundTrip(plan, dir) {
+    // plan.payload arrives as a JSON array of numbers (Go []byte marshals to
+    // base64 in a string field, but this is an explicit []int-shaped value).
+    const want = new Uint8Array(plan.payload)
+    const path = dir + (dir.includes('\\') ? '\\' : '/') + plan.roundTripName
+
+    // Out through fs.ts's bytesToBase64, into Go's base64.StdEncoding.DecodeString.
+    await writeBinaryFile(path, want)
+    // Back through Go's EncodeToString, into fs.ts's base64ToBytes.
+    const got = await readBinaryFile(path)
+
+    const hex = (u8) => Array.from(u8, (b) => b.toString(16).padStart(2, '0')).join('')
+    const ok = got instanceof Uint8Array && got.length === want.length && hex(got) === hex(want)
+    return { ok, hex: hex(got instanceof Uint8Array ? got : new Uint8Array()) }
+  }
+
+  try {
+    // No serverUrl/wsUrl: on a SchemeAssets origin there is no port to guess.
+    // The bridge must find the native channel by itself — that is the point.
+    await initBridge()
+
+    const native = isNative()
+    log(native
+      ? 'transport: native in-process channel'
+      : 'FAIL transport: fell back to WebSocket, native channel not used', native)
+
+    const plan = await invoke('smoke:plan')
+    log('invoke round-trip: ok')
+
+    // --- binary, both directions, with bytes that are not valid UTF-8 ---
+    const dir = await appDataDir('bridge-e2e-verify')
+    log('appDataDir: ' + dir)
+
+    let binary = { ok: false, hex: '' }
+    let appDataOK = false
+    try {
+      binary = await bytesRoundTrip(plan, dir)
+      appDataOK = true
+      log(binary.ok
+        ? 'binary round-trip: byte-exact'
+        : 'FAIL binary round-trip: got ' + binary.hex, binary.ok)
+    } catch (e) {
+      log('FAIL binary round-trip threw: ' + (e?.message ?? e), false)
+    }
+
+    // --- a write the backend must refuse, with its own error text ---
+    let deniedOK = false
+    let deniedError = ''
+    try {
+      await writeBinaryFile(plan.deniedPath, new Uint8Array([1, 2, 3]))
+      log('FAIL confinement: writing outside the roots succeeded', false)
+    } catch (e) {
+      deniedOK = true
+      deniedError = e?.message ?? String(e)
+      log('confinement: refused — ' + deniedError)
+    }
+
+    await invoke('smoke:report', {
+      native,
+      origin: location.origin,
+      binaryOK: binary.ok,
+      binaryHex: binary.hex,
+      deniedOK,
+      deniedError,
+      appDataOK,
+      failures,
+    })
+  } catch (e) {
+    const msg = 'page threw before it could report: ' + (e?.stack ?? e?.message ?? e)
+    log('FAIL ' + msg, false)
+    rawReport({ native: false, origin: location.origin, failures: [msg] })
+  }
+</script>

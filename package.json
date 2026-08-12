@@ -1,0 +1,17 @@
+{
+  "name": "goleo-monorepo",
+  "private": true,
+  "workspaces": [
+    "bridge",
+    "cli/npm"
+  ],
+  "scripts": {
+    "build:bridge": "npm run build -w bridge",
+    "build:cli": "npm run build -w cli/npm",
+    "build:all": "npm run build:bridge && npm run build:cli",
+    "publish:bridge": "npm publish -w bridge",
+    "publish:cli-platforms": "node cli/npm/build-platform-packages.js && node cli/npm/publish-platform-packages.js",
+    "publish:cli": "npm run publish:cli-platforms && npm publish -w cli/npm",
+    "publish:all": "npm run publish:bridge && npm run publish:cli"
+  }
+}

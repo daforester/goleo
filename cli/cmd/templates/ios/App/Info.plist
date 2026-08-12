@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleName</key>
+    <string>{{.AppName}}</string>
+    <key>CFBundleDisplayName</key>
+    <string>{{.AppName}}</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>{{.VersionName}}</string>
+    <key>CFBundleVersion</key>
+    <string>{{.VersionCode}}</string>
+    <key>LSRequiresIPhoneOS</key>
+    <true/>
+    <key>UILaunchStoryboardName</key>
+    <string>LaunchScreen</string>
+    <!-- Adopts the UIScene lifecycle. Without this manifest the device log warns "`UIScene`
+         lifecycle will soon be required. Failure to adopt will result in an assert in the
+         future." (iOS 26, 2026-08-10) and UIKit runs the legacy app-delegate window path.
+
+         UISceneDelegateClassName is a Swift class, so it needs the MODULE prefix, and
+         $(PRODUCT_MODULE_NAME) resolves only because ProcessInfoPlistFile runs with
+         -expandbuildsettings and xcodegen.yml pins PRODUCT_NAME to GoleoApp. A name UIKit
+         cannot resolve is a black screen at launch, so AppDelegate ALSO sets
+         configuration.delegateClass in configurationForConnecting — this is the
+         declaration, that is the guarantee. -->
+    <key>UIApplicationSceneManifest</key>
+    <dict>
+        <!-- One window. Multiple scenes would mean several WebViews against one Go server
+             with no story for which of them a dialog or share sheet belongs to. -->
+        <key>UIApplicationSupportsMultipleScenes</key>
+        <false/>
+        <key>UISceneConfigurations</key>
+        <dict>
+            <key>UIWindowSceneSessionRoleApplication</key>
+            <array>
+                <dict>
+                    <key>UISceneConfigurationName</key>
+                    <string>Default Configuration</string>
+                    <key>UISceneDelegateClassName</key>
+                    <string>$(PRODUCT_MODULE_NAME).SceneDelegate</string>
+                </dict>
+            </array>
+        </dict>
+    </dict>
+    <key>UIRequiredDeviceCapabilities</key>
+    <array>
+        <string>arm64</string>
+    </array>
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+    <!-- iPad needs its own list, and it needs ALL FOUR. XcodeGen's application preset sets
+         TARGETED_DEVICE_FAMILY = "1,2", so every generated app is iPad-capable and — with no
+         UIRequiresFullScreen — supports multitasking, where the system can hand the app any
+         orientation. Declaring a subset makes xcodebuild warn "All interface orientations
+         must be supported unless the app requires full screen" (seen on the 2026-08-10
+         device build) and is an App Store review nit. Requiring full screen instead would
+         silence it by opting out of Split View, which is the worse trade for a WebView app
+         that reflows anyway. The iPhone list above deliberately keeps omitting
+         upside-down, which is the platform convention. -->
+    <key>UISupportedInterfaceOrientations~ipad</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationPortraitUpsideDown</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+    <!-- Publishes the app's Documents directory to the Files app. goleo:dialogSaveFile
+         returns a path in there (iOS has no "pick a destination then write" primitive),
+         so without these two the saved file exists but the user can never reach it. -->
+    <key>UIFileSharingEnabled</key>
+    <true/>
+    <key>LSSupportsOpeningDocumentsInPlace</key>
+    <true/>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsLocalNetworking</key>
+        <true/>
+    </dict>
+    <key>NSCameraUsageDescription</key>
+    <string>This app uses the camera when a page requests it.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>This app uses the microphone when a page requests it.</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>This app uses your location when a page requests it.</string>
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>processing</string>
+    </array>
+    <key>BGTaskSchedulerPermittedIdentifiers</key>
+    <array>
+        <string>$(PRODUCT_BUNDLE_IDENTIFIER).sync</string>
+    </array>
+</dict>
+</plist>

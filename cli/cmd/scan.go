@@ -1,0 +1,347 @@
+package cmd
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+)
+
+type Feature struct {
+	Name          string
+	BuildTag      string
+	Permissions   []string          // Android permissions
+	IOSUsageDescs map[string]string // iOS Info.plist keys → descriptions
+}
+
+var featureRegistry = []Feature{
+	{
+		Name:        "Clipboard",
+		BuildTag:    "goleo_clipboard",
+		Permissions: []string{},
+	},
+	{
+		Name:        "Dialogs",
+		BuildTag:    "goleo_dialog",
+		Permissions: []string{"android.permission.READ_EXTERNAL_STORAGE"},
+		IOSUsageDescs: map[string]string{
+			"NSPhotoLibraryUsageDescription": "Access photo library for file picking",
+		},
+	},
+	{
+		Name:        "FileSystem",
+		BuildTag:    "goleo_fs",
+		Permissions: []string{"android.permission.READ_EXTERNAL_STORAGE", "android.permission.WRITE_EXTERNAL_STORAGE"},
+		IOSUsageDescs: map[string]string{
+			"NSDocumentsFolderUsageDescription": "Access documents for file management",
+		},
+	},
+	{
+		Name:        "Geolocation",
+		BuildTag:    "goleo_geolocation",
+		Permissions: []string{"android.permission.ACCESS_FINE_LOCATION"},
+		IOSUsageDescs: map[string]string{
+			"NSLocationWhenInUseUsageDescription": "Access location for GPS features",
+		},
+	},
+	{
+		Name:     "Battery",
+		BuildTag: "goleo_battery",
+		// BATTERY_STATS is signature|privileged (for reading OTHER apps'
+		// stats) and can't be held by a normal app. Reading this app's own
+		// battery level/charging state via BatteryManager needs no
+		// permission at all.
+		Permissions: []string{},
+	},
+	{
+		Name:        "WakeLock",
+		BuildTag:    "goleo_wakelock",
+		Permissions: []string{"android.permission.WAKE_LOCK"},
+	},
+	{
+		Name:        "Vibration",
+		BuildTag:    "goleo_vibration",
+		Permissions: []string{"android.permission.VIBRATE"},
+	},
+	{
+		Name:        "Sensors",
+		BuildTag:    "goleo_sensors",
+		Permissions: []string{"android.permission.BODY_SENSORS"},
+		IOSUsageDescs: map[string]string{
+			"NSMotionUsageDescription": "Access motion sensors for app features",
+		},
+	},
+	{
+		Name:        "Camera",
+		BuildTag:    "goleo_camera",
+		Permissions: []string{"android.permission.CAMERA"},
+		IOSUsageDescs: map[string]string{
+			"NSCameraUsageDescription": "Access camera for photo and barcode capture",
+		},
+	},
+	{
+		// Separate from Camera on purpose: RECORD_AUDIO is a permission users see and Play
+		// flags, and most camera apps only want stills. An app that wants camera + audio
+		// registers both, so camera-only apps do not ask for the microphone.
+		Name:     "Microphone",
+		BuildTag: "goleo_microphone",
+		// BOTH are required, and the second one is the trap. Chromium's WebView media
+		// stack refuses to enumerate any input device without it:
+		//
+		//	W cr_media: Requires MODIFY_AUDIO_SETTINGS and RECORD_AUDIO.
+		//	            No audio device will be available for recording
+		//
+		// MODIFY_AUDIO_SETTINGS is a NORMAL permission — granted at install with no
+		// prompt — so leaving it out fails completely silently: the RECORD_AUDIO prompt
+		// appears, the user approves it, every visible signal says yes, and
+		// getUserMedia({audio:true}) still throws NotReadableError. Found via logcat on
+		// an emulator where the host microphone worked fine for system apps, after the
+		// emulator itself had been ruled out.
+		Permissions: []string{
+			"android.permission.RECORD_AUDIO",
+			"android.permission.MODIFY_AUDIO_SETTINGS",
+		},
+		IOSUsageDescs: map[string]string{
+			"NSMicrophoneUsageDescription": "Access the microphone for audio recording",
+		},
+	},
+	{
+		Name:        "Bluetooth",
+		BuildTag:    "goleo_ble",
+		Permissions: []string{"android.permission.BLUETOOTH_SCAN", "android.permission.BLUETOOTH_CONNECT"},
+		IOSUsageDescs: map[string]string{
+			"NSBluetoothAlwaysUsageDescription": "Access Bluetooth for peripheral communication",
+		},
+	},
+	{
+		Name:        "NFC",
+		BuildTag:    "goleo_nfc",
+		Permissions: []string{"android.permission.NFC"},
+		IOSUsageDescs: map[string]string{
+			"NFCReaderUsageDescription": "Access NFC for tag reading and writing",
+		},
+	},
+	{
+		Name:        "Background",
+		BuildTag:    "goleo_background",
+		Permissions: []string{"android.permission.FOREGROUND_SERVICE", "android.permission.POST_NOTIFICATIONS"},
+	},
+	{
+		Name:        "Push",
+		BuildTag:    "goleo_push",
+		Permissions: []string{"android.permission.POST_NOTIFICATIONS"},
+	},
+	{
+		// Android shares via Intent.ACTION_SEND and iOS via
+		// UIActivityViewController — neither needs a manifest permission.
+		Name:        "Share",
+		BuildTag:    "goleo_share",
+		Permissions: []string{},
+	},
+}
+
+// scanPatterns match GO source only, and that is sufficient rather than a limitation: a
+// feature is unusable until its `runtime.Register*` call exists, because that call is what
+// installs the `goleo:*` bridge command the frontend invokes. Frontend code cannot enable a
+// feature the Go side did not register, so it cannot be the signal for one either.
+//
+// There used to be two `Source: "ts"` patterns here — `@goleo/bridge/<feature>` imports and
+// `on('goleo:<feature>'` listeners — and **neither could ever match**: detectFeatureUsage
+// skips any directory named `frontend`, which is where every .vue/.ts file in a goleo project
+// lives. Verified before deleting them, with a .vue file containing both patterns:
+//
+//	in frontend/    -> []
+//	same file outside frontend/  -> [goleo_camera goleo_nfc]
+//
+// They were harmless — the Go patterns already covered every real project — but they made the
+// scanner look as though it understood the frontend, which is how someone comes to trust it
+// for a case it never handled. Same class as the buildAndroidDev() that nothing called.
+var scanPatterns = []struct {
+	Pattern *regexp.Regexp
+	Feature string
+}{
+	// Explicit RegisterXxx() calls.
+	{Pattern: regexp.MustCompile(`RegisterClipboard\(`), Feature: "Clipboard"},
+	{Pattern: regexp.MustCompile(`RegisterDialogs\(`), Feature: "Dialogs"},
+	{Pattern: regexp.MustCompile(`RegisterFS\(`), Feature: "FileSystem"},
+	{Pattern: regexp.MustCompile(`RegisterGeolocation\(`), Feature: "Geolocation"},
+	{Pattern: regexp.MustCompile(`RegisterBattery\(`), Feature: "Battery"},
+	{Pattern: regexp.MustCompile(`RegisterWakeLock\(`), Feature: "WakeLock"},
+	{Pattern: regexp.MustCompile(`RegisterCamera\(`), Feature: "Camera"},
+	{Pattern: regexp.MustCompile(`RegisterMicrophone\(`), Feature: "Microphone"},
+	{Pattern: regexp.MustCompile(`RegisterBLE\(`), Feature: "Bluetooth"},
+	{Pattern: regexp.MustCompile(`RegisterNFC\(`), Feature: "NFC"},
+	{Pattern: regexp.MustCompile(`RegisterSensors\(`), Feature: "Sensors"},
+	{Pattern: regexp.MustCompile(`RegisterVibration\(`), Feature: "Vibration"},
+	{Pattern: regexp.MustCompile(`RegisterBackground\(`), Feature: "Background"},
+	{Pattern: regexp.MustCompile(`RegisterPush\(`), Feature: "Push"},
+	{Pattern: regexp.MustCompile(`RegisterShare\(`), Feature: "Share"},
+	// Invoke strings naming a feature, for code that calls the bridge directly.
+	{Pattern: regexp.MustCompile(`"goleo:(clipboard|nfc|ble|geolocation|camera|microphone|fs|dialog|battery|wakelock|vibration|sensor|background|push|share)[A-Z"']`), Feature: "StringRef"},
+}
+
+func tagForName(name string) string {
+	for _, f := range featureRegistry {
+		if f.Name == name {
+			return f.BuildTag
+		}
+	}
+	return ""
+}
+
+// detectFeatureUsage scans a project directory for feature usage
+// and returns the set of build tags needed.
+func detectFeatureUsage(projectDir string) ([]string, error) {
+	detected := make(map[string]bool)
+
+	// Scan .go files
+	err := filepath.WalkDir(projectDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			skip := []string{".goleo", "node_modules", ".git", "frontend", "vendor"}
+			// backend/gomobile is GENERATED by goleo (generateBackendEntrypoints) and
+			// contains a provider file for all eight native-shell features whether the
+			// app uses them or not. Its text trips the loose name/tag patterns below, so
+			// scanning it reports features nobody enabled — a minimal scaffold came out
+			// "using" Background purely because background.go exists. It describes
+			// goleo's own wiring, not the app's intent.
+			if rel, relErr := filepath.Rel(projectDir, path); relErr == nil {
+				if filepath.ToSlash(rel) == "backend/gomobile" {
+					return filepath.SkipDir
+				}
+			}
+			for _, s := range skip {
+				if d.Name() == s && path != projectDir {
+					return filepath.SkipDir
+				}
+			}
+			return nil
+		}
+		if filepath.Ext(path) != ".go" {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		// Strip `//` line comments before matching, so the commented-out "uncomment to
+		// enable" RegisterXxx() boilerplate in the default backend/app/app.go template
+		// isn't detected as actual usage — otherwise every project would light up all
+		// feature tags regardless of what it really calls.
+		content := stripGoLineComments(string(data))
+		for _, sp := range scanPatterns {
+			matches := sp.Pattern.FindAllString(content, -1)
+			for _, m := range matches {
+				var name string
+				switch sp.Feature {
+				case "StringRef":
+					// The pattern matches the method name, so the feature comes from
+					// the match text rather than from the pattern.
+					for _, f := range featureRegistry {
+						if strings.Contains(m, strings.ToLower(f.Name)) || strings.Contains(m, f.BuildTag[6:]) {
+							name = f.Name
+							break
+						}
+					}
+				default:
+					name = sp.Feature
+				}
+				if name != "" {
+					if tag := tagForName(name); tag != "" {
+						detected[tag] = true
+					}
+				}
+			}
+		}
+		return nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("scanning source for features: %w", err)
+	}
+
+	var tags []string
+	for t := range detected {
+		tags = append(tags, t)
+	}
+	return tags, nil
+}
+
+// nativeShellProviderTags are the feature tags whose native-provider bindings
+// the mobile shell (Android MainActivity.java / iOS AppDelegate.swift) wires
+// *unconditionally* — it always imports gomobile.BatteryProvider, calls
+// Gomobile.setBLEProvider(...), etc. Because the shell is a fixed source file
+// (not trimmed per project), the Go side of that contract must always be
+// present in the gomobile bind, so gobind generates every provider interface +
+// Set* function the shell references. Otherwise the shell fails to compile
+// ("cannot find symbol gomobile.BatteryProvider") for any app that doesn't
+// happen to register all of these features. These are always bound for mobile;
+// the app still opts in to each feature's *bridge commands* by calling the
+// corresponding Register* (which is what detectFeatureUsage picks up).
+var nativeShellProviderTags = []string{
+	"goleo_battery",
+	"goleo_wakelock",
+	"goleo_sensors",
+	"goleo_background",
+	"goleo_nfc",
+	"goleo_ble",
+	"goleo_clipboard",
+	"goleo_share",
+	// Both shells register a DialogsProvider unconditionally. Without this tag, gobind
+	// emits no DialogsProvider for an app that never calls RegisterDialogs, and the shell
+	// stops at "cannot find symbol gomobile.DialogsProvider" — invisible in the demo
+	// scaffold, which enables every feature, and a build failure in a minimal one.
+	"goleo_dialog",
+	// Both shells register a MicrophoneProvider unconditionally, same as dialogs above.
+	"goleo_microphone",
+}
+
+// mobileBindTags returns the -tags value for `gomobile bind`: the
+// always-required "mobilebuild", the native-shell provider tags (see
+// nativeShellProviderTags), plus whatever additional permission-gated feature
+// tags detectFeatureUsage finds in the project's own source (so RegisterCamera(),
+// RegisterGeolocation(), etc. also resolve when compiling for android/ios —
+// those symbols only exist under their own goleo_* tag on mobile — without the
+// caller having to track and pass tags by hand).
+func mobileBindTags(projectDir string) (string, error) {
+	detected, err := detectFeatureUsage(projectDir)
+	if err != nil {
+		return "", err
+	}
+	set := map[string]bool{}
+	var tags []string
+	add := func(t string) {
+		if !set[t] {
+			set[t] = true
+			tags = append(tags, t)
+		}
+	}
+	for _, t := range nativeShellProviderTags {
+		add(t)
+	}
+	for _, t := range detected {
+		add(t)
+	}
+	if len(detected) > 0 {
+		fmt.Printf("  Detected mobile features: %s\n", strings.Join(detected, ", "))
+	}
+	return strings.Join(append([]string{"mobilebuild"}, tags...), ","), nil
+}
+
+// stripGoLineComments blanks out everything from `//` to end-of-line. This
+// is a lightweight approximation (not a real Go parser: a `//` inside a
+// string literal would also truncate the line), which is fine here since
+// under-detecting a call sharing a line with a stray "//" is a far safer
+// failure mode than over-detecting commented-out boilerplate as real usage.
+func stripGoLineComments(src string) string {
+	lines := strings.Split(src, "\n")
+	for i, line := range lines {
+		if idx := strings.Index(line, "//"); idx >= 0 {
+			lines[i] = line[:idx]
+		}
+	}
+	return strings.Join(lines, "\n")
+}

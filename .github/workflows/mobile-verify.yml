@@ -1,0 +1,526 @@
+name: mobile-verify
+
+# Builds a REAL mobile artifact, which nothing else in CI does.
+#
+# ci.yml's "Mobile guard" steps only cross-compile the runtime for GOOS=android/ios.
+# That is a useful smoke test but it cannot catch the failures this path actually
+# has, because `gomobile bind` does two things a plain build never does: it resolves
+# golang.org/x/mobile's bind-support packages, and it GENERATES Java/ObjC bindings
+# from the exported Go surface. Both have broken before (see SPIKES.md):
+#
+#   * a scaffolded project commits vendor/, so Go selects -mod=vendor, but the
+#     bind-support packages are not in vendor/ — the build failed with
+#     "gomobile: missing golang.org/x/mobile dependency" until the mobile path
+#     started forcing GOFLAGS=-mod=mod;
+#   * the native shell wires every provider unconditionally, so a feature tag left
+#     out produced "cannot find symbol gomobile.BatteryProvider" at Java compile
+#     time — from Go code that cross-compiled perfectly.
+#
+# Neither is visible to `go build`. This job exists so a runtime change that breaks
+# the binding fails here rather than in someone's `goleo build android`.
+on:
+  push:
+    branches: [ "master" ]
+    paths:
+      - "runtime/**"
+      - "cli/cmd/**"
+      - ".github/workflows/mobile-verify.yml"
+  pull_request:
+    paths:
+      - "runtime/**"
+      - "cli/cmd/**"
+  workflow_dispatch:
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      # gomobile shells out to gobind, so both must be on PATH.
+      - name: Install gomobile
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          go install golang.org/x/mobile/cmd/gobind@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Build the CLI
+        run: go build -o /tmp/goleo ./cli/goleo
+
+      # Scaffold the way a user would. This matters: the scaffold commits a
+      # vendor/ directory, which is precisely the condition that broke the mobile
+      # build before, and it generates backend/gomobile from the current templates.
+      - name: Scaffold a project
+        run: |
+          mkdir -p /tmp/mob && cd /tmp/mob
+          GOLEO_ROOT="$GITHUB_WORKSPACE" /tmp/goleo new mobapp --no-install
+
+      # Resolve the NDK in the shell, not via ${{ env.* }}: that context holds only
+      # workflow-defined variables, so a runner-provided ANDROID_NDK_LATEST_HOME
+      # would expand to an empty string and gomobile would fail obscurely. Fail here
+      # with a clear message instead if no NDK is present.
+      - name: Locate the Android NDK
+        run: |
+          ndk="${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_ROOT:-${ANDROID_NDK_HOME:-}}}"
+          if [ -z "$ndk" ] && [ -d "$ANDROID_HOME/ndk" ]; then
+            ndk="$ANDROID_HOME/ndk/$(ls "$ANDROID_HOME/ndk" | sort -V | tail -1)"
+          fi
+          if [ -z "$ndk" ] || [ ! -d "$ndk" ]; then
+            echo "::error::no Android NDK on this runner (looked at ANDROID_NDK_LATEST_HOME, ANDROID_NDK_ROOT, ANDROID_NDK_HOME, \$ANDROID_HOME/ndk)"
+            exit 1
+          fi
+          echo "ANDROID_NDK_HOME=$ndk" >> "$GITHUB_ENV"
+          echo "using NDK: $ndk"
+
+      - name: gomobile init
+        run: gomobile init
+
+      # The real bind. -mod=mod is required: the scaffold's vendor/ does not carry
+      # x/mobile's bind-support packages, which are only reached through gomobile's
+      # generated code.
+      - name: gomobile bind (android/arm64)
+        working-directory: /tmp/mob/mobapp
+        env:
+          GOFLAGS: -mod=mod
+        run: |
+          gomobile bind \
+            -target=android/arm64 \
+            -androidapi 24 \
+            -tags "mobilebuild goleo_fs goleo_clipboard" \
+            -o /tmp/mob/goleo.aar \
+            ./backend/gomobile
+
+      # Assert a real artifact, not just a zero exit. A bind that silently produced
+      # nothing would otherwise look like success.
+      - name: Verify the AAR
+        run: |
+          test -f /tmp/mob/goleo.aar || { echo "::error::no AAR produced"; exit 1; }
+          unzip -l /tmp/mob/goleo.aar > /tmp/aar.txt
+          grep -q "classes.jar" /tmp/aar.txt || { echo "::error::AAR has no classes.jar — bindings were not generated"; cat /tmp/aar.txt; exit 1; }
+          grep -q "jni/arm64-v8a/libgojni.so" /tmp/aar.txt || { echo "::error::AAR has no native library"; cat /tmp/aar.txt; exit 1; }
+          echo "AAR ok: $(stat -c%s /tmp/mob/goleo.aar) bytes"
+
+  # A real SIGNED RELEASE build, end to end through the CLI.
+  #
+  # The android job above proves `gomobile bind` still works. This proves the thing a
+  # developer actually ships: `goleo build android --release` producing a signed .aab.
+  # Nothing else covers it, and it cannot be checked on the author's machine without a
+  # keystore, so it is checked here with a THROWAWAY one generated on the runner.
+  #
+  # A throwaway key is the right call: the point is to exercise the signing path — that
+  # build.gradle.kts reads the credentials from the environment, that Gradle applies the
+  # signingConfig, and that the artifact comes out signed rather than as the
+  # -unsigned variant. None of that needs a real upload key, and putting one in CI would
+  # be a liability (losing or leaking an upload key means never updating a Play listing).
+  android-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      # Node is needed for real here, unlike the bind-only job above: this drives the
+      # whole CLI build, which installs frontend dependencies and runs Vite. Pin it
+      # rather than relying on whatever the runner image happens to ship.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install gomobile
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          go install golang.org/x/mobile/cmd/gobind@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Build the CLI
+        run: go build -o /tmp/goleo ./cli/goleo
+
+      - name: Scaffold a project
+        run: |
+          mkdir -p /tmp/rel && cd /tmp/rel
+          GOLEO_ROOT="$GITHUB_WORKSPACE" /tmp/goleo new relapp --no-install
+
+      - name: Locate the Android NDK
+        run: |
+          ndk="${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_ROOT:-${ANDROID_NDK_HOME:-}}}"
+          if [ -z "$ndk" ] && [ -d "$ANDROID_HOME/ndk" ]; then
+            ndk="$ANDROID_HOME/ndk/$(ls "$ANDROID_HOME/ndk" | sort -V | tail -1)"
+          fi
+          if [ -z "$ndk" ] || [ ! -d "$ndk" ]; then
+            echo "::error::no Android NDK on this runner"; exit 1
+          fi
+          echo "ANDROID_NDK_HOME=$ndk" >> "$GITHUB_ENV"
+
+      # This is the first CI job to run GRADLE (the job above stops at gomobile bind), so
+      # the SDK platform the template compiles against has to actually be present. The
+      # CLI cannot self-heal it here: ensureAndroidDeps skips its interactive sdkmanager
+      # install when CI is set. Without this the build fails with "Failed to find target
+      # with hash string 'android-N'", which reads like a goleo bug and is not one.
+      #
+      # The platform is read from the template rather than hardcoded, so bumping
+      # defaultAndroidTargetSDK does not silently leave CI installing the wrong one.
+      - name: Install the SDK platform the template targets
+        run: |
+          set -euo pipefail
+          sdk=$(grep -oE 'defaultAndroidTargetSDK[[:space:]]*=[[:space:]]*[0-9]+' cli/cmd/embed.go | grep -oE '[0-9]+$')
+          [ -n "$sdk" ] || { echo "::error::could not read defaultAndroidTargetSDK"; exit 1; }
+          echo "template targets android-$sdk"
+          mgr="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          [ -x "$mgr" ] || mgr=$(find "$ANDROID_HOME" -name sdkmanager -type f 2>/dev/null | head -1)
+          [ -n "$mgr" ] || { echo "::error::no sdkmanager on this runner"; exit 1; }
+          yes | "$mgr" --licenses >/dev/null 2>&1 || true
+          "$mgr" "platforms;android-$sdk" "build-tools;$sdk.0.0" ||             "$mgr" "platforms;android-$sdk"
+
+      # Refusing to build unsigned is a deliberate behaviour, so check it BEFORE
+      # providing a keystore — otherwise a regression that silently produced unsigned
+      # release artifacts would pass this whole job.
+      - name: --release without a keystore must be refused
+        working-directory: /tmp/rel/relapp
+        run: |
+          if GOLEO_ROOT="$GITHUB_WORKSPACE" /tmp/goleo build android --release; then
+            echo "::error::--release succeeded with no keystore configured"
+            exit 1
+          fi
+          echo "correctly refused"
+
+      - name: Generate a throwaway keystore
+        run: |
+          keytool -genkeypair -v -keystore /tmp/rel/throwaway.jks \
+            -storepass throwaway -keypass throwaway -alias upload \
+            -keyalg RSA -keysize 2048 -validity 30 \
+            -dname "CN=goleo-ci, OU=ci, O=goleo, L=nowhere, S=nowhere, C=GB"
+
+      - name: Build a signed release AAB
+        working-directory: /tmp/rel/relapp
+        env:
+          GOLEO_ROOT: ${{ github.workspace }}
+          GOFLAGS: -mod=mod
+          GOLEO_ANDROID_KEYSTORE: /tmp/rel/throwaway.jks
+          GOLEO_ANDROID_KEYSTORE_PASSWORD: throwaway
+          GOLEO_ANDROID_KEY_ALIAS: upload
+          GOLEO_ANDROID_KEY_PASSWORD: throwaway
+          GOLEO_ANDROID_VERSION_CODE: "42"
+        run: /tmp/goleo build android --release
+
+      # Assert the artifact, its signature, and its versionCode. "Gradle exited 0" is not
+      # enough: it emits app-release-unsigned.aab-equivalents and skips signing rather
+      # than failing when a keystore cannot be opened.
+      - name: Verify the AAB is real and signed
+        working-directory: /tmp/rel/relapp
+        run: |
+          set -euo pipefail
+          test -f app.aab || { echo "::error::no app.aab"; ls -la; exit 1; }
+          echo "size: $(stat -c%s app.aab) bytes"
+          [ "$(stat -c%s app.aab)" -gt 1000000 ] || { echo "::error::app.aab is implausibly small"; exit 1; }
+
+          # An AAB is a jar-signed zip, so jarsigner verifies it (apksigner does not).
+          jarsigner -verify -verbose:summary app.aab | tail -5
+          jarsigner -verify app.aab | grep -q "jar verified" || {
+            echo "::error::app.aab is not signed"; exit 1; }
+
+          unzip -l app.aab | grep -q "base/manifest/AndroidManifest.xml" || {
+            echo "::error::app.aab has no base module manifest"; exit 1; }
+
+      # The permission derivation is the other half of Phase 4, and its whole point is
+      # that a minimal app stops declaring camera/location/NFC/Bluetooth. Assert against
+      # the manifest the build actually generated.
+      - name: Verify the generated manifest declares only what the app enables
+        working-directory: /tmp/rel/relapp
+        run: |
+          set -euo pipefail
+          m=.goleo/android/app/src/main/AndroidManifest.xml
+          test -f "$m" || { echo "::error::no generated manifest at $m"; exit 1; }
+          echo "--- generated manifest permissions ---"
+          grep -o 'android.permission.[A-Z_]*' "$m" | sort -u || true
+
+          grep -q "android.permission.INTERNET" "$m" || {
+            echo "::error::manifest is missing INTERNET"; exit 1; }
+
+          # The minimal scaffold enables no camera/location/NFC/BLE features, so none of
+          # these may appear. They used to be declared unconditionally for every app.
+          for unwanted in CAMERA ACCESS_FINE_LOCATION NFC BLUETOOTH_SCAN BLUETOOTH_CONNECT BODY_SENSORS; do
+            if grep -q "android.permission.$unwanted" "$m"; then
+              echo "::error::minimal app still declares $unwanted"
+              exit 1
+            fi
+          done
+          echo "manifest is minimal"
+
+      - name: Verify versionCode came from the environment
+        working-directory: /tmp/rel/relapp
+        run: |
+          set -euo pipefail
+          g=.goleo/android/app/build.gradle.kts
+          grep -q "versionCode = 42" "$g" || {
+            echo "::error::GOLEO_ANDROID_VERSION_CODE=42 did not reach the gradle build:"
+            grep -n "versionCode" "$g" || true
+            exit 1; }
+          echo "versionCode wired through"
+
+      # And the unsigned escape hatch must actually produce an unsigned artifact rather
+      # than signing anyway because the keystore is still in the environment.
+      - name: --no-sign produces an unsigned artifact
+        working-directory: /tmp/rel/relapp
+        env:
+          GOLEO_ROOT: ${{ github.workspace }}
+          GOFLAGS: -mod=mod
+          GOLEO_ANDROID_KEYSTORE: /tmp/rel/throwaway.jks
+          GOLEO_ANDROID_KEYSTORE_PASSWORD: throwaway
+          GOLEO_ANDROID_KEY_ALIAS: upload
+          GOLEO_ANDROID_KEY_PASSWORD: throwaway
+        run: |
+          set -euo pipefail
+          /tmp/goleo build android --release --no-sign -o unsigned.aab
+          test -f unsigned.aab || { echo "::error::no unsigned.aab"; exit 1; }
+          if jarsigner -verify unsigned.aab | grep -q "jar verified"; then
+            echo "::error::--no-sign still produced a SIGNED artifact"
+            exit 1
+          fi
+          echo "--no-sign honoured"
+
+  # iOS, verified on the SIMULATOR — no Apple Developer account, no certificates, no Mac.
+  #
+  # Everything else about iOS in this repo is a compile guard (ci.yml cross-compiles the
+  # runtime for GOOS=ios). That says nothing about whether the app actually builds or runs,
+  # and the iOS path had accumulated defects only a real build could surface: Info.plist
+  # hardcoded the name and version, UILaunchStoryboardName referenced a LaunchScreen that
+  # did not exist (an App Store rejection), the bundle id came from the ANDROID package
+  # name, and the CLI reported GoleoApp.app while xcodebuild produced App.app.
+  #
+  # A simulator build needs NO code signing, which is the whole reason this is possible
+  # without a paid account. Anything beyond it — a signed .ipa, TestFlight, the App Store —
+  # needs the account, but notably NOT Mac hardware: these runners are the Mac.
+  # The iOS equivalent of android-release: build a real app, install it on a simulator and
+  # prove it runs. This is the only job that exercises the iOS path at all, and it found four
+  # defects in a row that nothing else could — each only reachable once the previous was
+  # fixed (project format, xcframework name, gomobile binding names, app-icon preset).
+  #
+  # macOS runners bill at 10x, so it carries the cost measures worked out during the spike:
+  # a Go module + build cache (the gomobile bind dominates), and no simulator-slice probe.
+  ios-simulator:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # The bind dominates this job and its inputs barely change between runs.
+      - name: Cache Go modules and build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/Library/Caches/go-build
+          key: ios-go-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            ios-go-
+
+      - name: Install gomobile and xcodegen
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          go install golang.org/x/mobile/cmd/gobind@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          brew install xcodegen
+
+      # The runner's Xcode and whatever `brew install` gives us for xcodegen are BOTH
+      # moving targets, and their mismatch is what failed the first run of this job:
+      # xcodegen defaults to writing objectVersion 77 (Xcode 16.0's project format) and
+      # this Xcode refused to open it, reporting only "future Xcode project file format
+      # (77)" and exit 74. The template now pins options.projectFormat, but print both
+      # versions so the next mismatch is diagnosable from the log instead of guessed at.
+      - name: Record toolchain versions
+        run: |
+          xcodebuild -version
+          xcodegen --version
+          echo "--- Xcodes available on this image ---"
+          ls -d /Applications/Xcode*.app 2>/dev/null || true
+          echo "--- selected ---"
+          xcode-select -p
+
+      # NOTE: the gomobile simulator-slice probe that used to sit here is gone. It ran a full
+      # throwaway `gomobile bind` (29s of macOS time, billed at 10x) to answer one question —
+      # does gomobile emit an ios-arm64-simulator slice — and the answer is yes, confirmed on
+      # this runner and recorded in SPIKES.md. The real build below now exercises the same
+      # thing, and the API-surface step prints the slices it produced.
+
+      - name: Build the CLI and scaffold a project
+        run: |
+          go build -o /tmp/goleo ./cli/goleo
+          mkdir -p /tmp/ios && cd /tmp/ios
+          GOLEO_ROOT="$GITHUB_WORKSPACE" /tmp/goleo new iosapp --no-install
+          cd iosapp/frontend && npm install --no-audit --no-fund
+
+      - name: Build the app for the Simulator
+        working-directory: /tmp/ios/iosapp
+        env:
+          GOLEO_ROOT: ${{ github.workspace }}
+          GOFLAGS: -mod=mod
+        # continue-on-error so the diagnostic step below still runs: the Swift shell
+        # (AppDelegate.swift) has never been compiled anywhere, and its gomobile binding
+        # names were written blind. Reading the REAL generated symbols beats guessing at
+        # them one CI round-trip at a time.
+        continue-on-error: true
+        id: iosbuild
+        run: /tmp/goleo build ios --simulator
+
+      # gobind derives ObjC class names from the Go PACKAGE name (gomobile -> Gomobile)
+      # while the Swift module name comes from the -o basename (Goleo). Those differ, so
+      # the only reliable source for what AppDelegate.swift must call is the generated
+      # header. Print it.
+      - name: Generated Objective-C API surface (ground truth for AppDelegate.swift)
+        if: always()
+        working-directory: /tmp/ios/iosapp
+        run: |
+          set -uo pipefail
+          echo "--- xcframework layout (depth-limited) ---"
+          find .goleo/ios -maxdepth 4 -name "*.framework" -print 2>/dev/null | head
+          echo "--- every generated header ---"
+          # Cast wide on purpose: gobind writes both <Module>.h and a per-package
+          # <Prefix><Package>.objc.h, and which name carries the declarations is exactly
+          # what is being established here.
+          find .goleo/ios -name "*.h" -path "*Headers*" -print 2>/dev/null | head -20
+          for h in $(find .goleo/ios -name "*.h" -path "*Headers*" 2>/dev/null | head -20); do
+            echo "===== $h ====="
+            # Report the total BEFORE truncating. The first run capped at 80 and cut the
+            # @interface list mid-alphabet, which reads exactly like "there are only four"
+            # — a silent truncation that looks like complete coverage.
+            total=$(grep -cE "@protocol|@interface|FOUNDATION_EXPORT" "$h" || true)
+            echo "($total declarations)"
+            grep -nE "@protocol|@interface|FOUNDATION_EXPORT" "$h" | head -200 || true
+
+            # The declaration lines above name the protocols but NOT their methods, which
+            # is the only thing a shell author actually needs — the signature to write in
+            # Swift. 0.10.7 shipped an iOS build that could not compile because a provider
+            # method's shape was wrong, and this step printed "GomobileDialogsProvider
+            # exists" while staying silent about the shape. Print the bodies.
+            echo "--- protocol bodies (the signatures AppDelegate.swift must match) ---"
+            awk '/^@protocol .*<NSObject>/ { inblk = 1 }
+                 inblk { print }
+                 /^@end/ { if (inblk) { print ""; inblk = 0 } }' "$h" || true
+          done
+
+          # A reverse-bound method that returns a _Nonnull object AND takes error:(NSError**)
+          # is unimplementable from Swift: Swift only rewrites a trailing NSError** into a
+          # throwing method when the result can express failure, so no signature conforms
+          # and the build fails with the unhelpful "does not conform to protocol". gobind
+          # emits exactly that for a Go method returning (value, error) — see SPIKES.md,
+          # 2026-08-10. Swift already fails the build on its own; this only turns that into
+          # a message that names the cause.
+          echo "--- unimplementable (value, error) methods, if any ---"
+          if grep -rnE '_Nonnull\)[a-zA-Z]+:.*error:\(NSError' \
+              .goleo/ios --include="*.objc.h" 2>/dev/null; then
+            echo "::warning::the methods above return a _Nonnull object alongside error:(NSError**)."
+            echo "::warning::No Swift signature can conform to those. The Go interface method must"
+            echo "::warning::return a value OR an error, not both — carry failures in the reply."
+          else
+            echo "none"
+          fi
+
+      - name: Fail if the iOS build failed
+        if: steps.iosbuild.outcome == 'failure'
+        run: |
+          echo "::error::goleo build ios --simulator failed — see the step above and the generated API surface printed after it"
+          exit 1
+
+      # Assert the artifact and the two things that were previously wrong in it: the name
+      # (the CLI used to report a path it never wrote) and the launch storyboard.
+      - name: Verify the app bundle
+        working-directory: /tmp/ios/iosapp
+        run: |
+          set -euo pipefail
+
+          # objectVersion 56 == the pinned xcode14_0. An xcodegen that does not know the
+          # projectFormat key silently falls back to 77, which only surfaces as an
+          # xcodebuild error on an older Xcode — so assert it directly.
+          objver=$(grep -m1 objectVersion .goleo/ios/GoleoApp.xcodeproj/project.pbxproj | tr -dc 0-9)
+          echo "project objectVersion: $objver"
+          if [ "$objver" != "56" ]; then
+            echo "::error::generated project is objectVersion $objver, expected 56 (xcode14_0) —"
+            echo "::error::options.projectFormat did not take effect; this Xcode may not open it"
+            exit 1
+          fi
+          test -d GoleoApp.app || { echo "::error::no GoleoApp.app"; ls -la; exit 1; }
+          test -f GoleoApp.app/GoleoApp || { echo "::error::no executable inside the bundle"; ls -la GoleoApp.app; exit 1; }
+
+          # The compiled launch storyboard. Its absence is an App Store rejection, and it
+          # was referenced-but-missing until now.
+          ls GoleoApp.app | grep -qi "LaunchScreen" || {
+            echo "::error::LaunchScreen is not in the bundle, but Info.plist references it"
+            ls GoleoApp.app; exit 1; }
+
+          # Name and version must come from goleo.json, not the old hardcoded values.
+          plutil -p GoleoApp.app/Info.plist | grep -E "CFBundleName|CFBundleShortVersionString|CFBundleIdentifier"
+          if plutil -p GoleoApp.app/Info.plist | grep -q '"Goleo App"'; then
+            echo "::error::CFBundleName is still the hardcoded placeholder"
+            exit 1
+          fi
+
+      # Boot a simulator and actually run it. This is the iOS equivalent of the Android
+      # emulator check: it proves the Go backend starts, WKWebView loads the embedded UI and
+      # the app does not crash on launch — none of which a compile can tell you.
+      - name: Boot a simulator and launch the app
+        working-directory: /tmp/ios/iosapp
+        run: |
+          set -euo pipefail
+          DEV=$(xcrun simctl list devices available -j | python3 -c "
+          import json,sys
+          d=json.load(sys.stdin)['devices']
+          for runtime, devs in d.items():
+              for dev in devs:
+                  if dev.get('isAvailable') and 'iPhone' in dev['name']:
+                      print(dev['udid']); raise SystemExit
+          raise SystemExit('no available iPhone simulator')
+          ")
+          echo "using simulator $DEV"
+          xcrun simctl boot "$DEV" || true
+          xcrun simctl bootstatus "$DEV" -b
+
+          BUNDLE_ID=$(plutil -extract CFBundleIdentifier raw GoleoApp.app/Info.plist)
+          echo "bundle id: $BUNDLE_ID"
+          xcrun simctl install "$DEV" GoleoApp.app
+          xcrun simctl launch "$DEV" "$BUNDLE_ID"
+
+          # Give the Go backend time to bind and the WebView time to load.
+          sleep 15
+
+          # It must still be running: a crash on launch exits immediately, and that is the
+          # failure mode a compile-only check cannot see.
+          if ! xcrun simctl spawn "$DEV" launchctl list 2>/dev/null | grep -q "$BUNDLE_ID"; then
+            echo "app not listed as running; capturing diagnostics"
+          fi
+          PID=$(xcrun simctl spawn "$DEV" launchctl list 2>/dev/null | grep "$BUNDLE_ID" | awk '{print $1}' | head -1 || true)
+          echo "pid: ${PID:-none}"
+          if [ -z "${PID:-}" ] || [ "${PID:-}" = "-" ]; then
+            echo "::error::the app is not running — it crashed on launch"
+            xcrun simctl spawn "$DEV" log show --last 2m --predicate "process CONTAINS 'GoleoApp'" --style compact | tail -40 || true
+            exit 1
+          fi
+          echo "app is running on the simulator"
+
+      - name: Screenshot the running app
+        if: always()
+        working-directory: /tmp/ios/iosapp
+        run: xcrun simctl io booted screenshot /tmp/ios/app.png || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-simulator-screenshot
+          path: /tmp/ios/app.png
+          if-no-files-found: ignore

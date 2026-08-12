@@ -1,0 +1,346 @@
+name: release-smoke
+
+# Installs a PUBLISHED goleo the way a user does, scaffolds a project, and builds
+# it — on all three desktops.
+#
+# Why this is separate from everything else. No existing job has ever exercised the
+# real user path, and that gap has now shipped three user-visible bugs:
+#
+#   * v0.8.1-v0.8.8: `go: inconsistent vendoring` in a fresh install, three layers
+#     deep into stale optionalDependencies. Reported by a user, not by CI.
+#   * frontend/package.json pinned "@goleo/bridge": "^0.2.1". A caret on 0.x locks
+#     the minor, so every new project got bridge 0.2.9 against a v0.8.x runtime —
+#     binary file I/O simply broken.
+#   * `goleo build` on Windows wrote `app` with no `.exe`, which Windows refuses to
+#     execute. The default command, on the most common desktop.
+#
+# All three are invisible to the other workflows for the same structural reason:
+# mobile-verify.yml is the only job that scaffolds, and it sets GOLEO_ROOT (which
+# replaces the goleo module with the local checkout AND npm-links a local bridge)
+# plus --no-install (so npm never resolves anything). The development path hides
+# exactly the resolution the user depends on. This job deliberately never sets
+# GOLEO_ROOT.
+#
+# It runs AFTER publishing because it consumes the published artifacts — that is
+# the point. It is a smoke test of a release, not a gate on a commit; a failure
+# here means "yank or patch", and it is far better to learn that from CI minutes
+# after publishing than from an issue days later.
+#
+# Not handled: a PRERELEASE tag (v0.9.0-rc1). scaffoldBridgeVersion only pins an
+# exact X.Y.Z release and falls back to "latest" otherwise, so the pin assertions
+# below would report a mismatch that is a design question about prereleases rather
+# than a defect in the release. goleo has only ever cut plain versions; whoever cuts
+# the first prerelease should decide what these checks ought to expect.
+#
+# Validating changes to this file without dispatch rights: install the published
+# CLI into an isolated prefix (`npm install --prefix <tmp> @goleo/cli@<version>`,
+# NOT `-g`, so a developer's global install survives), put <tmp>/node_modules/.bin
+# on PATH, and run each `run:` block below in bash with RUNNER_TEMP and GITHUB_ENV
+# pointed at scratch paths. Read the blocks out of this YAML rather than copying
+# them, or you validate the copy. Done that way against 0.8.8 on Windows, every
+# step executes and the six real defects in that release are reported.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Published version to smoke-test (e.g. 0.8.9). Defaults to the latest on npm."
+        required: false
+        type: string
+  workflow_run:
+    workflows: ["release"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  scaffold-and-build:
+    # Only chase a release that actually succeeded; a failed publish has nothing
+    # to test and would report a confusing second failure.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            exe: ".exe"
+          - os: ubuntu-latest
+            exe: ""
+          - os: macos-14
+            exe: ""
+    runs-on: ${{ matrix.os }}
+    name: smoke-${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # Go is needed because the scaffolded project is built with `go build`, but
+      # note the CLI itself comes from npm — NOT from this checkout. There is
+      # deliberately no actions/checkout here: anything read from the repo could
+      # mask a packaging bug, which is the whole class this job exists to catch.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install the published CLI from npm
+        run: |
+          set -euo pipefail
+          v="${{ inputs.version }}"
+          if [ -z "$v" ]; then
+            # Triggered by a release: take the version from the TAG that started
+            # it, not from npm's `latest` dist-tag.
+            #
+            # `npm view @goleo/cli version` reads `latest`, which can still point at
+            # the PREVIOUS release for a short while after publishing. This job runs
+            # seconds after the release workflow, so that window is exactly when it
+            # runs — and testing the previous release against the new one's expected
+            # version reports a pile of failures belonging to neither. head_branch is
+            # the tag name for a tag-triggered run (release.yml runs on `v*`).
+            tag="${{ github.event.workflow_run.head_branch }}"
+            v="${tag#v}"
+            [ -n "$v" ] && echo "resolved from the release tag $tag: $v"
+          fi
+          if [ -z "$v" ]; then
+            v=$(npm view @goleo/cli version)
+            echo "no version input and no tag; falling back to npm latest: $v"
+          fi
+          echo "smoke-testing @goleo/cli@$v"
+          echo "SMOKE_VERSION=$v" >> "$GITHUB_ENV"
+
+          # WAIT for visibility before installing, rather than retrying the install.
+          #
+          # This job runs seconds after the release workflow, so the registry has often
+          # not propagated the exact version to whichever edge this runner reaches. The
+          # old loop retried `npm install -g` 4x30s ≈ 90s and ubuntu-latest still lost
+          # the race on 0.10.12 with ETARGET, while windows and macOS won it — the
+          # release itself was fine and installable minutes later. Polling `npm view` is
+          # a cheap metadata query rather than a full failed install per attempt, so the
+          # window can be much wider for less noise and less time.
+          #
+          # BOTH packages are waited on. @goleo/cli pulls its os/cpu binary through
+          # optionalDependencies, and npm drops an unresolvable OPTIONAL dependency
+          # silently — so a lagging platform package yields a successful install of a
+          # CLI that then reports "no prebuilt binary found". Node computes the exact
+          # name the launcher will look for, so this cannot drift from bin/goleo.js.
+          platform_pkg="@goleo/cli-$(node -p 'process.platform')-$(node -p 'process.arch')"
+          for pkg in "@goleo/cli" "$platform_pkg"; do
+            echo "waiting for $pkg@$v to be visible on the registry"
+            for attempt in $(seq 1 20); do
+              if npm view "$pkg@$v" version >/dev/null 2>&1; then
+                echo "  $pkg@$v is visible"
+                break
+              fi
+              if [ "$attempt" = 20 ]; then
+                echo "::error::$pkg@$v never became visible on npm after 5 minutes"
+                exit 1
+              fi
+              sleep 15
+            done
+          done
+
+          # One retry left in place: visible metadata does not guarantee every edge is
+          # serving the tarball yet.
+          for attempt in 1 2 3; do
+            if npm install -g "@goleo/cli@$v"; then break; fi
+            if [ "$attempt" = 3 ]; then
+              echo "::error::@goleo/cli@$v is visible but would not install"
+              exit 1
+            fi
+            echo "install failed despite visible metadata, retrying in 20s"
+            sleep 20
+          done
+          goleo version
+
+      # The published CLI must report the version we asked for. If the platform
+      # binary and the wrapper disagree, the version guard in bin/goleo.js should
+      # already have refused to run — this makes that explicit rather than relying
+      # on a later step failing oddly.
+      - name: Check the CLI reports the version we installed
+        id: cli_version
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          got=$(goleo version | tr -d '\r' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          if [ "$got" != "$SMOKE_VERSION" ]; then
+            echo "::error::goleo version reports $got, expected $SMOKE_VERSION"
+            exit 1
+          fi
+
+      # No GOLEO_ROOT. This resolves github.com/daforester/goleo from the module
+      # proxy and @goleo/bridge from npm, exactly as a user does. A just-published
+      # release can take a few minutes to reach the proxy, so allow one retry.
+      - name: Scaffold a project (no GOLEO_ROOT — the real user path)
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/smoke" && cd "$RUNNER_TEMP/smoke"
+          for attempt in 1 2; do
+            if goleo new smokeapp --template minimal --no-install; then break; fi
+            if [ "$attempt" = 2 ]; then
+              echo "::error::goleo new failed twice"; exit 1
+            fi
+            echo "retrying in 60s (module proxy may not have the release yet)"
+            rm -rf smokeapp; sleep 60
+          done
+
+      # The two pins that must track the release. Getting either wrong is silent:
+      # the Go one produced the inconsistent-vendoring failures, the npm one paired
+      # a current runtime with a bridge six minors old.
+      - name: Check the scaffold pinned this release
+        id: pins
+        continue-on-error: true
+        working-directory: ${{ runner.temp }}/smoke/smokeapp
+        run: |
+          set -euo pipefail
+          echo "--- go.mod ---"; grep "daforester/goleo" go.mod || true
+          echo "--- frontend/package.json ---"; grep "@goleo/bridge" frontend/package.json || true
+          grep -q "github.com/daforester/goleo v$SMOKE_VERSION" go.mod || {
+            echo "::error::go.mod does not require goleo v$SMOKE_VERSION"; exit 1; }
+          grep -q "\"@goleo/bridge\": \"\^$SMOKE_VERSION\"" frontend/package.json || {
+            echo "::error::frontend/package.json does not pin @goleo/bridge ^$SMOKE_VERSION"; exit 1; }
+          # A scaffold commits vendor/, and Go then auto-selects -mod=vendor. If it
+          # disagrees with go.mod, every later go command fails with "inconsistent
+          # vendoring" — the exact reported bug. `go list` is the cheapest check
+          # that reproduces it.
+          go list ./... > /dev/null
+
+      # Retry, for the same reason the CLI install and the scaffold do — and MORE so.
+      # release.yml publishes platform packages, then @goleo/cli, then @goleo/bridge
+      # LAST, and this job starts seconds after that workflow completes. So the one
+      # package with the least propagation time was the only one resolved without a
+      # retry, which made this step the narrowest race in the job.
+      #
+      # It is also a hard step (no continue-on-error), so losing that race skips every
+      # assertion after it and the Verdict reports five checks as failures when nothing
+      # about the release was wrong. Observed on 0.10.5, windows-latest only — exactly
+      # the signature of a race rather than a defect.
+      - name: Install frontend deps (resolves @goleo/bridge from npm for real)
+        working-directory: ${{ runner.temp }}/smoke/smokeapp/frontend
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4; do
+            if npm install --no-audit --no-fund; then break; fi
+            if [ "$attempt" = 4 ]; then
+              echo "::error::npm install never succeeded — @goleo/bridge@^$SMOKE_VERSION may not be on the registry, or a transitive install script failed"
+              exit 1
+            fi
+            echo "npm install failed (attempt $attempt); @goleo/bridge is published LAST, so retrying in 30s"
+            sleep 30
+          done
+
+      - name: Check npm resolved a matching bridge
+        id: bridge_version
+        continue-on-error: true
+        working-directory: ${{ runner.temp }}/smoke/smokeapp/frontend
+        run: |
+          set -euo pipefail
+          got=$(node -p "require('./node_modules/@goleo/bridge/package.json').version")
+          echo "resolved @goleo/bridge $got"
+          # Same minor is what matters: the caret range is intentionally allowed to
+          # pick up later patches.
+          [ "${got%.*}" = "${SMOKE_VERSION%.*}" ] || {
+            echo "::error::bridge $got does not share a minor with the CLI $SMOKE_VERSION"; exit 1; }
+
+      - name: Build the project
+        working-directory: ${{ runner.temp }}/smoke/smokeapp
+        run: goleo build
+
+      # Assert the artifact a user actually gets, per-OS. This is the check that
+      # catches the missing .exe: the build "succeeded" and printed a path, so
+      # anything looser than naming the expected file would have passed.
+      - name: Check the built artifact is named correctly for this OS
+        id: artifact_name
+        continue-on-error: true
+        working-directory: ${{ runner.temp }}/smoke/smokeapp
+        run: |
+          set -euo pipefail
+          want="app${{ matrix.exe }}"
+          if [ ! -f "$want" ]; then
+            echo "::error::expected a binary named $want; got: $(ls -1 | tr '\n' ' ')"
+            exit 1
+          fi
+          if [ ! -s "$want" ]; then echo "::error::$want is empty"; exit 1; fi
+          echo "built $want ($(wc -c < "$want") bytes)"
+
+      # And that it is really an executable for this platform, not just a file with
+      # the right name. On Windows a missing .exe is unrunnable even though the byte
+      # content is a valid PE, so the name check above is necessary but not
+      # sufficient.
+      - name: Check the artifact is executable
+        id: executable
+        continue-on-error: true
+        working-directory: ${{ runner.temp }}/smoke/smokeapp
+        run: |
+          set -euo pipefail
+          want="app${{ matrix.exe }}"
+          case "${{ matrix.os }}" in
+            windows-latest)
+              # PE magic: MZ. -a because the input is binary and plain grep would
+              # treat it as such and skip the match.
+              head -c2 "$want" | grep -aq "MZ" || { echo "::error::$want is not a PE executable"; exit 1; }
+              ;;
+            *)
+              [ -x "$want" ] || { echo "::error::$want is not marked executable"; exit 1; }
+              ;;
+          esac
+          echo "$want looks like a native executable"
+
+      # The demo scaffold is a different code path (token replacement over an
+      # embedded tree, rather than text/template), and it is what --demo gives
+      # people. It broke independently before, so build it too — just the Go side,
+      # since the frontend deps are the same resolution already proven above.
+      - name: Scaffold and build the demo template too
+        id: demo
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/smoke"
+          goleo new demoapp --template demo --no-install
+          cd demoapp
+          grep -q "github.com/daforester/goleo v$SMOKE_VERSION" go.mod || {
+            echo "::error::demo go.mod does not require goleo v$SMOKE_VERSION"; exit 1; }
+          grep -q "\"@goleo/bridge\": \"\^$SMOKE_VERSION\"" frontend/package.json || {
+            echo "::error::demo frontend/package.json does not pin @goleo/bridge ^$SMOKE_VERSION"; exit 1; }
+          go list ./... > /dev/null
+
+      # The published bridge must be loadable without a bundler. tsc used to emit
+      # extensionless relative imports, which no browser and no Node ESM loader can
+      # resolve; Vite hid it from template users. spikes/bridge-e2e-verify covers
+      # this pre-release, but only against the local build — this checks the
+      # artifact that actually shipped.
+      #
+      # NOTE: 0.8.8 and earlier FAIL this step, correctly — they were published with
+      # the extensionless imports. Verified locally against the published 0.8.8:
+      # "Cannot find module .../dist/bridge imported from .../dist/index.js". So a
+      # failure here on an old version is the check working, not a broken check.
+      - name: Check the published bridge loads as ESM with no bundler
+        id: esm
+        continue-on-error: true
+        working-directory: ${{ runner.temp }}/smoke/smokeapp/frontend
+        run: node -e "import('@goleo/bridge').then(m => console.log('ESM load ok,', Object.keys(m).length, 'exports')).catch(e => { console.error('::error::published bridge is not loadable:', e.message); process.exit(1) })"
+
+      # Report every check together. Each assertion above runs even when an
+      # earlier one failed (continue-on-error), so one run tells you everything
+      # wrong with a release instead of one problem per re-run — which matters
+      # most here, because this job exists to decide "yank or patch".
+      - name: Verdict
+        if: always()
+        run: |
+          failed=""
+          for c in             "CLI version:${{ steps.cli_version.outcome }}"             "scaffold pins:${{ steps.pins.outcome }}"             "bridge version:${{ steps.bridge_version.outcome }}"             "artifact name:${{ steps.artifact_name.outcome }}"             "artifact executable:${{ steps.executable.outcome }}"             "demo template:${{ steps.demo.outcome }}"             "bridge loads as ESM:${{ steps.esm.outcome }}"; do
+            name="${c%:*}"; outcome="${c##*:}"
+            case "$outcome" in
+              success) echo "  ok       $name" ;;
+              # A hard step (install, scaffold, npm, build) failed, so this never
+              # ran. Say so rather than reporting it as a failed assertion.
+              skipped) echo "  skipped  $name (an earlier step failed)"; failed="$failed$name; " ;;
+              *)       echo "  FAILED   $name"; failed="$failed$name; " ;;
+            esac
+          done
+          if [ -n "$failed" ]; then
+            echo "::error::release ${SMOKE_VERSION} failed: $failed"
+            exit 1
+          fi
+          echo "release ${SMOKE_VERSION} is good on ${{ matrix.os }}"

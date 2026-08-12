@@ -1,0 +1,340 @@
+name: glaze-webview-verify
+
+# Validates the cgo-free (purego) glaze WKWebView / WebKitGTK backend with a live
+# JS<->Go round-trip on real macOS + Linux hardware, and the runtime behaviour that
+# only a real window can exercise: native IPC, the permission auto-grant, the tray,
+# the native menu bar, and the filesystem confinement (fs-scope-verify).
+#
+# It opens GUI windows and burns macOS runner minutes, so it is NOT on every push.
+# It runs on master only when something it actually guards changes — the runtime
+# itself, the verify spikes, or this workflow — plus its spike branch and manual
+# dispatch. Without the master trigger the fs-confinement check guarded nothing:
+# a change that unconfined the plugin would have merged with a green tick, because
+# ci.yml does not open a window.
+on:
+  push:
+    branches: [ "master", "spike/glaze-webview" ]
+    paths:
+      - "runtime/**"
+      - "spikes/fs-scope-verify/**"
+      - "spikes/glaze-runtime-verify/**"
+      - "spikes/glaze-tray-verify/**"
+      - "spikes/glaze-menu-verify/**"
+      - ".github/workflows/glaze-verify.yml"
+  workflow_dispatch:
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14        # Apple Silicon (arm64) — real WKWebView
+            display: false
+          - os: ubuntu-latest   # WebKitGTK under xvfb
+            display: true
+          # macos-13 (Intel/amd64) is intentionally omitted: GitHub is retiring
+          # Intel macOS runners, so that job queues indefinitely. amd64-macOS is
+          # the same purego/objc code path as arm64 (verified here) and stays
+          # compile-guarded in ci.yml. Re-add `- {os: macos-13, display: false}`
+          # if/when an Intel runner is available and you want the live check.
+    runs-on: ${{ matrix.os }}
+    name: glaze-${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: spikes/glaze-webview/go.mod
+
+      # Linux: glaze dlopens the system WebKitGTK/GTK at runtime, so the shared
+      # libraries must be present (no C toolchain needed — build stays cgo-free).
+      # Package names drift across Ubuntu releases; adjust if a lib is missing.
+      - name: Linux runtime deps
+        if: matrix.display
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgtk-3-0 libglib2.0-0 \
+            libwebkit2gtk-4.1-0 || sudo apt-get install -y libwebkit2gtk-4.0-37 || true
+
+      - name: Build verify (CGO_ENABLED=0)
+        working-directory: spikes/glaze-webview/verify
+        run: CGO_ENABLED=0 go build -o glazeverify .
+
+      - name: Run verify (JS<->Go round-trip)
+        working-directory: spikes/glaze-webview/verify
+        timeout-minutes: 3
+        run: |
+          if [ "${{ matrix.display }}" = "true" ]; then
+            xvfb-run -a ./glazeverify
+          else
+            ./glazeverify
+          fi
+
+      # Multi-window: two live windows under one run loop (the model macOS needs,
+      # since AppKit is main-thread-only). Proves the 2nd window can be opened
+      # dynamically via Dispatch after the primary loop is running.
+      - name: Build multi-window spike (CGO_ENABLED=0)
+        working-directory: spikes/glaze-multiwindow
+        run: CGO_ENABLED=0 go build -o glazemw .
+
+      - name: Run multi-window spike (2 windows, 1 loop)
+        working-directory: spikes/glaze-multiwindow
+        timeout-minutes: 3
+        run: |
+          if [ "${{ matrix.display }}" = "true" ]; then
+            xvfb-run -a ./glazemw
+          else
+            ./glazemw
+          fi
+
+      # Runtime-level: a REAL goleo app exercising the actual integration —
+      # native IPC + the WebKitGTK permission auto-grant shim + mainLoopWindowManager
+      # (2nd window via App.OpenWindow). This is what validates the shim (the raw
+      # spikes can't, since it lives in the runtime).
+      - name: Build runtime-stack verify (CGO_ENABLED=0)
+        working-directory: spikes/glaze-runtime-verify
+        run: CGO_ENABLED=0 go build -o glazert .
+
+      - name: Run runtime-stack verify (native IPC + perm shim + in-proc 2nd window)
+        working-directory: spikes/glaze-runtime-verify
+        timeout-minutes: 3
+        run: |
+          if [ "${{ matrix.display }}" = "true" ]; then
+            xvfb-run -a ./glazert
+          else
+            ./glazert
+          fi
+
+      # Filesystem confinement (Config.FSScope / Bridge.checkFSPath), driven from a
+      # REAL page over native IPC rather than from a Go test. Asserts an in-scope
+      # write and read succeed, that an out-of-scope write AND delete are refused,
+      # and that the out-of-scope file is byte-for-byte intact afterwards. The unit
+      # tests cover the logic; this covers the whole path a hostile script would
+      # actually take — webview → native channel → Bridge → fs plugin.
+      - name: Build fs-scope verify (CGO_ENABLED=0)
+        working-directory: spikes/fs-scope-verify
+        run: CGO_ENABLED=0 go build -o fsscope .
+
+      - name: Run fs-scope verify (fs confined over native IPC)
+        working-directory: spikes/fs-scope-verify
+        timeout-minutes: 3
+        run: |
+          if [ "${{ matrix.display }}" = "true" ]; then
+            xvfb-run -a ./fsscope
+          else
+            ./fsscope
+          fi
+
+      # The REAL @goleo/bridge npm package, loaded as ES modules into a real
+      # webview, talking to a real Go backend. Everything else verifies one side:
+      # the vitest suite drives the bridge against a fake socket, and the Go tests
+      # drive the wire format from hand-written frames. Both stay green even if the
+      # two halves disagree. This is the only thing that runs them together, so it
+      # is what actually pins the base64 binary encoding, the native transport
+      # selection, and a backend error arriving at the page as its own text.
+      #
+      # Needs Node because it loads the package's own tsc output — deliberately
+      # with no bundler, so an import a browser cannot resolve fails here.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Prepare bridge e2e verify (build @goleo/bridge, embed it, build spike)
+        working-directory: spikes/bridge-e2e-verify
+        env:
+          CGO_ENABLED: "0"
+        run: node prepare.mjs
+
+      - name: Run bridge e2e verify (real @goleo/bridge over native IPC)
+        working-directory: spikes/bridge-e2e-verify
+        timeout-minutes: 3
+        run: |
+          if [ "${{ matrix.display }}" = "true" ]; then
+            xvfb-run -a ./bridge-e2e-verify
+          else
+            ./bridge-e2e-verify
+          fi
+
+      # System tray: macOS uses the purego/objc NSStatusItem backend (must link
+      # alongside glaze without the goffi/purego fakecgo collision); Linux uses
+      # gogpu/systray. A Background app builds a tray, runs the loop, self-quits.
+      - name: Build tray verify (CGO_ENABLED=0)
+        working-directory: spikes/glaze-tray-verify
+        run: CGO_ENABLED=0 go build -o glazetray .
+
+      - name: Run tray verify (native tray, cgo-free)
+        working-directory: spikes/glaze-tray-verify
+        timeout-minutes: 3
+        run: |
+          if [ "${{ matrix.display }}" = "true" ]; then
+            xvfb-run -a ./glazetray
+          else
+            ./glazetray
+          fi
+
+      # Native menu bar: macOS builds/installs an NSMenu (purego/objc); Linux has
+      # no native menu (the app just runs windowed). Exercises roles, accelerator,
+      # separator, submenu, and a custom OnClick.
+      - name: Build menu verify (CGO_ENABLED=0)
+        working-directory: spikes/glaze-menu-verify
+        run: CGO_ENABLED=0 go build -o glazemenu .
+
+      - name: Run menu verify (native menu bar, cgo-free)
+        working-directory: spikes/glaze-menu-verify
+        timeout-minutes: 3
+        run: |
+          if [ "${{ matrix.display }}" = "true" ]; then
+            xvfb-run -a ./glazemenu
+          else
+            ./glazemenu
+          fi
+
+      # Custom-scheme SECURE CONTEXT: does a portless custom origin still get a
+      # secure context? macOS (WKURLSchemeHandler) is the gating unknown — there
+      # is no public "register scheme as secure" API, unlike Linux
+      # (register_uri_scheme_as_secure) and Windows (https vhost). PASS here means
+      # the uniform all-platforms goleo:// PR is viable.
+      - name: Build scheme secure-context spike (CGO_ENABLED=0)
+        working-directory: spikes/glaze-scheme-secure
+        run: CGO_ENABLED=0 go build -o glazescheme .
+
+      - name: Run scheme secure-context spike
+        working-directory: spikes/glaze-scheme-secure
+        timeout-minutes: 3
+        run: |
+          if [ "${{ matrix.display }}" = "true" ]; then
+            xvfb-run -a ./glazescheme
+          else
+            ./glazescheme
+          fi
+
+      # Same secure-context check, but driven through the PROPOSED glaze API
+      # (glaze.NewWithOptions + Options.SchemeHandlers, against the fork copy in
+      # spikes/glaze-scheme-secure/glazefork). Proves the actual upstream code —
+      # macOS is the one that must live inside glaze.
+      - name: Build glaze-API scheme proof (CGO_ENABLED=0)
+        working-directory: spikes/glaze-scheme-secure/glazeapi
+        run: CGO_ENABLED=0 go build -o glazeapischeme .
+
+      - name: Run glaze-API scheme proof
+        working-directory: spikes/glaze-scheme-secure/glazeapi
+        timeout-minutes: 3
+        run: |
+          if [ "${{ matrix.display }}" = "true" ]; then
+            xvfb-run -a ./glazeapischeme
+          else
+            ./glazeapischeme
+          fi
+
+      # End-to-end goleo integration: a REAL goleo app with Config.SchemeAssets +
+      # NativeIPC — the primary window loads its embedded UI from goleo://app
+      # (portless, secure) and talks to the Bridge over native IPC. Validates
+      # runtime/webview_glaze.go + the fork pin, not just glaze in isolation.
+      - name: Build goleo SchemeAssets verify (CGO_ENABLED=0)
+        working-directory: spikes/goleo-scheme-verify
+        run: CGO_ENABLED=0 go build -o goleoscheme .
+
+      - name: Run goleo SchemeAssets verify
+        working-directory: spikes/goleo-scheme-verify
+        timeout-minutes: 3
+        run: |
+          if [ "${{ matrix.display }}" = "true" ]; then
+            xvfb-run -a ./goleoscheme
+          else
+            ./goleoscheme
+          fi
+
+  # Windows arm of the secure-context spike: WebView2 +
+  # SetVirtualHostNameToFolderMapping over an https virtual host. windows-latest
+  # ships the WebView2 runtime (Edge), so this runs the exe directly.
+  windows-scheme:
+    runs-on: windows-latest
+    name: glaze-windows-scheme
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: spikes/glaze-scheme-secure/go.mod
+      - name: Build scheme secure-context spike (CGO_ENABLED=0)
+        working-directory: spikes/glaze-scheme-secure
+        env:
+          CGO_ENABLED: "0"
+        run: go build -o glazescheme.exe .
+      - name: Run scheme secure-context spike (WebView2 virtual host)
+        working-directory: spikes/glaze-scheme-secure
+        timeout-minutes: 3
+        run: ./glazescheme.exe
+
+      # Same real-bridge-in-a-real-webview check as the mac/Linux arm. Worth running
+      # on Windows specifically because WebView2 serves the scheme over the
+      # https://goleo.localhost virtual host rather than the literal goleo://
+      # origin, so the page reaches its modules by a different route than
+      # WKWebView/WebKitGTK do.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Prepare bridge e2e verify (build @goleo/bridge, embed it, build spike)
+        working-directory: spikes/bridge-e2e-verify
+        env:
+          CGO_ENABLED: "0"
+        run: node prepare.mjs
+
+      - name: Run bridge e2e verify (real @goleo/bridge over native IPC)
+        working-directory: spikes/bridge-e2e-verify
+        timeout-minutes: 3
+        run: ./bridge-e2e-verify.exe
+
+  # GTK4 / webkitgtk-6.0: glaze selects the GTK4 backend when 6.0 is present,
+  # exercising menu_linux.go's GMenu/GtkPopoverMenuBar path (GtkMenuBar is gone
+  # in GTK4). WebKitGTK 6.0 needs a session bus and its sandbox disabled in CI.
+  linux-gtk4:
+    runs-on: ubuntu-latest
+    name: glaze-linux-gtk4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: spikes/glaze-menu-verify/go.mod
+      - name: GTK4 runtime deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb dbus dbus-x11 libgtk-4-1 libglib2.0-0 \
+            libwebkitgtk-6.0-4 || sudo apt-get install -y libwebkitgtk-6.0-4t64 || true
+      - name: Build menu verify (CGO_ENABLED=0)
+        working-directory: spikes/glaze-menu-verify
+        run: CGO_ENABLED=0 go build -o glazemenu .
+      - name: Run menu verify under GTK4
+        working-directory: spikes/glaze-menu-verify
+        timeout-minutes: 3
+        env:
+          WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS: "1"
+        run: dbus-run-session -- xvfb-run -a ./glazemenu
+      - name: Build scheme secure-context spike (CGO_ENABLED=0)
+        working-directory: spikes/glaze-scheme-secure
+        run: CGO_ENABLED=0 go build -o glazescheme .
+      - name: Run scheme secure-context spike under GTK4
+        working-directory: spikes/glaze-scheme-secure
+        timeout-minutes: 3
+        env:
+          WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS: "1"
+        run: dbus-run-session -- xvfb-run -a ./glazescheme
+      - name: Build glaze-API scheme proof (CGO_ENABLED=0)
+        working-directory: spikes/glaze-scheme-secure/glazeapi
+        run: CGO_ENABLED=0 go build -o glazeapischeme .
+      - name: Run glaze-API scheme proof under GTK4
+        working-directory: spikes/glaze-scheme-secure/glazeapi
+        timeout-minutes: 3
+        env:
+          WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS: "1"
+        run: dbus-run-session -- xvfb-run -a ./glazeapischeme
+      - name: Build goleo SchemeAssets verify (CGO_ENABLED=0)
+        working-directory: spikes/goleo-scheme-verify
+        run: CGO_ENABLED=0 go build -o goleoscheme .
+      - name: Run goleo SchemeAssets verify under GTK4
+        working-directory: spikes/goleo-scheme-verify
+        timeout-minutes: 3
+        env:
+          WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS: "1"
+        run: dbus-run-session -- xvfb-run -a ./goleoscheme

@@ -1,0 +1,71 @@
+name: GoleoApp
+options:
+  # Pin the project FILE FORMAT. XcodeGen defaults to xcode16_0, which writes
+  # objectVersion 77, and any Xcode older than 16.0 refuses to open it at all:
+  #
+  #   The project 'GoleoApp' cannot be opened because it is in a future Xcode
+  #   project file format (77).            xcodebuild: exit status 74
+  #
+  # That couples the generated project to whatever XcodeGen `brew install` happens to
+  # give you rather than to the user's Xcode — and goleo tells people to open this
+  # project in Xcode for device builds, so it has to be readable by the Xcode they have.
+  # xcode14_0 is objectVersion 56 + compatibilityVersion "Xcode 14.0": newer Xcodes read
+  # old formats fine, so the oldest format that carries what goleo generates is also the
+  # most compatible. Nothing here needs a newer one — these are plain build settings.
+  #
+  # NOTE an unrecognised value silently falls back to xcode16_0/77, so an XcodeGen too
+  # old to know this key lands back on the failure above rather than erroring.
+  projectFormat: xcode14_0
+  # The bundle id comes from mobile.ios.bundle_identifier, NOT the Android package_name.
+  # It used to use PackageName for both, so setting bundle_identifier in goleo.json did
+  # nothing and every iOS build reused the Android id — which makes the two apps
+  # indistinguishable to Apple and to TestFlight.
+  bundleIdPrefix: {{.IOSBundleID}}
+  deploymentTarget:
+    # From mobile.ios.deployment_target; was hardcoded 15.0 regardless of config.
+    iOS: "{{.IOSDeploymentTarget}}"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+targets:
+  App:
+    type: application
+    platform: iOS
+    sources:
+      - App
+    dependencies:
+      # Must match xcfName in buildForIOS; gomobile also derives the Swift module name
+      # ("import Goleo") from this basename.
+      - framework: Goleo.xcframework
+        embed: true
+    settings:
+      base:
+        INFOPLIST_FILE: App/Info.plist
+        # Without this the product is named after the TARGET ("App.app"), while the CLI
+        # reported GoleoApp.app — a path it never wrote.
+        PRODUCT_NAME: GoleoApp
+        PRODUCT_BUNDLE_IDENTIFIER: {{.IOSBundleID}}
+        MARKETING_VERSION: "{{.VersionName}}"
+        CURRENT_PROJECT_VERSION: "{{.VersionCode}}"
+        # The else branch is load-bearing. XcodeGen applies its own settingPresets to an
+        # application target, and those include ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon.
+        # So a HasIcon conditional that only ADDS the setting cannot prevent it: with no icon
+        # configured, the project still asked actool for an "AppIcon" set that goleo had
+        # deliberately not generated, and every build failed with
+        #   None of the input catalogs contained ... an app icon set named "AppIcon"
+        # An explicit empty value overrides the preset and drops actool's --app-icon.
+        {{if .HasIcon}}ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon{{else}}ASSETCATALOG_COMPILER_APPICON_NAME: ""{{end}}
+        # From mobile.ios.development_team (or --ios-team). A DEVICE build cannot be
+        # signed without it: xcodebuild stops at 'Signing for "App" requires a development
+        # team', which is why `goleo build ios` could only ever produce a Simulator app
+        # and every real-device run had to go through Xcode. Omitted entirely when unset
+        # so a Simulator build, which does not sign, is unaffected.
+{{- if .IOSDevelopmentTeam}}
+        DEVELOPMENT_TEAM: {{.IOSDevelopmentTeam}}
+        CODE_SIGN_STYLE: Automatic
+{{- end}}
+    # An explicit scheme is required by `xcodebuild -scheme` for archiving and for
+    # simulator builds; xcodegen generates one implicitly, but naming it here keeps the
+    # name stable so the build commands do not depend on that default.
+    scheme:
+      testTargets: []

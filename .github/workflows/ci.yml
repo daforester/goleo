@@ -1,0 +1,313 @@
+name: ci
+
+on:
+  push:
+    branches-ignore: [ "spike/**" ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # All third-party deps are committed under vendor/ so builds never depend
+      # on upstream repos staying online. Fail if vendor/ has drifted from go.mod
+      # (a dep bumped without re-running scripts/update-vendor). Only the root
+      # module is checked: cli/npm/goleo is a generated copy of it (produced by
+      # cli/npm/copy-source.js at build/publish time), not committed source.
+      - name: Vendor is consistent
+        run: |
+          go mod vendor && git diff --exit-code -- vendor go.mod go.sum \
+            || { echo "::error::root vendor/ is stale — run scripts/update-vendor"; exit 1; }
+
+      # Windows uses the same cgo-free glaze backend as macOS/Linux (WebView2 via
+      # purego), so this cross-builds from Linux with no C toolchain or platform
+      # libraries.
+      - name: Windows build (cgo-free)
+        run: CGO_ENABLED=0 GOOS=windows go build ./runtime/...
+
+      # macOS/Linux now default to the cgo-free glaze backend, so the whole
+      # desktop matrix must cross-build CGO_ENABLED=0 from Linux with no tags.
+      # Interactive UX is verified on real hardware by glaze-verify.yml.
+      - name: Desktop build (cgo-free, default glaze backend)
+        run: |
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build ./runtime/...
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build ./runtime/...
+          CGO_ENABLED=0 GOOS=linux  GOARCH=amd64 go build ./runtime/...
+          CGO_ENABLED=0 GOOS=linux  GOARCH=arm64 go build ./runtime/...
+
+      # Cross-LINK a real executable per desktop OS. `go build ./runtime/...`
+      # only compiles a library and never links, so it misses link-time errors
+      # like the glaze/systray fakecgo _cgo_init duplicate on Mach-O. Building the
+      # runtime-verify app links Mach-O/PE/ELF from Linux with no Mac needed.
+      - name: Desktop executable cross-link (all OSes, cgo-free)
+        working-directory: spikes/glaze-runtime-verify
+        run: |
+          CGO_ENABLED=0 GOOS=darwin  GOARCH=arm64 go build -o /dev/null .
+          CGO_ENABLED=0 GOOS=darwin  GOARCH=amd64 go build -o /dev/null .
+          CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -o /dev/null .
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o /dev/null .
+
+      # Mobile-safety guard: replicate the gomobile compile set on the REAL
+      # mobile targets (GOOS=android/ios) with -tags mobilebuild. All desktop
+      # webview/window/tray code and desktop-only feature impls must be excluded
+      # (the stub is used); if any leaks in, this fails fast. The feature tag
+      # exercises a device-feature mobile provider path too.
+      #
+      # NOTE: this must target android/ios, not the host GOOS. `linux +
+      # mobilebuild` is an unreal combination that trips over cgo-only desktop
+      # files (e.g. camera_linux.go) and says nothing about mobile safety.
+      - name: Mobile guard — android
+        run: |
+          CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build -tags mobilebuild ./runtime/...
+          CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build -tags "mobilebuild goleo_share" ./runtime/...
+
+      - name: Mobile guard — ios
+        run: |
+          CGO_ENABLED=0 GOOS=ios GOARCH=arm64 go build -tags mobilebuild ./runtime/...
+          CGO_ENABLED=0 GOOS=ios GOARCH=arm64 go build -tags "mobilebuild goleo_share" ./runtime/...
+
+      - name: CLI build
+        run: go build ./cli/...
+
+      # Actually run the unit tests. This was missing for a long time, and the cost
+      # was real: six cli/cmd android_deps tests had been failing permanently on
+      # Windows dev machines (Unix-only XDG_CACHE_HOME / a fixture hardcoding the
+      # POSIX `sdkmanager` name) with nothing to catch it. Safe on a bare runner —
+      # tests needing GUI/host tooling skip themselves rather than fail (e.g.
+      # clipboard's round-trip skips without xclip; the dialogs tests are
+      # //go:build windows), verified in a clean golang container with no xclip or
+      # zenity installed.
+      # gofmt is checked here and not on a developer's machine because Windows
+      # checkouts have CRLF line endings, which makes `gofmt -l` flag every file
+      # locally and tells you nothing. The CI checkout is LF, so this is the only
+      # place the check is meaningful.
+      - name: Formatting
+        run: |
+          unformatted=$(gofmt -l runtime cli)
+          if [ -n "$unformatted" ]; then
+            echo "::error::gofmt needed on:"; echo "$unformatted"; exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./runtime/... ./cli/...
+
+      # Go does not warn about a function nobody calls, and the CLI accumulated two of
+      # them: buildAndroidDev(), a whole 120-line Android build path that had never had a
+      # caller since the initial commit, and featureForTag(). The first did real damage
+      # without ever executing — it implied a dev-vs-release Android build split that does
+      # not exist, and two microphone permission fixes were made under that wrong model.
+      #
+      # Rooted at the goleo binary's main, which is what makes the answer meaningful: a
+      # function is dead if the shipped CLI cannot reach it. Test files are deliberately NOT
+      # roots (-test is not passed), so a non-test helper used only by tests is reported too
+      # — that is the intent, not a false positive.
+      #
+      # Scoped to ./cli by -filter because runtime/ is a LIBRARY: its exported API exists to
+      # be called by user apps, no main in this repo reaches it, and rooting there would
+      # report the entire public surface. The step below covers runtime/ instead.
+      #
+      # deadcode exits 0 whether or not it finds anything, so the output is the signal —
+      # same shape as the gofmt step above. Pinned rather than @latest: a new release
+      # changing what it reports should be a deliberate bump, not a red build one morning.
+      #
+      # BOTH tools analyse ONE GOOS at a time — the blind spot that matters here, because
+      # this is a cross-platform CLI and a helper is routinely defined untagged and called
+      # only from a _windows.go / _linux.go file. Run on the runner's native linux alone,
+      # deadcode reports windowsSdkToolCmdLine and winQuote as unreachable; they are live
+      # code that sdkmanager_windows.go calls, kept untagged on purpose so they stay
+      # unit-testable everywhere. A gate demanding the deletion of working Windows code is
+      # worse than no gate. The inverse already bit us for real: deeplink's slug() was
+      # deleted as "unused" from a Windows host, where the linux-only file that calls it is
+      # excluded, and the Linux build broke.
+      #
+      # So: run each tool once per desktop GOOS and report a finding only when it appears
+      # in EVERY run — i.e. no platform we ship can reach it. buildAndroidDev and
+      # featureForTag, the finds that motivated this gate, were untagged and dead
+      # everywhere, so they are still caught.
+      #
+      # Known gap, accepted deliberately: something defined inside ONE platform's build
+      # tags and dead there is absent from the other runs, so the intersection misses it.
+      # The alternative is the false positive above, and a red build that pressures the
+      # next person to delete live code is the more expensive failure.
+      #
+      # `go install` first, then set GOOS per invocation. `go run tool@ver` with GOOS set
+      # cross-builds the TOOL and then cannot execute it on the runner.
+      - name: Install analysis tools
+        run: |
+          go install golang.org/x/tools/cmd/deadcode@v0.48.0
+          go install honnef.co/go/tools/cmd/staticcheck@2025.1.1
+
+      - name: Dead code (CLI, rooted at the goleo binary, all desktop GOOS)
+        run: |
+          for os in linux darwin windows; do
+            GOOS=$os "$(go env GOPATH)/bin/deadcode" \
+              -filter 'github.com/daforester/goleo/cli' ./cli/goleo \
+              | sort -u > "dead-$os.txt"
+            echo "  $os: $(wc -l < "dead-$os.txt") unreachable"
+          done
+          # Present in all three -> unreachable on every platform we ship.
+          dead=$(comm -12 dead-linux.txt dead-darwin.txt | comm -12 - dead-windows.txt)
+          rm -f dead-linux.txt dead-darwin.txt dead-windows.txt
+          if [ -n "$dead" ]; then
+            echo "::error::unreachable code in cli/ on every desktop GOOS — delete it, or wire it up:"
+            echo "$dead"
+            exit 1
+          fi
+
+      # Covers what the step above structurally cannot: runtime/ is a library with no main
+      # to root a reachability analysis at. U1000 needs no entry point — it reports
+      # UNEXPORTED identifiers nothing references, which is exactly the blind spot, and it
+      # sees fields and vars as well as funcs (deadcode only reports functions).
+      #
+      # Adding it found five, and one was more than clutter: fs_scope.go carried an unused
+      # `dataOnce sync.Once` directly above a comment explaining why once-semantics are WRONG
+      # there (os.UserConfigDir legitimately fails before SetHomeDir on mobile and must be
+      # retried; a Once would latch that failure and leave the filesystem scope with no
+      # root). A field that invites the exact change the comment forbids is worse than dead.
+      # Also found: notify_windows.go's deprecated syscall.StringToUTF16, which PANICS on
+      # app-supplied text containing a NUL.
+      #
+      # ONLY U1000 is enabled. The default set also raises 19 ST1005s (error strings
+      # capitalised / punctuated) — a house-style rule this repo deliberately does not
+      # follow — and an SA4000 false positive on singleinstance_test's determinism check,
+      # which compares a pure function against itself on purpose. Turning the whole suite on
+      # would mean either 20 papercut edits or a wall of ignored noise; a check nobody reads
+      # is a check nobody runs. Widen it deliberately, not by default.
+      #
+      # Per-GOOS with the same intersection rule as deadcode above, and for the same
+      # reason: U1000 run on linux alone reports every unexported helper whose only caller
+      # sits behind _windows.go / _darwin.go tags. This is the check that deleted slug().
+      #
+      # staticcheck exits non-zero on findings, so the exit code is suppressed and the
+      # OUTPUT is the signal — the intersection is what decides, not any single run.
+      - name: Unused code (runtime + CLI, all desktop GOOS)
+        run: |
+          for os in linux darwin windows; do
+            GOOS=$os "$(go env GOPATH)/bin/staticcheck" -checks 'U1000' \
+              ./runtime/... ./cli/... | sort -u > "unused-$os.txt" || true
+            echo "  $os: $(wc -l < "unused-$os.txt") unused"
+          done
+          unused=$(comm -12 unused-linux.txt unused-darwin.txt | comm -12 - unused-windows.txt)
+          rm -f unused-linux.txt unused-darwin.txt unused-windows.txt
+          if [ -n "$unused" ]; then
+            echo "::error::unexported identifiers unreferenced on every desktop GOOS:"
+            echo "$unused"
+            exit 1
+          fi
+
+      - name: Unit tests
+        run: go test ./...
+
+      # Separate -race pass. The runtime carries a fair amount of concurrent state
+      # — the per-server WebSocket hub, the filesystem scope, the store's writers —
+      # and none of it was ever exercised under the detector by CI. It roughly
+      # doubles this job's runtime, which is worth it for the class of bug that
+      # otherwise only shows up intermittently in the field.
+      - name: Race detector
+        run: go test -race ./runtime/... ./cli/...
+
+      # The TypeScript bridge had no test runner at all until now — only `tsc`,
+      # which cannot tell you that a catch block returns the wrong value. That is
+      # how several failure-path bugs survived there (a failed confirm dialog
+      # returning 'OK', an fs error being replaced with "requires the Go backend").
+      # Gating it here matters as much as adding it: a suite nothing runs is the
+      # same as no suite.
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # `npm ci` at the ROOT must work on a fresh clone. It used to fail after every
+      # release: the version bump pinned @goleo/cli's optionalDependencies to a version
+      # not yet on the registry, npm could not write lockfile entries for it, and being
+      # OPTIONAL they were dropped silently — so package.json declared six platform
+      # packages the lockfile knew nothing about, and `npm ci` refuses on any such
+      # mismatch. It needed a manual `npm install` + commit after each release, and it
+      # stayed invisible because every workflow ran `npm install`, which re-resolves
+      # rather than verifies. The committed pins are now "latest" (see
+      # cli/npm/check-optional-deps.js) so there is nothing to repair — this guards that.
+      - name: Lockfile is installable (npm ci on a fresh clone)
+        run: npm ci
+
+      # The committed tree declares NO platform optionalDependencies — build-platform-
+      # packages.js adds all six at the exact version just before publishing. So a
+      # publish that skips that step would ship a @goleo/cli with no binary at all, and
+      # prepublishOnly is the only thing standing in the way. Check the guard still
+      # rejects the committed state rather than passing vacuously.
+      - name: Publish guard rejects the unstamped tree
+        run: |
+          if node cli/npm/check-optional-deps.js 2>/dev/null; then
+            echo "::error::check-optional-deps passed on the committed tree, which declares no platform packages — the guard is not guarding anything"
+            exit 1
+          fi
+          echo "guard correctly refuses the unstamped committed tree"
+
+      - name: Bridge tests (TypeScript)
+        working-directory: bridge
+        run: npm test
+
+  # The demo scaffold is compiled by NOTHING else. mobile-verify scaffolds the MINIMAL
+  # template, and the demo's .vue files live under cli/cmd/templates/ where no tsconfig
+  # reaches them — so a broken demo page (a missing import, a typo in an SFC, a registry
+  # entry pointing at a file that does not exist) only surfaced when a user ran
+  # `goleo new --demo`. Scaffold it and build both halves.
+  demo-scaffold:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # The scaffolded frontend depends on @goleo/bridge. `goleo new` npm-links the local
+      # checkout when GOLEO_ROOT is set, but the package resolves to dist/ — so without
+      # building the bridge first, every bridge import in every demo page is unresolved.
+      - name: Build the bridge
+        run: |
+          npm ci
+          npm run build:bridge
+
+      - name: Build the CLI
+        run: go build -o /tmp/goleo ./cli/goleo
+
+      # GOLEO_ROOT wires the local checkout in via a go.mod replace AND links the local
+      # bridge, so this tests the working tree rather than the last release.
+      - name: Scaffold the demo project
+        working-directory: /tmp
+        env:
+          GOLEO_ROOT: ${{ github.workspace }}
+        run: /tmp/goleo new demoapp --demo
+
+      # vite build is the real gate: it parses every SFC and resolves every import, so a
+      # page that cannot compile fails here. It does NOT type-check — esbuild strips types
+      # without looking at them — which is what the next step is for.
+      - name: Build the demo frontend
+        working-directory: /tmp/demoapp/frontend
+        run: npm run build
+
+      # vue-tsc is installed into the PROJECT, not run through `npx vue-tsc@2`. npx pulls
+      # its own TypeScript, and vue-tsc 2.x requires typescript/lib/tsc, which recent TS
+      # no longer exports — so the npx form dies with ERR_PACKAGE_PATH_NOT_EXPORTED before
+      # checking anything. Installed locally it uses the template's own typescript ^5.3.
+      # Deliberately not added to the demo template's devDependencies: this is goleo's
+      # gate, not a dependency every scaffolded project should carry.
+      - name: Type-check the demo frontend
+        working-directory: /tmp/demoapp/frontend
+        run: |
+          npm install --no-save vue-tsc@^2.1
+          npx vue-tsc --noEmit
+
+      # app.go.tmpl gains a Register* call whenever a feature is added, so the demo's Go
+      # side has to build too — against the checkout, via the replace GOLEO_ROOT wrote.
+      - name: Build the demo backend
+        working-directory: /tmp/demoapp
+        run: go build ./...
