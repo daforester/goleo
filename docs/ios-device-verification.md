@@ -32,11 +32,11 @@ Xcode 17F113 / iPhoneOS 26.5 SDK.
 Upgrade the CLI:
 
 ```bash
-npm install -g @goleo/cli@0.11.0
+npm install -g @goleo/cli@0.11.1
 # or, if you installed with Go:
-#   go install github.com/daforester/goleo/cli/goleo@v0.11.0
+#   go install github.com/daforester/goleo/cli/goleo@v0.11.1
 
-goleo version      # must print 0.11.0
+goleo version      # must print 0.11.1
 ```
 
 If the CLI reports a *version mismatch* between `@goleo/cli` and its native binary package,
@@ -94,10 +94,10 @@ goleo build ios            2>&1 | tee build-device.log
 Then confirm the CLI and the Go runtime agree:
 
 ```bash
-grep goleo go.mod          # must show github.com/daforester/goleo v0.11.0
+grep goleo go.mod          # must show github.com/daforester/goleo v0.11.1
 ```
 
-**If it does not say `0.11.0`, stop and re-run the build.** The Go module tag can lag a
+**If it does not say `0.11.1`, stop and re-run the build.** The Go module tag can lag a
 few minutes behind the npm release; goleo says so when it happens (`not tagged as a Go
 module yet — using @latest`). A mismatch here shows up as `undefined:
 runtime.FileDialogOptions` and means you are testing new code against an old runtime.
