@@ -350,7 +350,14 @@ The invariants:
   provider nobody registers is a valid program, so nothing caught it —
   `mobile_providers_test.go` now does. Any provider the shells wire unconditionally must
   also have its tag in `nativeShellProviderTags`, or apps that do not enable the feature
-  fail to compile their shell (invisible in the demo scaffold, which enables everything).
+  fail to compile their shell (invisible in the demo scaffold, which enables everything —
+  **test the MINIMAL scaffold, which is what `goleo new` produces by default**).
+- **Gradle's manifest merger adds permissions goleo never declares.** A minimal app that
+  registers nothing derives 3 permissions and *ships* 7: `WAKE_LOCK`,
+  `RECEIVE_BOOT_COMPLETED`, `FOREGROUND_SERVICE` and a `DYNAMIC_RECEIVER_*` come from library
+  manifests, after goleo's derivation and after the "Detected mobile features" report. Two of
+  them are visible on a Play listing. Check the **listing**, not the build output —
+  `aapt2 dump permissions <apk>` is the ground truth.
 - Mobile provider methods take and return **JSON strings**, not the runtime's option
   structs: gobind cannot bind a struct pointer or a `[]string` across packages in a
   reverse-bound method, and it **omits** what it cannot bind rather than failing the build.

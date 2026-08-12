@@ -2331,3 +2331,90 @@ Doing this raised the obvious question of what *else* reaches the OS by launchin
 absent at runtime on a machine that compiled it fine, CI is headless Linux where several are
 missing so those tests *skip* rather than fail, and green CI is therefore not evidence any of
 it works.
+
+## Build sweep — every target exercised against a real scaffold (2026-08-12)
+
+Ran the whole `goleo build` matrix against both scaffolds using the **published** v0.11.0
+module, rather than `go build ./...`. Twelve paths, all correct, and three defects that only
+running them could find.
+
+### What passed, and what the artifacts actually were
+
+| Target | Artifact | Verified as |
+|---|---|---|
+| current / windows | `app.exe` | **PE32+ x86-64** (`file`, not just exit 0) |
+| darwin | `app` | **Mach-O 64-bit x86_64** |
+| linux | `app` | linux/amd64 |
+| pwa | `dist-pwa/` | `index.html` + `manifest.json` + `sw.js` |
+| android (demo) | `app.apk` 67 MB | `BUILD SUCCESSFUL` |
+| android (minimal) | `app.apk` 66 MB | see below — this is the one that matters |
+| android --release --no-sign | `app.aab` 50 MB | unsigned |
+| android --release (signed) | `app.aab` 50 MB | `META-INF/UPLOAD.RSA` present |
+| --bundle | `demoapp-0.1.0-setup.exe` 6 MB | NSIS |
+| ios / ios --simulator | — | refused cleanly on Windows, with guidance |
+| --release without a key, --publish without a key | — | refused cleanly |
+
+**The microphone fix, proven in the shipped artifact** (`aapt2 dump` on the APK, not the
+template): `RECORD_AUDIO` and `MODIFY_AUDIO_SETTINGS` present, every hardware feature
+`uses-feature-not-required`, only `faketouch` implied-required. `ACCESS_FINE_LOCATION` is
+there too — with geolocation now having **no Go implementation at all**, which is the
+declaration-only `RegisterGeolocation` path working end to end.
+
+### Testing only the demo scaffold would have missed the point
+
+The demo enables every feature, so it cannot catch the `nativeShellProviderTags` class of
+bug. The **minimal** scaffold — what `goleo new` produces by default, with every `Register*`
+commented out — is the case where the fixed Java/Swift shell references providers the app
+never enabled. It builds clean.
+
+And permissions genuinely follow enablement, measured rather than assumed:
+
+| | goleo derived | in the APK |
+|---|---|---|
+| demo (registers everything) | 16 | 20 |
+| minimal (registers nothing) | 3 | 7 |
+
+`CAMERA`, `RECORD_AUDIO`, `ACCESS_FINE_LOCATION`, `BODY_SENSORS` and `NFC` are all **absent**
+from the minimal APK.
+
+### The gap in that table: the manifest merger adds permissions goleo never declares
+
+Both counts are higher in the APK than in the derived manifest, and the difference is not
+goleo's. For the minimal app, goleo declares exactly three (`INTERNET`,
+`ACCESS_NETWORK_STATE`, `POST_NOTIFICATIONS`) and Gradle's manifest merger injects four more
+from library manifests:
+
+```
+WAKE_LOCK   RECEIVE_BOOT_COMPLETED   FOREGROUND_SERVICE   <pkg>.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
+```
+
+So **an app that registers nothing still ships `WAKE_LOCK` and `RECEIVE_BOOT_COMPLETED`**,
+both of which are visible on a Play listing. This is the same shape as the implied
+`<uses-feature>` problem already documented in `android_permissions.go` — a permission
+arriving from somewhere other than the `Register*` call — and the build's "Detected mobile
+features" report cannot show it, because it reports goleo's derivation and the merge happens
+later, inside Gradle.
+
+Not changed here, deliberately: suppressing them needs `tools:node="remove"`, and `WAKE_LOCK`
+is legitimately required the moment `RegisterWakeLock` is used, so a blanket removal would
+break the feature it belongs to. Recorded so the next Play upload is not a surprise —
+**check the listing's permission list, not the build output.**
+
+### Three CLI defects, none reachable by reading the code
+
+1. **Every failing command printed its error twice.** `SilenceUsage` was set on `rootCmd`,
+   `SilenceErrors` was not, so cobra printed `Error: <msg>` and `Execute()` printed `<msg>`
+   again. Invisible on a one-line error; the keystore message is nine lines and came out as
+   eighteen, reading like two different failures.
+2. **The keystore hint could not be pasted.** The Go source had `"\n"` where it meant a
+   shell line-continuation plus a newline (`"\\n"`), so the printed `keytool` command
+   carried a literal `\n` mid-line.
+3. **It recommended a tool that is not there.** It said to run `keytool` — confirmed **not on
+   PATH** on this Windows machine — while `goleo generate android-key` exists precisely for
+   that and uses the JDK goleo already resolves. Verified working: it produced `release.jks`
+   with no `keytool` on PATH, and that key then signed a real `.aab`.
+
+The transferable bit: (1) and (3) are both *only* observable by running the failure path.
+Nothing asserts stderr shape, and no test reads a help string, so a message can rot
+indefinitely. The keystore text is the one a user meets at exactly the moment they are
+trying to ship.
