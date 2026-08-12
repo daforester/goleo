@@ -188,6 +188,18 @@ func reportAndroidPermissions(p androidManifestPerms) {
 	}
 	fmt.Println("  If something you use is missing, the scanner did not see its Register* call —")
 	fmt.Println("  add it to mobile.android.extra_permissions in goleo.json.")
+	// This list is what GOLEO declares, and the shipped artifact has more: Gradle's manifest
+	// merger folds in the permissions of every library manifest AFTER this point, so the
+	// report structurally cannot show them. Measured on a minimal app that registers nothing
+	// — goleo declares 3, the APK carries 7, the extras being WAKE_LOCK,
+	// RECEIVE_BOOT_COMPLETED, FOREGROUND_SERVICE and a DYNAMIC_RECEIVER_* permission. Two of
+	// those are visible on a Play listing, so a developer reading only this output is
+	// surprised at submission time. Saying so, and naming the command that answers it, costs
+	// two lines; teaching goleo to run aapt2 itself would add a build-time dependency on
+	// build-tools for a check the developer only needs before a store upload.
+	fmt.Println("  This is what goleo declares. Gradle's manifest merger adds the permissions")
+	fmt.Println("  of any library it links, so the built artifact can carry more — check with")
+	fmt.Println("  `aapt2 dump permissions app.apk` before a store upload.")
 }
 
 // setAndroidPermissions resolves the manifest entries for cfg and reports them.

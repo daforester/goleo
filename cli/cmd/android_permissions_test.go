@@ -458,3 +458,27 @@ func TestAllDeclaredFeaturesAreOptional(t *testing.T) {
 		}
 	}
 }
+
+// The permission report must not present goleo's derivation as the final answer.
+//
+// It is mitigation (2) for detection false negatives, so it has to be trustworthy in BOTH
+// directions: something missing means the scanner did not see a Register* call, and
+// something present in the artifact but absent here means Gradle's manifest merger added
+// it. Measured on a minimal app that registers nothing: goleo declares 3 permissions and
+// the APK ships 7 (WAKE_LOCK, RECEIVE_BOOT_COMPLETED, FOREGROUND_SERVICE and a
+// DYNAMIC_RECEIVER_* permission come from library manifests). WAKE_LOCK and
+// RECEIVE_BOOT_COMPLETED show on a Play listing, so a developer who trusts this output
+// alone meets them at submission time.
+//
+// Asserted on the printed text because that text is the whole mitigation.
+func TestPermissionReportAdmitsTheManifestMergerAddsMore(t *testing.T) {
+	out := captureStdout(t, func() {
+		reportAndroidPermissions(resolveAndroidPermissions([]string{"goleo_camera"}, nil))
+	})
+	for _, want := range []string{"merger", "aapt2 dump permissions"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the permission report should mention %q so the reader knows this is not "+
+				"the final permission set:\n%s", want, out)
+		}
+	}
+}
