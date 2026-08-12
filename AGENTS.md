@@ -162,6 +162,14 @@ not just funcs). Both are in `ci.yml`. Do not park a helper, a field or a build 
 later" — Go will not warn, but the build will. Only `U1000` is enabled from staticcheck, on
 purpose; SPIKES.md records why, and what the two checks found.
 
+**Both gates run once per desktop GOOS and fail only on a finding present in ALL of them**,
+because each tool analyses one GOOS at a time and this is a cross-platform CLI. Never act on
+a single-GOOS "unused" result: a helper defined untagged whose only caller sits in a
+`_linux.go` / `_windows.go` file looks dead on every *other* platform. Deleting
+`deeplink.slug()` on exactly that reasoning broke the Linux build, and the same gate run on
+CI's ubuntu runner called two live Windows helpers unreachable. If you are removing something
+the gate flags, check the other platforms first.
+
 Minimum OS versions have **one** source each (`cli/cmd/mobile_minversion.go`):
 `mobile.android.min_sdk` / `mobile.ios.deployment_target` drive both gomobile
 (`-androidapi`/`-iosversion`) and the native project (`minSdk`/`deploymentTarget`), with

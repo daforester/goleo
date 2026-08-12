@@ -2011,6 +2011,13 @@ them.
 
 ### Closing the deadcode blind spot: U1000 over runtime/ too (2026-08-11)
 
+> **Superseded in part (2026-08-12).** The reasoning below about *what* each tool measures
+> still holds, and the five findings were real. What it got wrong is scope: both tools
+> analyse a **single GOOS**, so the gates as described here delete live code on a
+> cross-platform CLI. One of the five findings in the table — `deeplink.slug()` — was **not
+> dead**, and acting on it broke the Linux build. See "both 'unused code' gates analysed one
+> GOOS" at the end of this file for what happened and what the steps do now.
+
 The `deadcode` gate added earlier is rooted at the `goleo` binary's `main` and filtered to
 `cli/`, because `runtime/` is a library with no entry point to root a reachability analysis
 at. That exemption was documented, and then measured: `staticcheck -checks U1000` needs no
@@ -2024,7 +2031,7 @@ Five findings, and they were not all clutter:
 | `runtime/fs_scope.go` `dataOnce sync.Once` | **the bad one** — see below |
 | `runtime/notify/notify_windows.go` `syscall.StringToUTF16` (SA1019, found in the same sweep) | real: **panics** on app-supplied text containing a NUL |
 | `cli/cmd/emulate.go` `emulateTarget` | dead; declared beside two real flag vars, bound to no flag, read by nothing |
-| `runtime/deeplink` `slug()` | dead helper |
+| `runtime/deeplink` `slug()` | **WRONG — not dead.** Called by `deeplink_linux.go`, which the Windows-host run excluded. Deleting it broke the Linux build; see the 2026-08-12 entry |
 | `runtime/app.go` `mu`, `running` | vestigial, NOT a missing lock — `Quit()` is idempotent because `context.CancelFunc` is |
 
 **`dataOnce` is why this check earns its runtime.** It sat directly above a comment
@@ -2052,3 +2059,100 @@ edits or a wall of ignore directives, and a check nobody reads is a check nobody
 Mutation-checked like the others: an added `func zzTmpUnused()` in `runtime/deeplink` makes
 the step exit 1; removed, it exits 0. Unlike `deadcode`, staticcheck exits non-zero on
 findings, so the step needs no output test.
+
+## Cross-cutting — both "unused code" gates analysed one GOOS, and each deleted live code (2026-08-12)
+
+The two CI gates added the day before (`deadcode` over `cli/`, `staticcheck -checks U1000`
+over `runtime/` + `cli/`) were sound in what they measured and wrong in the scope they
+measured it over. **Both tools analyse a single GOOS per invocation.** On a cross-platform
+CLI where a helper is routinely defined untagged and called only from a `_linux.go` or
+`_windows.go` file, that makes every result platform-relative — and a "this is unreferenced"
+answer is only actionable if the run could see all the references.
+
+It cost live code in **both** directions before anyone noticed, which is the part worth
+keeping.
+
+### Direction 1 — a Windows host deleted Linux code
+
+`f6bf0e0` removed `deeplink.slug()`. Its only caller is `platformRegister` in
+`deeplink_linux.go`, behind `//go:build linux && !android`. The sweep ran on Windows, where
+that file is not part of the package, so U1000 answered the question it was asked, correctly.
+
+```
+CGO_ENABLED=0 GOOS=linux go build ./runtime/...
+runtime/deeplink/deeplink_linux.go:20:17: undefined: slug
+```
+
+That is a CI step (`Desktop build (cgo-free, default glaze backend)`), so the branch was red
+before it ever reached the new gates. Three things hid it on the authoring machine:
+
+| | Why it looked fine |
+|---|---|
+| `go build ./...` | host GOOS only — the Linux file is never compiled |
+| the full test suite | same; `go test ./runtime/...` passed with `slug` deleted |
+| grepping the name | `runtime/autostart` has its **own** identical `slug()`, which *is* test-referenced, so the identifier resolves everywhere you would think to look |
+
+The third is why the deletion looked safe: two packages carry the same small helper, one
+protected by a test and one not, and the unprotected one is the one whose caller is
+build-tagged.
+
+**The fix is the protection autostart already had.** `slug` is restored to `deeplink.go` and
+`deeplink_test.go` now exercises it, deliberately **untagged** — an untagged test references
+the helper on every platform, so no single-GOOS sweep can report it. That is the general
+remedy for this shape and it costs three lines.
+
+### Direction 2 — CI's ubuntu runner would have called live Windows code dead
+
+Run as CI actually runs it, the same gate reports:
+
+```
+cli/cmd/android_deps.go:682:6: unreachable func: windowsSdkToolCmdLine
+cli/cmd/android_deps.go:690:6: unreachable func: winQuote
+```
+
+Both are live: `sdkmanager_windows.go` calls `windowsSdkToolCmdLine` to build the `cmd /s /c`
+line that keeps `platforms;android-34` from being split on the semicolon. They sit untagged
+**on purpose** — the comment above them says "defined here (untagged) so it is unit-testable
+on any platform" — and `android_deps_test.go` tests both.
+
+So the gate would have failed on its first CI run and asked the next person to delete working
+Windows code, having already caused the deletion of working Linux code. The gate's own
+mutation check did not catch this because it added a function that was dead on *every*
+platform, which is the easy case. (It added it to `runtime/deeplink` — the very package where
+`slug` was about to break.)
+
+### What both steps do now
+
+Run the tool once per desktop GOOS and fail only on a finding present in **all** of them:
+"no platform we ship can reach it", which is what the gate always meant to say.
+
+- `buildAndroidDev` and `featureForTag` — the finds that motivated the gate — were untagged
+  and dead everywhere, so they are still caught. Mutation-verified: an added unreachable func
+  and an unused unexported var appear in all three runs and fail both steps; removed, both
+  pass.
+- **Accepted gap, in the step comment so nobody rediscovers it as a bug:** something defined
+  inside a single platform's build tags and dead *there* is absent from the other two runs,
+  so the intersection misses it. A false negative there is cheaper than a red build that
+  pressures someone into deleting live code — which is not hypothetical, it is both halves of
+  this entry.
+
+### The mechanical trap in running a Go analyser for another GOOS
+
+`go run tool@version` with `GOOS` set cross-builds **the tool** and then cannot execute it:
+
+```
+GOOS=linux go run honnef.co/go/tools/cmd/staticcheck@2025.1.1 -checks U1000 ./...
+exec: ".../b001/exe/staticcheck": executable file not found in %PATH%
+```
+
+`go install` the tool for the host **once**, then set `GOOS` only on the invocation. The env
+var has to reach the analysis without reaching the build of the analyser.
+
+### The transferable point
+
+The 2026-08-11 entry ended on "a declaration is only load-bearing if something consumes it".
+This is the adjacent failure: **a tool that reports what nothing consumes is only as honest
+as the set of files it compiled.** Build tags make that set a variable, and neither tool says
+which GOOS it assumed. Any "X is unused" result on this repo is incomplete until it names the
+platform it holds for — and a `deadcode`/U1000 finding on a helper next to a `_windows.go` or
+`_linux.go` sibling should be assumed a false positive until checked on that platform.
