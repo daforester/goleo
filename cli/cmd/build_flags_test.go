@@ -326,3 +326,54 @@ func TestSnapshotModFilesDoesNotCreateFilesThatWereAbsent(t *testing.T) {
 			"must not be 'restored' to empty", got)
 	}
 }
+
+// Errors must be printed ONCE. cobra prints the error returned from RunE unless
+// SilenceErrors is set, and Execute() in root.go prints it as well — so with only
+// SilenceUsage set, every failing goleo command reported its failure twice. That is
+// tolerable on a one-line error and not on a seven-line one: `goleo build android
+// --release` with no signing config emitted the whole keystore message twice, fourteen
+// lines, and the duplicate reads like two different failures.
+//
+// Asserted on the flag rather than on stderr because cobra's printing happens inside
+// Execute, which calls os.Exit — there is no seam to capture. The flag IS the behaviour.
+func TestRootSilencesCobrasOwnErrorPrinting(t *testing.T) {
+	if !rootCmd.SilenceErrors {
+		t.Error("rootCmd.SilenceErrors is false, so cobra prints the error and Execute() " +
+			"prints it again — every failing command reports its failure twice")
+	}
+	if !rootCmd.SilenceUsage {
+		t.Error("rootCmd.SilenceUsage is false, so a runtime failure is followed by the " +
+			"whole flag list, burying the message")
+	}
+}
+
+// The keystore error tells the user how to make a keystore, so the command it prints has
+// to be one they can actually run.
+//
+// It contained a literal backslash-n — `-keysize 2048 \n      -validity 10000` — because
+// the Go source escaped the backslash ("\n") where it meant a shell line-continuation
+// followed by a real newline ("\\n"). Copy-pasting it runs a broken command. Nothing
+// caught it because no test reads this string and the path only triggers without a
+// keystore configured.
+//
+// It also recommended raw keytool, which on Windows is normally not on PATH — and
+// `goleo generate android-key` exists precisely to solve that, using the JDK goleo has
+// already resolved. Telling the user to run the tool that will not be found, while
+// shipping the one that works, is the wrong way round.
+func TestAndroidKeystoreErrorIsActionable(t *testing.T) {
+	msg := errAndroidKeystoreMissing.Error()
+
+	if strings.Contains(msg, `\n`) {
+		t.Errorf("the keystore error contains a LITERAL backslash-n, so the keytool "+
+			"command it prints cannot be pasted:\n%s", msg)
+	}
+	if !strings.Contains(msg, "goleo generate android-key") {
+		t.Errorf("the keystore error should point at `goleo generate android-key`, which "+
+			"works when keytool is not on PATH:\n%s", msg)
+	}
+	// The hand-rolled alternative is still offered, and its continuation must be a real
+	// backslash-newline so it survives a paste.
+	if strings.Contains(msg, "keytool") && !strings.Contains(msg, "2048 \\\n") {
+		t.Errorf("the keytool fallback's line continuation is malformed:\n%s", msg)
+	}
+}

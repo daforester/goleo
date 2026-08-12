@@ -1477,7 +1477,10 @@ var errAndroidKeystoreMissing = fmt.Errorf(
 	"--release needs a keystore: set GOLEO_ANDROID_KEYSTORE (plus\n" +
 		"  GOLEO_ANDROID_KEYSTORE_PASSWORD, GOLEO_ANDROID_KEY_ALIAS, GOLEO_ANDROID_KEY_PASSWORD).\n" +
 		"  Generate one with:\n" +
-		"    keytool -genkeypair -v -keystore release.jks -keyalg RSA -keysize 2048 \\n" +
+		"    goleo generate android-key\n" +
+		"  which uses the JDK goleo already resolved, so keytool does not need to be on PATH\n" +
+		"  (on Windows it usually is not). The equivalent by hand, if you prefer:\n" +
+		"    keytool -genkeypair -v -keystore release.jks -keyalg RSA -keysize 2048 \\\n" +
 		"      -validity 10000 -alias upload\n" +
 		"  Keep it and its passwords safe: losing the upload key means you cannot ship an\n" +
 		"  update to an existing Play listing. Or pass --no-sign to build unsigned.")

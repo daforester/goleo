@@ -20,6 +20,13 @@ Supports Windows, Linux, macOS, Android, and iOS from a single codebase.`,
 	// below which "xcodebuild failed: exit status 65" scrolled away. Cobra still prints
 	// usage for genuine argument errors, which is what it is for.
 	SilenceUsage: true,
+	// And SilenceErrors, because Execute() below already prints the error itself. Without
+	// this, cobra prints "Error: <msg>" AND Execute prints "<msg>" — every failing goleo
+	// command reported its failure TWICE. Harmless-looking on a one-line error and awful on
+	// a multi-line one: the keystore message is nine lines, so a `goleo build android
+	// --release` with no signing config emitted eighteen. Found by running the failure
+	// rather than reading the code; nothing tests stderr shape.
+	SilenceErrors: true,
 	Run: func(cmd *cobra.Command, args []string) {
 		cmd.Help()
 	},
