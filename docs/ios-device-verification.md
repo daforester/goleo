@@ -6,11 +6,11 @@ goleo checkout.
 **Two hardware runs have happened** (2026-08-09 and 2026-08-11); the second reached
 `** BUILD SUCCEEDED **` for both the device and Simulator builds and passed the checklist
 below. So this is a regression sheet, not a first contact — but see the box, because the
-0.10.14 build changes the **app launch path itself**, which no earlier run exercised.
+0.11.0 build changes the **app launch path itself**, which no earlier run exercised.
 
 > ### Priority for this run: the app has to launch at all
 >
-> 0.10.14 adopts the **UIScene lifecycle** — `Info.plist` declares a
+> 0.11.0 adopts the **UIScene lifecycle** — `Info.plist` declares a
 > `UIApplicationSceneManifest` and a new `SceneDelegate` creates the window, where
 > `AppDelegate` used to. **Nothing on a non-Mac host can run a launch path**, so this
 > shipped verified only by build and by tests that read the generated files.
@@ -32,11 +32,11 @@ Xcode 17F113 / iPhoneOS 26.5 SDK.
 Upgrade the CLI:
 
 ```bash
-npm install -g @goleo/cli@0.10.14
+npm install -g @goleo/cli@0.11.0
 # or, if you installed with Go:
-#   go install github.com/daforester/goleo/cli/goleo@v0.10.14
+#   go install github.com/daforester/goleo/cli/goleo@v0.11.0
 
-goleo version      # must print 0.10.14
+goleo version      # must print 0.11.0
 ```
 
 If the CLI reports a *version mismatch* between `@goleo/cli` and its native binary package,
@@ -94,10 +94,10 @@ goleo build ios            2>&1 | tee build-device.log
 Then confirm the CLI and the Go runtime agree:
 
 ```bash
-grep goleo go.mod          # must show github.com/daforester/goleo v0.10.14
+grep goleo go.mod          # must show github.com/daforester/goleo v0.11.0
 ```
 
-**If it does not say `0.10.14`, stop and re-run the build.** The Go module tag can lag a
+**If it does not say `0.11.0`, stop and re-run the build.** The Go module tag can lag a
 few minutes behind the npm release; goleo says so when it happens (`not tagged as a Go
 module yet — using @latest`). A mismatch here shows up as `undefined:
 runtime.FileDialogOptions` and means you are testing new code against an old runtime.
@@ -124,7 +124,7 @@ tested, and the cause is the scene-lifecycle change rather than the feature you 
 |---|---|---|
 | 0 | **The app launches and draws the demo UI** | The UI appears. A **black screen / blank window** is the scene-lifecycle failure — send the Xcode console, which names the delegate class it could not resolve, and stop |
 | 0a | Rotate the phone | UI reflows; still drawn after rotation |
-| 0b | **iPad only, if you have one** — open the app in Split View and rotate through all four orientations | Draws in every orientation. 0.10.14 declares all four for iPad because XcodeGen makes every generated project iPad-capable whether asked or not |
+| 0b | **iPad only, if you have one** — open the app in Split View and rotate through all four orientations | Draws in every orientation. 0.11.0 declares all four for iPad because XcodeGen makes every generated project iPad-capable whether asked or not |
 | 1 | Notification permission prompt appears | Prompt shown |
 | 2 | A notification is actually **delivered and visible** | Banner appears while the app is open |
 | 3 | Accelerometer readings update | Values change |
@@ -216,7 +216,7 @@ xcodebuild build -project .goleo/ios/GoleoApp.xcodeproj -scheme App \
 
 The edit is discarded by your next `goleo build ios`.
 
-Two related notes. The deployment target is **15.4** as of 0.10.14 (raised from 15.0, and
+Two related notes. The deployment target is **15.4** as of 0.11.0 (raised from 15.0, and
 anything lower is refused — see MIGRATING), which is above everything the shell needs, so a
 version-availability error here means a *new* API crept in rather than a misconfiguration. And
 dialog calls block until answered, so a dialog that never appears hangs that call rather than
@@ -233,7 +233,7 @@ timing out.
   reading it:
   - The sandbox-extension line and the WebKit/CoreMedia noise are known-benign; the
     2026-08-11 run catalogued them in SPIKES.md so nobody re-investigates.
-  - `UIScene lifecycle will soon be required` should now be **absent** — 0.10.14 adopts it.
+  - `UIScene lifecycle will soon be required` should now be **absent** — 0.11.0 adopts it.
     If that line is still there, adoption did not take effect and the plist or the delegate
     class did not resolve, which is worth reporting even if the app drew correctly.
 - The checklist with results, and for anything that failed, what you saw rather than what

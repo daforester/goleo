@@ -748,7 +748,7 @@ The 0.10.7 notes above still apply: they describe changes that are also in 0.10.
 
 ---
 
-## 0.10.14 — `RegisterMicrophone` finally reaches the Android manifest
+## 0.11.0 — `RegisterMicrophone` finally reaches the Android manifest
 
 **Affects:** every artifact `goleo build android` produces — the debug `.apk`, the
 `--release` `.apk` and the `.aab` — for any app that calls `runtime.RegisterMicrophone`,
@@ -786,7 +786,7 @@ If you worked around this by listing the permissions in
 
 ---
 
-## 0.10.14 — the iOS floor is now 15.4, and the default moves 15.0 → 15.4
+## 0.11.0 — the iOS floor is now 15.4, and the default moves 15.0 → 15.4
 
 **Affects:** every project that builds for iOS. The **default changes**, so a project that
 never set `mobile.ios.deployment_target` is affected too: its minimum iOS version moves from
@@ -838,7 +838,7 @@ lowering the constant alone will not make the callbacks fire.
 
 ---
 
-## 0.10.14 — geolocation is now a pure web feature (no Go implementation)
+## 0.11.0 — geolocation is now a pure web feature (no Go implementation)
 
 **Affects:** every app that calls `runtime.RegisterGeolocation`. **You must keep calling it**
 — see below, this is the part that bites. Also breaking for anyone who called
