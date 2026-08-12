@@ -1,11 +1,29 @@
 # iOS device verification — run sheet
 
-For whoever has the Mac and the iPhone. None of this has been tested on hardware yet, so
-treat every step as "please confirm". The sheet is self-contained — you do not need a goleo
-checkout.
+For whoever has the Mac and the iPhone. The sheet is self-contained — you do not need a
+goleo checkout.
+
+**Two hardware runs have happened** (2026-08-09 and 2026-08-11); the second reached
+`** BUILD SUCCEEDED **` for both the device and Simulator builds and passed the checklist
+below. So this is a regression sheet, not a first contact — but see the box, because the
+0.10.14 build changes the **app launch path itself**, which no earlier run exercised.
+
+> ### Priority for this run: the app has to launch at all
+>
+> 0.10.14 adopts the **UIScene lifecycle** — `Info.plist` declares a
+> `UIApplicationSceneManifest` and a new `SceneDelegate` creates the window, where
+> `AppDelegate` used to. **Nothing on a non-Mac host can run a launch path**, so this
+> shipped verified only by build and by tests that read the generated files.
+>
+> Its failure mode is a **black screen with no build error** — the app builds, signs,
+> installs and launches to nothing, because iOS could not resolve the scene delegate class
+> named as a string in the plist. If that happens: **it is not a device problem, stop and
+> send the Xcode console**, which names the class it could not resolve. That single line is
+> the whole diagnosis. Item 0 below is this check.
 
 Reference environment (what the last run used): iPhone 17 Pro Max on iOS 26.6, Xcode 26.6,
-macOS 26.5.2, Go 1.26.5 darwin/arm64, XcodeGen 2.46.0.
+macOS 26.5.2, Go 1.26.5 darwin/arm64, XcodeGen 2.46.0. The 2026-08-11 run built against
+Xcode 17F113 / iPhoneOS 26.5 SDK.
 
 ---
 
@@ -14,11 +32,11 @@ macOS 26.5.2, Go 1.26.5 darwin/arm64, XcodeGen 2.46.0.
 Upgrade the CLI:
 
 ```bash
-npm install -g @goleo/cli@0.10.13
+npm install -g @goleo/cli@0.10.14
 # or, if you installed with Go:
-#   go install github.com/daforester/goleo/cli/goleo@v0.10.13
+#   go install github.com/daforester/goleo/cli/goleo@v0.10.14
 
-goleo version      # must print 0.10.13
+goleo version      # must print 0.10.14
 ```
 
 If the CLI reports a *version mismatch* between `@goleo/cli` and its native binary package,
@@ -59,7 +77,8 @@ a personal team that can install on your own device, with the profile expiring a
 
 > If you *also* want to exercise the upgrade path real users take, run your existing app
 > through `goleo build ios` afterwards as a second pass — it should still build and pass
-> items 1–12 and 14–19. That is a bonus, not the main run.
+> items 0–12 and 14–19. That is a bonus, not the main run, and item 0 matters most there:
+> an upgraded project gets the regenerated shell, so it takes the scene change too.
 
 ---
 
@@ -75,10 +94,10 @@ goleo build ios            2>&1 | tee build-device.log
 Then confirm the CLI and the Go runtime agree:
 
 ```bash
-grep goleo go.mod          # must show github.com/daforester/goleo v0.10.13
+grep goleo go.mod          # must show github.com/daforester/goleo v0.10.14
 ```
 
-**If it does not say `0.10.13`, stop and re-run the build.** The Go module tag can lag a
+**If it does not say `0.10.14`, stop and re-run the build.** The Go module tag can lag a
 few minutes behind the npm release; goleo says so when it happens (`not tagged as a Go
 module yet — using @latest`). A mismatch here shows up as `undefined:
 runtime.FileDialogOptions` and means you are testing new code against an old runtime.
@@ -98,8 +117,14 @@ Install `GoleoApp.app` on the phone and launch it.
 
 ## 3. Checklist
 
+**Item 0 first — it gates every other item.** If the app does not draw, nothing below can be
+tested, and the cause is the scene-lifecycle change rather than the feature you were aiming at.
+
 | # | Check | Expected |
 |---|---|---|
+| 0 | **The app launches and draws the demo UI** | The UI appears. A **black screen / blank window** is the scene-lifecycle failure — send the Xcode console, which names the delegate class it could not resolve, and stop |
+| 0a | Rotate the phone | UI reflows; still drawn after rotation |
+| 0b | **iPad only, if you have one** — open the app in Split View and rotate through all four orientations | Draws in every orientation. 0.10.14 declares all four for iPad because XcodeGen makes every generated project iPad-capable whether asked or not |
 | 1 | Notification permission prompt appears | Prompt shown |
 | 2 | A notification is actually **delivered and visible** | Banner appears while the app is open |
 | 3 | Accelerometer readings update | Values change |
@@ -115,8 +140,8 @@ Install `GoleoApp.app` on the phone and launch it.
 | 13 | Microphone permission prompt appears | Prompt shown — use the **Microphone** demo's "Request permission" |
 | 14 | Location permission prompt appears | Prompt shown |
 
-Microphone page (new — nothing in the demo could reach the mic before, which is why this
-item had no result last time):
+Microphone page (**passed on the 2026-08-11 run** — re-check it, because the Android half of
+this feature was broken the whole time and iOS is where it was verified working):
 
 | # | Check | Expected |
 |---|---|---|
@@ -202,8 +227,13 @@ than timing out.
 - `goleo version` and the `grep goleo go.mod` line — half the fix lives in each, so a
   failure report is ambiguous without both
 - `build-sim.log` and `build-device.log`
-- The Xcode console output from the app run (the `UIScene lifecycle` and sandbox lines are
-  known-benign; no need to filter them out)
+- The Xcode console output from the app run. Send it **whole** — do not filter. Two notes on
+  reading it:
+  - The sandbox-extension line and the WebKit/CoreMedia noise are known-benign; the
+    2026-08-11 run catalogued them in SPIKES.md so nobody re-investigates.
+  - `UIScene lifecycle will soon be required` should now be **absent** — 0.10.14 adopts it.
+    If that line is still there, adoption did not take effect and the plist or the delegate
+    class did not resolve, which is worth reporting even if the app drew correctly.
 - The checklist with results, and for anything that failed, what you saw rather than what
   you expected
 - The `Gomobile.objc.h` dialogs section if section 4 applied

@@ -19,7 +19,7 @@ trust the number in this file.** Written 2026-08-05 against goleo 0.10.3.
 | **Android APK** (debug, sideload) | ✅ | ✅ emulator API 36 — installed, launched, providers round-tripped | n/a |
 | **Android AAB** (signed release) | ✅ | ✅ signed APK on emulator: `apkSigningVersion=2`, derived permissions, camera grant→preview | ✅ **accepted — internal track, 2026-08-05** (see below) |
 | **iOS Simulator** (`--simulator`) | ✅ | ✅ `macos-14` CI — installed, launched, full bridge working | n/a |
-| **iOS device app** (signed, sideload) | ✅ since 2026-08-10 — needs `mobile.ios.development_team` | ⚠️ ran on an iPhone 17 Pro Max via **Xcode**, not via the CLI; the CLI device path is unverified | n/a |
+| **iOS device app** (signed, sideload) | ✅ since 2026-08-10 — needs `mobile.ios.development_team` | ✅ **2026-08-11: built by the CLI.** `goleo build ios` (device, signed) and `--simulator` both reached `BUILD SUCCEEDED`, and the signed app ran on an iPhone 17 Pro Max. Supersedes the earlier run, which was driven through Xcode by hand | n/a |
 | **iOS `.ipa`** (TestFlight / App Store) | ❌ not implemented | — | ❌ needs a paid Apple account |
 | **Windows MSIX** | ✅ | ✅ real `makeappx`, manifest parses, full-trust declared | ❌ **never submitted** |
 | **Mac App Store** | ❌ deliberately not built | — | ❌ gated behind an acceptance spike (see below) |
