@@ -216,9 +216,11 @@ xcodebuild build -project .goleo/ios/GoleoApp.xcodeproj -scheme App \
 
 The edit is discarded by your next `goleo build ios`.
 
-Two related notes: `UTType` needs a deployment target of iOS 14 or newer (default is 15.0),
-and dialog calls block until answered, so a dialog that never appears hangs that call rather
-than timing out.
+Two related notes. The deployment target is **15.4** as of 0.10.14 (raised from 15.0, and
+anything lower is refused — see MIGRATING), which is above everything the shell needs, so a
+version-availability error here means a *new* API crept in rather than a misconfiguration. And
+dialog calls block until answered, so a dialog that never appears hangs that call rather than
+timing out.
 
 ---
 

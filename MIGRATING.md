@@ -786,23 +786,52 @@ If you worked around this by listing the permissions in
 
 ---
 
-## 0.10.14 — iOS deployment targets below 13.0 are refused
+## 0.10.14 — the iOS floor is now 15.4, and the default moves 15.0 → 15.4
 
-**Affects:** projects that set `mobile.ios.deployment_target` (or pass `--ios-target`) below
-`13.0`. The default is `15.0`, so most projects are unaffected.
+**Affects:** every project that builds for iOS. The **default changes**, so a project that
+never set `mobile.ios.deployment_target` is affected too: its minimum iOS version moves from
+`15.0` to `15.4`. Anything below `15.4` — set in `goleo.json` or passed as `--ios-target` — is
+now refused.
 
 ### What changed
 
-The generated Xcode project adopts the **UIScene lifecycle**: `Info.plist` declares a
-`UIApplicationSceneManifest` and a `SceneDelegate` creates the window. This is ahead of
-Apple's own deprecation — the device log warns "`UIScene` lifecycle will soon be required.
-Failure to adopt will result in an assert in the future."
+The floor is now the lowest iOS version the generated shell **works** on, rather than the
+lowest it builds on. Those are different numbers, and every version in between produced an app
+that compiled, signed, installed, launched and drew — while silently missing features it
+advertises, with nothing in the build output to say so.
 
-A system older than iOS 13 ignores the scene manifest, so nothing would create a window: the
-app would build, sign, install and launch to a black screen with no build-time signal.
-`goleo build ios` now refuses the version instead, naming the reason.
+iOS registers nine providers, and **camera and geolocation are not among them**. On iOS those
+two features reach the hardware only through the WebView's web APIs, and WebKit denies both
+unless the app answers the matching `WKUIDelegate` callback:
+
+| Callback | Available | Feature it gates |
+|---|---|---|
+| `requestMediaCapturePermissionFor` | iOS 15.0 | camera + microphone via `getUserMedia` |
+| `requestGeolocationPermissionFor` | iOS 15.4 | `navigator.geolocation` |
+
+Both are `@available`-annotated in `AppDelegate.swift`, so a lower deployment target compiles
+cleanly and iOS simply never calls the method. The demo's own capability registry claims
+`ios: 'yes'` for camera and geolocation, and below 15.4 that claim was false.
+
+The old 13.0 floor came from the UIScene lifecycle, which is still a real cliff — below 13.0
+nothing creates a window and the app launches to a black screen — but it was never the binding
+constraint. 13.0 through 15.3 built, signed and launched with the camera and location pages
+broken.
+
+`TestNoShellDelegateNeedsMoreThanTheIOSFloor` now fails if any `@available` declaration in the
+shell outruns the floor, so this cannot drift apart again: adding an iOS-N-only delegate forces
+a choice between raising the floor and writing an `if #available` fallback.
 
 ### Do I need to change anything?
 
-Only if you set a target below 13.0. Raise it to `13.0` or higher — `15.0` is the default and
-is what the shell is tested against.
+If you set the key explicitly to anything below `15.4`, raise it — `15.4` is the default. If
+you never set it, nothing to do; you get 15.4 automatically on the next build.
+
+**What it costs:** iOS 15.0–15.3 devices are no longer supported targets. That window is
+narrow (15.4 shipped March 2022, and 15.x devices that still receive updates are on 15.8), and
+the alternative was shipping an app whose camera and location features fail with no diagnosis.
+
+If you genuinely need to target below 15.4 and can accept losing camera and geolocation, there
+is no flag for it — the refusal is deliberate. Open an issue describing the case rather than
+patching the check, because the shell's `@available` annotations are what actually decide, and
+lowering the constant alone will not make the callbacks fire.

@@ -2156,3 +2156,82 @@ as the set of files it compiled.** Build tags make that set a variable, and neit
 which GOOS it assumed. Any "X is unused" result on this repo is incomplete until it names the
 platform it holds for — and a `deadcode`/U1000 finding on a helper next to a `_windows.go` or
 `_linux.go` sibling should be assumed a false positive until checked on that platform.
+
+## iOS — the floor was the version that BUILDS, not the version that works (2026-08-12)
+
+`validIOSVersion` was given a floor of 13.0 the day before, because below 13 the
+`UIApplicationSceneManifest` is ignored, no window is created, and the app launches to a black
+screen. That reasoning was right and the number was wrong: **13.0 is where UIScene starts
+working, which says nothing about whether the rest of the shell does.**
+
+Prompted by a one-line instruction — target versions the app fully works on rather than ones
+it merely builds on — which turns out to be a different question with a different answer.
+
+### What actually binds the floor
+
+`AppDelegate.swift` registers **nine** providers. Camera and geolocation are **not** among
+them. So on iOS those two features reach the hardware only through the WebView's web APIs, and
+WebKit denies both unless the app answers the matching `WKUIDelegate` callback:
+
+| Callback | `@available` | Feature it gates |
+|---|---|---|
+| `requestMediaCapturePermissionFor` | **iOS 15.0** | camera + microphone via `getUserMedia` |
+| `requestGeolocationPermissionFor` | **iOS 15.4** | `navigator.geolocation` |
+
+Both are annotations on **declarations**, not `if #available` branches — so a lower deployment
+target compiles cleanly, signs, installs, launches, draws, and iOS simply never calls the
+method. There is no error at any stage.
+
+The demo's own `registry.ts` claims `ios: 'yes'` for camera and geolocation. Below 15.4 that
+claim was false, which makes this the **fourth** instance of this repo's recurring shape: a
+declaration whose consumer does not exist. `featureRegistry` had Microphone with no scanner
+pattern; `IOSUsageDescs` had strings with no reader; `registry.ts` said `ios:'no'` for NFC/BLE
+while the scaffold said otherwise; and now `registry.ts` said `ios:'yes'` for two features the
+deployment target could silently disable.
+
+### The floor and the default both moved
+
+Floor **13.0 → 15.4**, and the default **15.0 → 15.4**. The default mattering is the part worth
+noting: it was 15.0, so *a project that configured nothing at all* had non-working geolocation
+on 15.0–15.3. The refusal alone would not have caught that, because nothing was being refused —
+the default was the broken value.
+
+`14.0` also appears in the shell (`UNNotificationPresentationOptions.banner`) but does **not**
+constrain the floor: it is an `if #available` with a real `.alert` fallback. That is the
+distinction the check has to encode — a runtime branch degrades, an annotated declaration
+disappears.
+
+### The guard, because two lists edited independently always drift
+
+`TestNoShellDelegateNeedsMoreThanTheIOSFloor` parses every `@available(iOS X.Y, *)` in
+`AppDelegate.swift` and fails if any exceeds `iosFloorMajor.iosFloorMinor`. Deliberately
+matches `@available` only, never `#available`. Mutation-checked: with the floor set back to
+15.0 it fails and names the offender —
+
+```
+AppDelegate.swift declares @available(iOS 15.4, *), above goleo's floor of 15.0.
+```
+
+It also asserts `validIOSVersion(defaultIOSDeployTarget)` passes, so the default can never be a
+value the validator refuses — which would make `goleo build ios` refuse every project that did
+not override it.
+
+Adding an iOS-17-only delegate is now a deliberate fork: raise the floor, or write a fallback.
+Neither happens by accident.
+
+### Cost, stated rather than hidden
+
+15.0–15.3 are no longer supported targets. That window is genuinely narrow — 15.4 shipped March
+2022 and 15.x devices still receiving updates sit on 15.8 — and the alternative was shipping an
+app whose camera and location pages fail with no diagnosis on a target we advertised as
+supported. There is deliberately **no override flag**: lowering the constant would not make the
+callbacks fire, so a flag would only move the silent breakage somewhere less visible.
+
+### The transferable point
+
+"Refuse what does not build" is the easy half and the toolchain mostly does it for you. **The
+floor worth enforcing is the one below which something is missing rather than broken** —
+`@available` on a delegate is the canonical shape, because the compiler is *satisfied* and the
+platform just never calls you. When a minimum version is chosen, the question is not "does it
+compile" but "which of the features we advertise stop existing", and the answer is in the
+availability annotations, not in the build log.

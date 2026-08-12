@@ -43,21 +43,40 @@ func TestIOSMinVersionPrefersTheFlagThenConfig(t *testing.T) {
 	// Note "34" is NOT here. It looks like an Android API level pasted into an iOS field,
 	// but since Apple renumbered to iOS 26 a major in the thirties is plausible, so the
 	// range cannot catch that mistake without rejecting a legitimate future version.
-	// "9.0" and "12" used to be accepted. The shell's Info.plist now declares a
-	// UIApplicationSceneManifest and SceneDelegate builds the window, so anything below
-	// iOS 13 builds and signs cleanly and then launches to a black screen — refusing it
-	// here is the only place that can say so.
-	for _, bad := range []string{"0", "1.2.3.4", "15.x", "-1", "8", "9.0", "12", "100"} {
+	//
+	// The floor is the lowest version the shell WORKS on, not the lowest that builds.
+	// "13.0" and "15.0" used to be accepted and are now refused: both build, sign and
+	// launch, and both ship features the demo advertises as silently broken. 13.0-14.x
+	// cannot be granted WebView camera/microphone (requestMediaCapturePermissionFor is
+	// iOS 15.0) and 15.0-15.3 cannot be granted geolocation
+	// (requestGeolocationPermissionFor is iOS 15.4) — and iOS registers no native provider
+	// for either feature, so the WebView is the only path.
+	for _, bad := range []string{
+		"0", "1.2.3.4", "15.x", "-1", "8", "9.0", "12", "100",
+		"13.0", "14.0", "14.5", // build fine; no WebView camera or mic
+		"15", "15.0", "15.3", "15.3.1", // build fine; no WebView geolocation
+	} {
 		if _, err := resolveIOSMinVersion(bad, ""); err == nil {
 			t.Errorf("--ios-target %q should be refused", bad)
 		}
 	}
-	if _, err := resolveIOSMinVersion("12.0", ""); err == nil {
-		t.Error("iOS 12 should be refused")
-	} else if !strings.Contains(err.Error(), "UIScene") {
-		t.Errorf("the error should say why 13 is the floor, not just that 12 is invalid:\n%v", err)
+	// A bare major means .0, so "15" is below 15.4 and must be refused for the same reason
+	// as "15.0" — this is the case a minor-blind comparison would let through.
+	if _, err := resolveIOSMinVersion("15", ""); err == nil {
+		t.Error(`"15" means 15.0, which is below the 15.4 floor`)
 	}
-	for _, ok := range []string{"15", "15.0", "15.4.1", "13.0", "26"} {
+	// The error has to say what breaks, not just that the number is too low. Someone who
+	// lowered the target did it deliberately and needs to know the cost.
+	for _, want := range []string{"UIScene", "geolocation", "camera"} {
+		_, err := resolveIOSMinVersion("12.0", "")
+		if err == nil {
+			t.Fatal("iOS 12 should be refused")
+		}
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal should mention %q so the reason is actionable:\n%v", want, err)
+		}
+	}
+	for _, ok := range []string{"15.4", "15.4.1", "15.5", "16", "16.2", "26"} {
 		if _, err := resolveIOSMinVersion(ok, ""); err != nil {
 			t.Errorf("--ios-target %q should be accepted: %v", ok, err)
 		}
@@ -103,7 +122,9 @@ func TestAndroidMinAPIPrefersTheFlagThenConfig(t *testing.T) {
 // With the defaults as they shipped: --ios-target 14.0 vs deployment_target 15.0 for a
 // project with no iOS config at all, and 14.0 vs 13.0 for one that lowers it.
 func TestGomobileMinimumNeverExceedsTheProjectDeploymentTarget(t *testing.T) {
-	for _, configured := range []string{"", "13.0", "15.0", "16.4", "18.0"} {
+	// All at or above the 15.4 floor — a value below it is refused outright now, which
+	// TestIOSMinVersionPrefersTheFlagThenConfig covers.
+	for _, configured := range []string{"", "15.4", "16.4", "18.0"} {
 		cfg := defaultMobileConfig()
 		if configured != "" {
 			cfg.IOSDeploymentTarget = configured

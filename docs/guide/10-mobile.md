@@ -154,7 +154,7 @@ Set the package name / bundle id and launcher icon per
     // cannot see — a capability used only through a frontend browser API — goes here.
     "extra_permissions": ["RECORD_AUDIO"]
   },
-  "ios": { "deployment_target": "15.0", "bundle_identifier": "com.example.myapp" }
+  "ios": { "deployment_target": "15.4", "bundle_identifier": "com.example.myapp" }
 }
 ```
 

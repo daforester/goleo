@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"text/template"
@@ -514,4 +515,63 @@ func firstMatchingLine(s, needle string) string {
 		}
 	}
 	return "(not found)"
+}
+
+// availableDeclRe matches an @available annotation on a DECLARATION — a delegate method
+// that iOS simply never calls on an older system. It deliberately does NOT match
+// `if #available(iOS X, *)`, which is a runtime branch with an else clause and therefore
+// degrades gracefully instead of going missing.
+var availableDeclRe = regexp.MustCompile(`@available\(iOS (\d+)(?:\.(\d+))?, \*\)`)
+
+// The iOS floor must be the version the shell WORKS on, not the version it builds on. Those
+// diverged silently: the floor was 13.0 (UIScene, whose absence is at least a visible black
+// screen) while AppDelegate.swift carried @available(iOS 15.0) on the WebView's
+// camera/microphone permission callback and @available(iOS 15.4) on its geolocation one. iOS
+// registers NO native provider for camera or geolocation — nine providers, neither among
+// them — so those callbacks are the only path to either feature. A target of 13.0 built,
+// signed, launched and drew, and its camera and location pages failed with nothing in the
+// build output saying why.
+//
+// So: no @available on a declaration may require more than goleo's floor. Adding an
+// iOS-17-only delegate method is then a deliberate choice between raising the floor and
+// writing a fallback, rather than something that quietly excludes older devices.
+func TestNoShellDelegateNeedsMoreThanTheIOSFloor(t *testing.T) {
+	raw, err := mobileTemplates.ReadFile("templates/ios/App/AppDelegate.swift")
+	if err != nil {
+		t.Fatal(err)
+	}
+	matches := availableDeclRe.FindAllStringSubmatch(string(raw), -1)
+	if len(matches) == 0 {
+		t.Fatal("no @available declarations found — the regex has drifted from the template, " +
+			"so this test would pass no matter what the shell requires")
+	}
+	for _, m := range matches {
+		major := atoiOrFail(t, m[1])
+		minor := 0
+		if m[2] != "" {
+			minor = atoiOrFail(t, m[2])
+		}
+		if major > iosFloorMajor || (major == iosFloorMajor && minor > iosFloorMinor) {
+			t.Errorf("AppDelegate.swift declares %s, above goleo's floor of %d.%d. On a device "+
+				"below that version iOS never calls this method and the feature is silently "+
+				"absent — raise the floor in mobile_minversion.go, or give it an "+
+				"`if #available` fallback", m[0], iosFloorMajor, iosFloorMinor)
+		}
+	}
+
+	// And the floor has to be reachable: the default must satisfy its own validator, or
+	// `goleo build ios` refuses every project that does not override it.
+	if err := validIOSVersion(defaultIOSDeployTarget); err != nil {
+		t.Errorf("the default deployment target %q is refused by validIOSVersion: %v",
+			defaultIOSDeployTarget, err)
+	}
+}
+
+func atoiOrFail(t *testing.T, s string) int {
+	t.Helper()
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		t.Fatalf("unparseable version component %q: %v", s, err)
+	}
+	return n
 }

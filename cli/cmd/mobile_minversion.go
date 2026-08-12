@@ -42,41 +42,80 @@ func resolveIOSMinVersion(flagValue, configValue string) (string, error) {
 	return defaultIOSDeployTarget, nil
 }
 
-// validIOSVersion accepts "15" / "15.0" / "15.4.1" and nothing else. gomobile passes the
-// value straight to clang's -miphoneos-version-min, where a malformed value produces an
-// error from deep inside the toolchain that does not mention goleo.json.
+// goleo's iOS floor is the lowest version on which the generated shell actually WORKS,
+// not the lowest one that builds. Those are different numbers, and every version between
+// them produces an app that compiles, signs, installs, launches — and is missing features
+// it advertises, with nothing in the build output saying so.
+//
+// The binding constraint is WKWebView permission delegation. iOS registers nine providers
+// and camera and geolocation are not among them, so on iOS those two features reach the
+// hardware ONLY through the WebView's web APIs, which WebKit denies unless the app answers
+// the matching WKUIDelegate callback:
+//
+//	requestMediaCapturePermissionFor   iOS 15.0    camera + microphone via getUserMedia
+//	requestGeolocationPermissionFor    iOS 15.4    navigator.geolocation
+//
+// Both are marked @available in AppDelegate.swift, so a lower deployment target compiles
+// cleanly and the method is simply never called. The demo's own registry.ts claims
+// ios:'yes' for camera and geolocation, and below 15.4 that claim is false.
+//
+// Earlier floors, kept here because each is a real cliff and the reason is not guessable
+// from the source:
+//
+//	13.0   UIApplicationSceneManifest + SceneDelegate. Below it the scene manifest is
+//	       ignored, nothing creates a window, and the app launches to a BLACK SCREEN.
+//	14.0   UNNotificationPresentationOptions.banner — this one has a real fallback
+//	       (.alert), so it does not constrain the floor.
+//
+// So 15.4 it is: the first version where nothing silently missing. Raising this floor is a
+// deliberate trade — it excludes iOS 15.0–15.3 — and it is the right one, because the
+// alternative is shipping an app whose camera and location pages fail with no diagnosis.
+const (
+	iosFloorMajor = 15
+	iosFloorMinor = 4
+)
+
+// validIOSVersion accepts "15.4" / "15.4.1" / "16" and nothing below the floor above.
+// gomobile passes the value straight to clang's -miphoneos-version-min, where a malformed
+// value produces an error from deep inside the toolchain that does not mention goleo.json.
 func validIOSVersion(v string) error {
 	parts := strings.Split(v, ".")
 	if len(parts) > 3 {
 		return fmt.Errorf("not an iOS version (want MAJOR[.MINOR[.PATCH]])")
 	}
-	for i, p := range parts {
+	nums := make([]int, 0, 3)
+	for _, p := range parts {
 		n, err := strconv.Atoi(p)
-		if err != nil {
+		if err != nil || n < 0 {
 			return fmt.Errorf("not an iOS version (want MAJOR[.MINOR[.PATCH]])")
 		}
-		if n < 0 {
-			return fmt.Errorf("not an iOS version (want MAJOR[.MINOR[.PATCH]])")
-		}
-		// iOS 13 is the SHELL's floor, not gomobile's: templates/ios/App/Info.plist
-		// declares a UIApplicationSceneManifest and the window is built by SceneDelegate,
-		// both of which are iOS 13+. A lower target still compiles and still signs — the
-		// scene manifest is simply ignored by an older system, no window is ever created,
-		// and the app launches to a BLACK SCREEN with nothing in the build output. Refuse
-		// it here instead, where the message can say why.
-		//
-		// 99 is beyond anything real. The range deliberately stops there: a major in the
-		// thirties reads like an Android API level, but Apple's renumbering to iOS 26 makes
-		// it a plausible version too, so narrowing further would reject a legitimate target
-		// to catch a typo.
-		if i == 0 && n < 13 {
-			return fmt.Errorf("iOS %d is below goleo's floor of 13 — the generated shell "+
-				"uses the UIScene lifecycle, which an older system ignores, leaving the "+
-				"app with no window at all", n)
-		}
-		if i == 0 && n > 99 {
-			return fmt.Errorf("iOS %d is not a plausible deployment target", n)
-		}
+		nums = append(nums, n)
+	}
+	if len(nums) == 0 {
+		return fmt.Errorf("not an iOS version (want MAJOR[.MINOR[.PATCH]])")
+	}
+
+	// 99 is beyond anything real. The range deliberately stops there: a major in the
+	// thirties reads like an Android API level, but Apple's renumbering to iOS 26 makes it
+	// a plausible version too, so narrowing further would reject a legitimate target to
+	// catch a typo.
+	if nums[0] > 99 {
+		return fmt.Errorf("iOS %d is not a plausible deployment target", nums[0])
+	}
+
+	// An omitted minor is 0 — "15" means 15.0, which is below 15.4.
+	minor := 0
+	if len(nums) > 1 {
+		minor = nums[1]
+	}
+	if nums[0] < iosFloorMajor || (nums[0] == iosFloorMajor && minor < iosFloorMinor) {
+		return fmt.Errorf("iOS %s is below goleo's floor of %d.%d. The generated shell needs "+
+			"iOS 13 for the UIScene lifecycle (below it nothing creates a window and the app "+
+			"launches to a black screen), 15.0 to grant the WebView camera and microphone "+
+			"access, and 15.4 to grant it geolocation — iOS registers no native provider for "+
+			"camera or geolocation, so the WebView is the only path to either. A lower target "+
+			"builds and signs cleanly and then ships those features silently broken",
+			v, iosFloorMajor, iosFloorMinor)
 	}
 	return nil
 }

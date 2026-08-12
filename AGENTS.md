@@ -175,7 +175,16 @@ Minimum OS versions have **one** source each (`cli/cmd/mobile_minversion.go`):
 (`-androidapi`/`-iosversion`) and the native project (`minSdk`/`deploymentTarget`), with
 `--android-api` / `--ios-target` as explicit per-build overrides. They must agree: a Go
 library whose minimum exceeds the app's fails to link. The dev and release Android templates
-are asserted to declare the same levels. **iOS will not go below 13.0** — the generated shell
+are asserted to declare the same levels. **iOS will not go below 15.4, and the floor is the
+lowest version the shell WORKS on rather than the lowest that builds** — the two diverge, and
+every version between them yields an app that compiles, signs, launches and is missing
+advertised features with nothing in the build output. iOS registers no native provider for
+camera or geolocation, so both reach the hardware only through the WebView, whose permission
+callbacks are `@available` at 15.0 (camera/mic) and 15.4 (geolocation);
+`TestNoShellDelegateNeedsMoreThanTheIOSFloor` fails if any `@available` declaration in
+`AppDelegate.swift` outruns the floor, so a new iOS-N-only delegate forces a deliberate choice
+between raising the floor and writing an `if #available` fallback. Below 13.0 the older
+failure still applies — the generated shell
 adopts the UIScene lifecycle (`UIApplicationSceneManifest` + `SceneDelegate`), which an older
 system ignores, so the app would build, sign and launch to a black screen; the version is
 refused instead.

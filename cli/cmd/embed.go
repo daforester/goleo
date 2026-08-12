@@ -51,7 +51,9 @@ type mobileConfig struct {
 const (
 	defaultAndroidMinSDK    = 24
 	defaultAndroidTargetSDK = 36
-	defaultIOSDeployTarget  = "15.0"
+	// 15.4, not 15.0: below it the WebView cannot be granted geolocation, and iOS has no
+	// native geolocation provider. See the floor comment in mobile_minversion.go.
+	defaultIOSDeployTarget = "15.4"
 )
 
 // defaultMobileConfig is the config a project with no mobile settings gets. Extracted from

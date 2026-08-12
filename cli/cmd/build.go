@@ -68,7 +68,7 @@ func init() {
 	// mobile.android.min_sdk / mobile.ios.deployment_target, and a flag default would
 	// compete with the config instead of deferring to it. See mobile_minversion.go.
 	buildCmd.Flags().IntVarP(&androidAPI, "android-api", "", 0, "Android API level the Go library targets (default: mobile.android.min_sdk, else 24)")
-	buildCmd.Flags().StringVarP(&iosDeployTarget, "ios-target", "", "", "iOS version the Go framework targets (default: mobile.ios.deployment_target, else 15.0)")
+	buildCmd.Flags().StringVarP(&iosDeployTarget, "ios-target", "", "", "iOS version the Go framework targets (default: mobile.ios.deployment_target, else 15.4; below 15.4 is refused)")
 	buildCmd.Flags().BoolVar(&buildBundle, "bundle", false, "Package the built desktop app into a native installer (dist/bundle/)")
 	buildCmd.Flags().BoolVar(&buildPublish, "publish", false, "Write an ed25519-signed update manifest for the built binary (needs GOLEO_UPDATE_PRIVKEY)")
 	buildCmd.Flags().StringVar(&buildArch, "arch", "", "Target architecture for desktop targets, e.g. amd64 or arm64 (default: the target's own, or the host's for 'current')")
