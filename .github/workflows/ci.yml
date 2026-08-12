@@ -115,12 +115,47 @@ jobs:
       # deadcode exits 0 whether or not it finds anything, so the output is the signal —
       # same shape as the gofmt step above. Pinned rather than @latest: a new release
       # changing what it reports should be a deliberate bump, not a red build one morning.
-      - name: Dead code (CLI, rooted at the goleo binary)
+      #
+      # BOTH tools analyse ONE GOOS at a time — the blind spot that matters here, because
+      # this is a cross-platform CLI and a helper is routinely defined untagged and called
+      # only from a _windows.go / _linux.go file. Run on the runner's native linux alone,
+      # deadcode reports windowsSdkToolCmdLine and winQuote as unreachable; they are live
+      # code that sdkmanager_windows.go calls, kept untagged on purpose so they stay
+      # unit-testable everywhere. A gate demanding the deletion of working Windows code is
+      # worse than no gate. The inverse already bit us for real: deeplink's slug() was
+      # deleted as "unused" from a Windows host, where the linux-only file that calls it is
+      # excluded, and the Linux build broke.
+      #
+      # So: run each tool once per desktop GOOS and report a finding only when it appears
+      # in EVERY run — i.e. no platform we ship can reach it. buildAndroidDev and
+      # featureForTag, the finds that motivated this gate, were untagged and dead
+      # everywhere, so they are still caught.
+      #
+      # Known gap, accepted deliberately: something defined inside ONE platform's build
+      # tags and dead there is absent from the other runs, so the intersection misses it.
+      # The alternative is the false positive above, and a red build that pressures the
+      # next person to delete live code is the more expensive failure.
+      #
+      # `go install` first, then set GOOS per invocation. `go run tool@ver` with GOOS set
+      # cross-builds the TOOL and then cannot execute it on the runner.
+      - name: Install analysis tools
         run: |
-          dead=$(go run golang.org/x/tools/cmd/deadcode@v0.48.0 \
-            -filter 'github.com/daforester/goleo/cli' ./cli/goleo)
+          go install golang.org/x/tools/cmd/deadcode@v0.48.0
+          go install honnef.co/go/tools/cmd/staticcheck@2025.1.1
+
+      - name: Dead code (CLI, rooted at the goleo binary, all desktop GOOS)
+        run: |
+          for os in linux darwin windows; do
+            GOOS=$os "$(go env GOPATH)/bin/deadcode" \
+              -filter 'github.com/daforester/goleo/cli' ./cli/goleo \
+              | sort -u > "dead-$os.txt"
+            echo "  $os: $(wc -l < "dead-$os.txt") unreachable"
+          done
+          # Present in all three -> unreachable on every platform we ship.
+          dead=$(comm -12 dead-linux.txt dead-darwin.txt | comm -12 - dead-windows.txt)
+          rm -f dead-linux.txt dead-darwin.txt dead-windows.txt
           if [ -n "$dead" ]; then
-            echo "::error::unreachable code in cli/ — delete it, or wire it up:"
+            echo "::error::unreachable code in cli/ on every desktop GOOS — delete it, or wire it up:"
             echo "$dead"
             exit 1
           fi
@@ -145,9 +180,26 @@ jobs:
       # would mean either 20 papercut edits or a wall of ignored noise; a check nobody reads
       # is a check nobody runs. Widen it deliberately, not by default.
       #
-      # Unlike deadcode, staticcheck exits non-zero on findings, so no output test is needed.
-      - name: Unused code (runtime + CLI, no entry point needed)
-        run: go run honnef.co/go/tools/cmd/staticcheck@2025.1.1 -checks 'U1000' ./runtime/... ./cli/...
+      # Per-GOOS with the same intersection rule as deadcode above, and for the same
+      # reason: U1000 run on linux alone reports every unexported helper whose only caller
+      # sits behind _windows.go / _darwin.go tags. This is the check that deleted slug().
+      #
+      # staticcheck exits non-zero on findings, so the exit code is suppressed and the
+      # OUTPUT is the signal — the intersection is what decides, not any single run.
+      - name: Unused code (runtime + CLI, all desktop GOOS)
+        run: |
+          for os in linux darwin windows; do
+            GOOS=$os "$(go env GOPATH)/bin/staticcheck" -checks 'U1000' \
+              ./runtime/... ./cli/... | sort -u > "unused-$os.txt" || true
+            echo "  $os: $(wc -l < "unused-$os.txt") unused"
+          done
+          unused=$(comm -12 unused-linux.txt unused-darwin.txt | comm -12 - unused-windows.txt)
+          rm -f unused-linux.txt unused-darwin.txt unused-windows.txt
+          if [ -n "$unused" ]; then
+            echo "::error::unexported identifiers unreferenced on every desktop GOOS:"
+            echo "$unused"
+            exit 1
+          fi
 
       - name: Unit tests
         run: go test ./...

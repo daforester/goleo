@@ -28,6 +28,33 @@ func SchemeURL(scheme string, args []string) string {
 	return ""
 }
 
+// slug lowercases s and collapses every run of non-alphanumerics into a single
+// hyphen, so an app name is safe in a filename.
+//
+// Its only caller is platformRegister in deeplink_linux.go, so on a non-Linux
+// host every single-GOOS analysis (staticcheck U1000, deadcode) sees it as
+// unreferenced — that is how it came to be deleted once, breaking the Linux
+// build. deeplink_test.go exercises it on every platform to keep that from
+// happening again; autostart's identical helper is protected the same way.
+func slug(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	var b strings.Builder
+	prevHyphen := false
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			prevHyphen = false
+		default:
+			if !prevHyphen && b.Len() > 0 {
+				b.WriteRune('-')
+				prevHyphen = true
+			}
+		}
+	}
+	return strings.Trim(b.String(), "-")
+}
+
 // desktopEntry is the Linux .desktop body that registers the scheme handler.
 func desktopEntry(scheme, appName, exePath string) string {
 	return "[Desktop Entry]\n" +
