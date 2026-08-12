@@ -39,8 +39,13 @@ async function locate() {
         >View on OpenStreetMap ↗</a>
       </div>
       <p class="muted" style="margin-top: 0.75rem">
-        On desktop Linux there is no portable OS location source, so the call
-        falls back to the webview's browser geolocation (which may be unavailable).
+        Geolocation is a pure web feature on every platform — this calls
+        <code>navigator.geolocation</code> in the webview, which reaches the same OS
+        location service the native APIs would. Your app still needs
+        <code>runtime.RegisterGeolocation</code> in Go: it registers no command, but it
+        is what declares the Android permission and the iOS usage description the
+        webview needs before it can be granted. Only works while the page is
+        foregrounded — background location is not available this way.
       </p>
     </div>
 

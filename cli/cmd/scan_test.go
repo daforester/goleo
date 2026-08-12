@@ -176,3 +176,77 @@ func New() {
 		t.Errorf("microphone hardware feature missing; resolved features = %v", p.Features)
 	}
 }
+
+// Geolocation is a PURE WEB feature — RegisterGeolocation installs no bridge command —
+// and that makes its Go-side call look deletable in a way no other feature's does.
+//
+// It is not. The call is the only thing the manifest scanner can see, and what it
+// declares is what makes the WEB path work: Android's WebView can only grant a
+// navigator.geolocation request if the app itself holds ACCESS_FINE_LOCATION, and
+// WKWebView needs NSLocationWhenInUseUsageDescription. So "this function has an empty
+// body, remove it" silently costs geolocation on both mobile platforms — with the demo
+// still claiming android:'yes' and ios:'yes', and nothing failing at build time.
+//
+// This is the fourth variant of the shape this repo keeps hitting (a declaration whose
+// consumer is not obvious), so it is asserted rather than left to the comment.
+func TestGeolocationStaysDetectableAsAPureWebFeature(t *testing.T) {
+	// 1. The scanner must still emit the tag from the Register* call.
+	dir := t.TempDir()
+	src := "package app\n\nfunc Register(a *runtime.App) {\n\truntime.RegisterGeolocation(a.Bridge())\n}\n"
+	if err := os.WriteFile(filepath.Join(dir, "app.go"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tags, err := detectFeatureUsage(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, tg := range tags {
+		if tg == "goleo_geolocation" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("RegisterGeolocation did not yield goleo_geolocation (got %v) — the Android "+
+			"location permission and the iOS usage description both hang off this detection, "+
+			"and the WebView cannot grant navigator.geolocation without them", tags)
+	}
+
+	// 2. The tag must still derive the permission the WebView needs.
+	perms := resolveAndroidPermissions([]string{"goleo_geolocation"}, nil)
+	if !slicesContains(perms.Permissions, "android.permission.ACCESS_FINE_LOCATION") {
+		t.Errorf("goleo_geolocation no longer declares ACCESS_FINE_LOCATION; the WebView's "+
+			"onGeolocationPermissionsShowPrompt can only grant if the app holds it. Got %v",
+			perms.Permissions)
+	}
+
+	// 3. And the iOS usage description, without which WKWebView denies the request.
+	for _, f := range featureRegistry {
+		if f.BuildTag != "goleo_geolocation" {
+			continue
+		}
+		if _, ok := f.IOSUsageDescs["NSLocationWhenInUseUsageDescription"]; !ok {
+			t.Error("goleo_geolocation no longer carries NSLocationWhenInUseUsageDescription; " +
+				"WKWebView denies navigator.geolocation without it")
+		}
+	}
+
+	// 4. No bridge command, deliberately — a typed invoke() overload for a method nothing
+	//    handles is a call that always fails.
+	for _, c := range KnownCommands {
+		if strings.Contains(c.Method, "geolocation") {
+			t.Errorf("schema.go declares %q, but geolocation registers no handler — "+
+				"`goleo generate types` would emit an overload for a call that cannot succeed",
+				c.Method)
+		}
+	}
+}
+
+func slicesContains(hay []string, needle string) bool {
+	for _, h := range hay {
+		if h == needle {
+			return true
+		}
+	}
+	return false
+}

@@ -835,3 +835,70 @@ If you genuinely need to target below 15.4 and can accept losing camera and geol
 is no flag for it — the refusal is deliberate. Open an issue describing the case rather than
 patching the check, because the shell's `@available` annotations are what actually decide, and
 lowering the constant alone will not make the callbacks fire.
+
+---
+
+## 0.10.14 — geolocation is now a pure web feature (no Go implementation)
+
+**Affects:** every app that calls `runtime.RegisterGeolocation`. **You must keep calling it**
+— see below, this is the part that bites. Also breaking for anyone who called
+`runtime.SetGeolocationProvider` or invoked `goleo:geolocationGetCurrentPosition` directly.
+
+### What changed
+
+`runtime/geolocation/` is **deleted**. Geolocation now goes through
+`navigator.geolocation` in the webview on every platform, which is what five of the six
+platforms already did:
+
+| Platform | Before | After |
+|---|---|---|
+| Windows | WinRT `Geolocator` via a **PowerShell 5.1 subprocess** per call | webview |
+| macOS | `CoreLocationCLI` **if** `brew install corelocationcli` was present, else unsupported | webview |
+| Linux | unsupported (would have needed a GeoClue D-Bus client) | webview |
+| Android | no provider — already the webview | webview |
+| iOS | no provider — already the webview | webview |
+| PWA | browser | browser |
+
+One platform had a working native path and it launched a process to fetch a coordinate. The
+webview reaches the same OS location service, with the real permission prompt and no
+subprocess — and Linux's WebKitGTK permission auto-grant already existed, in as many words,
+"so the app's getUserMedia/geolocation fallbacks resolve instead of hanging". Camera and
+microphone have always been web-only for the same reason, so this makes the feature set more
+consistent, not less.
+
+### Do I need to change anything?
+
+**Keep calling `runtime.RegisterGeolocation(a.Bridge())`, even though it now registers
+nothing.** It is a build-time declaration: the CLI's manifest scanner detects that call, and
+that detection is what emits Android's `ACCESS_FINE_LOCATION` (plus the
+`android.hardware.location*` `uses-feature` entries) and iOS's
+`NSLocationWhenInUseUsageDescription`.
+
+Those are not optional extras for the web path — they are what makes it work. Android's
+WebView can only grant a `navigator.geolocation` request if the app itself holds
+`ACCESS_FINE_LOCATION`, and WKWebView needs the usage description. **Delete the call and
+geolocation stops working on both mobile platforms, with no build error and no runtime error
+until a user taps the button.** `TestGeolocationStaysDetectableAsAPureWebFeature` guards the
+chain on our side.
+
+`getCurrentPosition()` from `@goleo/bridge` is unchanged — same signature, same flat
+`{ latitude, longitude, accuracy }` return. Frontend code needs no edit.
+
+**Removed API:**
+
+| Removed | Replacement |
+|---|---|
+| `runtime.SetGeolocationProvider` / `runtime.GeolocationProvider` | none — no provider is consulted any more |
+| `geolocation.Position` / `PositionOptions` / `GetCurrentPosition` (Go) | `getCurrentPosition()` in the frontend |
+| `invoke('goleo:geolocationGetCurrentPosition', …)` | `getCurrentPosition()` from `@goleo/bridge` |
+
+`goleo generate types` no longer emits an overload for that method. Regenerate
+`frontend/src/goleo.d.ts` if you have it committed.
+
+### What you lose
+
+`navigator.geolocation` only works while a page is alive and foregrounded, so **background
+location** — significant-change monitoring, geofencing — is not reachable. It was not
+reachable before either: no mobile shell ever registered a location provider. If you need it,
+that is the one case that justifies a real native provider in the shells; open an issue rather
+than reviving the desktop subprocesses.

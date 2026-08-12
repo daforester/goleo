@@ -142,13 +142,21 @@ await deleteFile(`${dir}/notes.txt`)
 
 ## Geolocation
 
-`RegisterGeolocation`. Native on Windows (WinRT) + macOS (opt-in); Linux
-unsupported → `navigator.geolocation` fallback; native on mobile.
+**A pure web feature on every platform** — `getCurrentPosition` calls
+`navigator.geolocation` in the webview. There is no Go implementation and no
+`goleo:geolocation*` bridge command, so there is no raw `invoke()` form.
+
+You must still call `RegisterGeolocation` in Go. It registers no handler, but it is what
+declares Android's `ACCESS_FINE_LOCATION` and iOS's
+`NSLocationWhenInUseUsageDescription` — and the WebView cannot be granted geolocation
+without them. Drop the call and the feature stops working on mobile, with no build error.
+
+Only works while the page is alive and foregrounded; background location is not
+reachable through the web API.
 
 ```ts
 import { getCurrentPosition } from '@goleo/bridge'
 const pos = await getCurrentPosition({ enableHighAccuracy: true })  // { latitude, longitude, accuracy } — flat, not nested under coords
-// raw: invoke('goleo:geolocationGetCurrentPosition', { enableHighAccuracy })
 ```
 
 ## Battery
@@ -309,7 +317,7 @@ on('goleo:backgroundSync', ({ tag }) => flush(tag))
 | Clipboard | Native | Provider | `navigator.clipboard` |
 | Dialogs | Native | Provider | `<input type=file>` |
 | File system | Native | Provider | — (needs Go) |
-| Geolocation | Win/macOS native | Native | `navigator.geolocation` |
+| Geolocation | `navigator.geolocation` | `navigator.geolocation` | it *is* the implementation |
 | Battery | Native | Provider | `navigator.getBattery()` |
 | Wake lock | Native | Provider | `navigator.wakeLock` |
 | Vibration | — | Provider | `navigator.vibrate()` |

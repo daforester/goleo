@@ -61,7 +61,11 @@ export const demos: Demo[] = [
     id: 'geolocation',
     title: 'Geolocation',
     icon: '📍',
-    description: 'Get the current position from the OS or the browser.',
+    // Pure web on every platform: navigator.geolocation in the webview. Desktop stays
+    // 'partial' rather than becoming 'yes' — it depends on the webview granting the
+    // permission request (the glaze fork on Windows, enableGlazePermissions on Linux,
+    // the WKUIDelegate on macOS), and the macOS half of that is not hardware-verified.
+    description: 'Get the current position via the webview’s geolocation API.',
     support: { desktop: 'partial', android: 'yes', ios: 'yes', pwa: 'yes' },
     load: () => import('./GeolocationDemo.vue'),
   },

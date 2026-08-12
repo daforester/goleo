@@ -333,6 +333,13 @@ backend entry points.
 
 The invariants:
 
+- **Which features shell out to third-party binaries, and which are pure web, is catalogued in
+  [`docs/agents/external-binaries.md`](docs/agents/external-binaries.md).** Read it before
+  adding a feature that launches a process, or before assuming a feature works on Linux —
+  `xclip`/`zenity`/`notify-send` are absent on many images and there is no build-time signal.
+  **Geolocation, camera and microphone are pure web on every platform** and have no Go
+  implementation; `RegisterGeolocation` installs no handler but must still be called, because
+  it is what declares the permission the WebView needs to be granted.
 - Each feature is a `runtime/<feature>/` sub-package behind a `goleo_*` build tag, with a
   `Provider` interface so a mobile shell can register a real implementation. Unsupported
   platforms return `errors.ErrUnsupported`, never a generic error — callers branch on it to

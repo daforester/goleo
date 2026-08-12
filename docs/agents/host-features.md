@@ -49,8 +49,8 @@
 - `runtime/clipboard/` — implemented feature with read/write text via platform shell commands; re-exported via `runtime/clipboard_reexport.go`
 - `runtime/dialogs/` — native dialogs (file open/save, folder picker, message box, input prompt) via PowerShell (Windows), osascript (macOS), zenity (Linux)
 - `runtime/fs/` — file system access (read/write text+binary, list dir, delete, app/home dirs) with path traversal protection
-- `runtime/geolocation/` — geolocation via Go backend (stub on desktop, needs `goleo_geolocation` tag on mobile) with full browser API fallback
-- `bridge/src/clipboard.ts`, `dialogs.ts`, `fs.ts`, `geolocation.ts` — TS convenience wrappers with browser API fallbacks, all exported from `@goleo/bridge`
+- **geolocation has NO Go package** — it is a pure web feature (`bridge/src/geolocation.ts` calls `navigator.geolocation` directly on every platform). `runtime.RegisterGeolocation` still exists and must still be called, but it installs no handler: it is the declaration the manifest scanner reads to emit `ACCESS_FINE_LOCATION` / `NSLocationWhenInUseUsageDescription`, without which the WebView's own request is denied. See `runtime/geolocation_reexport.go`.
+- `bridge/src/clipboard.ts`, `dialogs.ts`, `fs.ts`, `geolocation.ts` — TS convenience wrappers with browser API fallbacks, all exported from `@goleo/bridge` (`geolocation.ts` is browser-*only*, not a fallback)
 - `cli/cmd/generate.go` — `goleo generate types` command that generates `frontend/src/goleo.d.ts` with typed `invoke()` overloads for all 48+ built-in commands
 
 ### Complete Host Feature Set (15 features)
@@ -69,7 +69,7 @@ Every feature package now exposes a `Provider` interface + `SetProvider`/`runtim
 | **Clipboard** | `runtime/clipboard/` | `goleo_clipboard` | Native (Win32 clipboard API / pbcopy / xclip) | Provider | `navigator.clipboard` |
 | **Dialogs** | `runtime/dialogs/` | `goleo_dialog` | Native (PowerShell/osascript/zenity) | Provider | `<input type="file">` |
 | **FileSystem** | `runtime/fs/` | `goleo_fs` | Native | Provider | Requires Go |
-| **Geolocation** | `runtime/geolocation/` | `goleo_geolocation` | Native on Windows (WinRT Geolocator) and macOS (CoreLocationCLI, opt-in); unsupported on Linux | Provider | `navigator.geolocation` |
+| **Geolocation** | **none — pure web** | `goleo_geolocation` (declaration only) | Webview `navigator.geolocation` | Webview `navigator.geolocation` | It *is* the implementation |
 | **Battery** | `runtime/battery/` | `goleo_battery` | Native (Win32 API / `/sys/class/power_supply` / `pmset`) | Provider | `navigator.getBattery()` |
 | **WakeLock** | `runtime/wakelock/` | `goleo_wakelock` | Native (`SetThreadExecutionState` / `caffeinate` / `systemd-inhibit`) | Provider | `navigator.wakeLock` |
 | **Vibration** | `runtime/vibration/` | `goleo_vibration` | Unsupported (no desktop vibrator) | Provider | `navigator.vibrate()` |

@@ -2235,3 +2235,89 @@ floor worth enforcing is the one below which something is missing rather than br
 platform just never calls you. When a minimum version is chosen, the question is not "does it
 compile" but "which of the features we advertise stop existing", and the answer is in the
 availability annotations, not in the build log.
+
+## Geolocation — deleted the Go implementation; it was never the real path (2026-08-12)
+
+`runtime/geolocation/` is gone. Geolocation is now `navigator.geolocation` in the webview on
+every platform, which is what **five of the six platforms already did**.
+
+### What the "native" tier actually was
+
+| Platform | Implementation | Reached a real user? |
+|---|---|---|
+| Windows | WinRT `Geolocator` driven through a **PowerShell 5.1 subprocess per call** (the WinRT projection does not exist in pwsh 7+) | yes — a process launch to fetch a coordinate |
+| macOS | shelled out to **`CoreLocationCLI`**, *if* `brew install corelocationcli` happened to be present | essentially never |
+| Linux | `ErrUnsupported` — would have needed a GeoClue D-Bus client | no |
+| Android | no provider registered by the shell | no — already the webview |
+| iOS | no provider registered by the shell | no — already the webview |
+
+So the Go side was one subprocess on one platform, an optional Homebrew dependency on another,
+and nothing on the remaining four. The tell was already in the tree: Linux's WebKitGTK
+permission auto-grant (`webview_glaze_permissions_linux.go`) exists, in its own words, "so the
+app's getUserMedia/**geolocation** fallbacks resolve instead of hanging". **The browser path was
+the design in practice long before it was the design on purpose.**
+
+The reason it was ever written in Go is the cgo-free invariant: `geolocation_darwin.go` says it
+outright — "CoreLocation needs an Objective-C delegate, which pure Go cannot provide without
+cgo". Both desktop implementations were workarounds for that constraint, and the webview does
+not have it. WebKit and WebView2 call CoreLocation and the WinRT Geolocator themselves, with the
+real permission UI and no process launch.
+
+### The trap: deleting the feature would have broken the web path
+
+`RegisterGeolocation` **stays**, and it now installs no handler — an empty exported function,
+which is exactly the shape a cleanup deletes. It cannot be deleted, and the reason is not local
+to the file:
+
+- `detectFeatureUsage` scans for `RegisterGeolocation(` and emits `goleo_geolocation`
+- that tag is what `resolveAndroidPermissions` turns into `ACCESS_FINE_LOCATION` +
+  `android.hardware.location*`, and what `featureRegistry` maps to
+  `NSLocationWhenInUseUsageDescription`
+- **Android's WebView can only grant a `navigator.geolocation` request if the app itself holds
+  `ACCESS_FINE_LOCATION`**, and WKWebView needs the usage description
+
+So the permission declaration is not an artifact of the old native path — it is a prerequisite
+of the *new* web one. Removing "the Go implementation" in the obvious way (delete the package,
+delete the registration) would have produced an app that compiles, ships, claims
+`android:'yes'`, and fails when a user taps the button.
+
+`TestGeolocationStaysDetectableAsAPureWebFeature` asserts all four links: the scanner still
+emits the tag, the tag still derives `ACCESS_FINE_LOCATION`, the registry still carries the iOS
+usage description, and `KnownCommands` contains **no** geolocation method (a typed `invoke()`
+overload for an unhandled method is a call that always fails). Mutation-checked on two of them:
+restoring the schema entry fails assertion 4, emptying the registry permissions fails
+assertion 2.
+
+This is the **fifth** appearance of the repo's recurring shape — a declaration whose consumer
+is not obvious — and the first where the declaration is a *deliberately empty function*. Worth
+naming the variant: an empty body is not evidence of dead code when the call site itself is the
+signal being consumed. `grep` for the identifier, not for what the body does.
+
+### Process note: `git checkout` during mutation testing ate an unstaged edit
+
+Mutating `schema.go`, testing, then `git checkout cli/cmd/schema.go` reverted the mutation **and
+the real change underneath it**, because the real change had not been staged. The follow-up test
+run went red for a reason that looked like the fix failing. `git add` before mutation-testing, or
+the revert is not scoped to the mutation.
+
+### What is deliberately lost
+
+`navigator.geolocation` only runs while a page is alive and foregrounded, so background
+location — significant-change monitoring, geofencing — is unreachable. It was unreachable
+before too (no shell ever registered a provider), so nothing regressed. That is the one
+capability that would justify a real native provider in the mobile shells, and it is the only
+argument for one: the earlier plan to write a `CLLocationManager` provider to lower the iOS
+floor from 15.4 to 15.0 is **dropped**, not deferred, because it would have built the first
+native mobile provider for a feature being consolidated onto the web path, to recover a version
+window that excludes no device (every iPhone that can run iOS 15 was offered 15.8.x).
+
+### Companion: the shell-out inventory
+
+Doing this raised the obvious question of what *else* reaches the OS by launching a process, so
+`docs/agents/external-binaries.md` now catalogues it — split into **runtime** binaries
+(dependencies of the shipped app: `xclip`, `zenity`, `osascript`, `pmset`, `caffeinate`,
+`systemd-inhibit`, `notify-send`, `xdg-open`, `rundll32`, `powershell`) and **CLI** binaries
+(dependencies of the build machine). The runtime half is the one worth knowing: a feature can be
+absent at runtime on a machine that compiled it fine, CI is headless Linux where several are
+missing so those tests *skip* rather than fail, and green CI is therefore not evidence any of
+it works.

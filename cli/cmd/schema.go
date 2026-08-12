@@ -46,8 +46,12 @@ var KnownCommands = []CommandDecl{
 	{Method: "goleo:fsAppDataDir", Args: "{ appName?: string }", ReturnType: "string", Description: "Get app data directory", Feature: "FileSystem"},
 	{Method: "goleo:fsHomeDir", ReturnType: "string", Description: "Get user home directory", Feature: "FileSystem"},
 
-	// Geolocation (feature: Geolocation / goleo_geolocation)
-	{Method: "goleo:geolocationGetCurrentPosition", Args: "{ enableHighAccuracy?: boolean; timeout?: number; maximumAge?: number }", ReturnType: "{ latitude: number; longitude: number; accuracy?: number }", Description: "Get current geographic position", Feature: "Geolocation"},
+	// Geolocation is deliberately absent: it is a PURE WEB feature and registers no
+	// bridge command. Use @goleo/bridge's getCurrentPosition(), which calls
+	// navigator.geolocation directly. RegisterGeolocation still has to be called in Go —
+	// it declares ACCESS_FINE_LOCATION / NSLocationWhenInUseUsageDescription, without
+	// which the WebView's own geolocation request is denied. Listing a method here that
+	// nothing handles would emit a typed invoke() overload for a call that always fails.
 
 	// Battery (feature: Battery / goleo_battery)
 	{Method: "goleo:batteryGetInfo", ReturnType: "{ level: number; charging: boolean; chargingTime?: number; dischargingTime?: number }", Description: "Get battery status information", Feature: "Battery"},
