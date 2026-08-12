@@ -522,3 +522,148 @@ A stopping point, not a finished project. Everything below is verified where it 
 triggers, `docs/store-submission.md` for anything involving a developer account, `SPIKES.md` for
 the evidence and failure modes, `docs/history.md` for dated background. Resident context is
 ~6.4k tokens, down from ~36k, precisely so there is room to work.
+
+---
+
+## Track T — Tauri 2 parity (planned 2026-08-13, goleo 0.11.1)
+
+Gap analysis done against the **source**, not against `docs/comparison.md` (which covers
+architecture and philosophy but carries no feature table). Capability claims below come from
+`runtime/`, `cli/cmd/schema.go` and `runtime/jsruntime.go`.
+
+### Where goleo stands
+
+| Capability | Tauri 2 | goleo | Note |
+|---|---|---|---|
+| Multi-window | yes | yes | child **processes**, not in-process windows — native webviews own the GUI thread |
+| Tray, app menu | yes | yes | `SetMenu` + tray; **no context menus** |
+| Updater (signed) | yes | yes | ed25519 manifest, verified end to end |
+| Deep link, single-instance, autostart, store | yes | yes | store is **plaintext JSON** |
+| Capability ACL | yes | **partial** | `Policy` enforces methods + `FSRoots`; `HTTPHosts`/`ShellPrograms` are reserved and gate nothing |
+| Global shortcuts | yes | **none** | no hits anywhere in the tree |
+| Window chrome | yes | **none** | title/width/height only — no decorations, always-on-top, fullscreen, resizable |
+| HTTP / shell plugins | yes | **none** | Policy fields exist; no plugin behind them |
+| Sidecar binaries | yes | **none** | |
+| Isolation pattern | yes | **none** | no sandboxed IPC hop |
+| Biometric, barcode scanner | yes | **none** | mobile only |
+| cgo-free cross-compile | **no** | yes | goleo's side of the ledger |
+| PWA as a build target | **no** | yes | |
+
+### Tier 1 — self-contained, no new security model
+
+- **T1 — Global shortcuts.** System-wide hotkeys that fire when unfocused; the natural companion to
+  the existing tray support, since a tray-resident app is otherwise only reachable by aiming at a
+  small icon. Three unrelated APIs: `RegisterHotKey` (Win32, purego), `RegisterEventHotKey` (Carbon),
+  and on Linux `XGrabKey` for X11 — **Wayland has no global grab by design**, so it needs the
+  `org.freedesktop.portal.GlobalShortcuts` D-Bus portal (user-approved, unevenly supported). Expect
+  "X11 yes, Wayland where the portal exists, else `ErrUnsupported`".
+  Two API requirements: the OS grants a combination **first-come**, so registration can fail and must
+  report that rather than silently no-op; and there is **no web equivalent**, so unlike most goleo
+  features there is no browser fallback. New `runtime/shortcut/`. Needs a GUI session to verify.
+- **T2 — Window chrome options.** The most immediately noticeable absence. Add to both `Config` and
+  `createWindow` opts so the JS path stays level with the Go path. The real work is auditing what the
+  pinned glaze fork supports — a dependency question before a code one.
+- **T3 — Window state persistence.** Cheapest item here; `runtime/store` is the obvious backing. Care
+  needed on multi-monitor: a saved position on a monitor that is now gone must clamp on-screen.
+- **T4 — Context menus.** Shares the descriptor type with `SetMenu`; the per-platform popup call is
+  the new part.
+
+### Tier 2 — valuable, each a security surface
+
+Do **not** start these before the scope model is written. That two of them already have a reserved
+`Policy` field suggests the design anticipated them; a shell plugin whose scope enforcement is merely
+*intended* is worse than no shell plugin.
+
+- **T5 — HTTP client with host scoping.** Activates `Policy.HTTPHosts`. Enforcement must live in
+  `Bridge.HandleRequest` alongside the existing checks, not in the plugin, so a second caller cannot
+  bypass it.
+- **T6 — Shell / command execution with scoping.** Highest value and highest risk. Precedent to
+  follow: `goleo:openURL` is scheme-allow-listed because an OS handler would otherwise open
+  executables. This needs the same rigour an order of magnitude harder — argv arrays never command
+  strings, an allow-list of programs rather than a deny-list of characters, no shell interpolation
+  anywhere. Design review before code.
+- **T7 — Sidecar binaries.** Matters enormously if needed and not at all otherwise; confirm demand
+  first. Touches the bundler for every target plus path resolution inside an installed app. Should
+  depend on T6's execution model rather than duplicating it.
+
+### Tier 3 — on demand
+
+- **T8 — Encrypted store** (stronghold equivalent). `runtime/store` is plaintext, fine until someone
+  puts a token in it.
+- **T9 — Utility plugins**: CLI arg parsing, log, positioner, upload, websocket client. Each small;
+  none is why anyone picks a framework.
+- **T10 — Mobile: biometric, barcode scanner.** Both fit the existing `Provider` pattern; both need a
+  device.
+- **T11 — Security depth: scopes and the isolation pattern.** The honest structural gap. Research
+  before implementation, and it should **follow** T5/T6 — those will show what the scope model needs
+  to express.
+
+**Deliberately not planned:** multi-webview per window (unstable upstream, and it conflicts with the
+child-process window model). Haptics and geolocation are already covered by `vibration` and the web
+API.
+
+---
+
+## Track J — Make the JS backend usable (planned 2026-08-13)
+
+### The defect that prompted this
+
+Both scaffolds' `backend/init.js` ship ~35 lines documenting `bridge.invoke("goleo:...")`. The VM
+(`runtime/jsruntime.go`) defines exactly three globals:
+
+```
+jsr.vm.Set("createWindow", ...)
+jsr.vm.Set("getConfig",    ...)
+jsr.vm.Set("console",      ...)
+```
+
+There is **no `bridge` object**. Every documented call fails with `ReferenceError: bridge is not
+defined`. The block also still lists `goleo:geolocationGetCurrentPosition`, removed in 0.11.0.
+
+This is the repo's recurring shape inverted: usually a declaration with no consumer, here
+documentation for a declaration never made.
+
+So "a JavaScript file can take over and expose features" currently means **it can create windows**.
+That is genuinely useful — multi-window layout without touching Go — but it is the whole of it.
+Missing versus the Go API: `CloseWindow`, `ListWindows`, `SetMenu`, tray, `Emit`/`On`, invoking any
+of the 60 bridge commands, registering a handler, and `Quit`.
+
+### Tasks, in dependency order
+
+1. **J1 — Stop shipping instructions that cannot work.** Rewrite the comment block in both scaffolds
+   to describe the three real globals; delete the fabricated `bridge.invoke` section. Independent of
+   every decision below and worth doing alone — a developer's first hour currently goes to debugging a
+   `ReferenceError` against documentation we wrote. ~30 minutes.
+2. **J2 — Decide what `init.js` is for.** The blocking decision, and a product call rather than a
+   technical one. *Window bootstrapper* → the surface is already right, say so, and J3–J4 disappear.
+   *Scripting layer* → bind the missing APIs and J4 becomes real. Note the file is opt-in: deleting it
+   falls back to `runtime.Config`, so the blast radius of choosing "bootstrapper" is small.
+3. **J3 — Bind the missing API.** `JSRuntime` already holds `app *App`, so everything is reachable —
+   only the bindings are unwritten. By value: `bridge.invoke`, then `emit`/`on`, then `setMenu`,
+   `quit`, `closeWindow`, `listWindows`.
+   **Make `invoke` synchronous** — bridge handlers are synchronous in Go, so a blocking call returns
+   the result directly and avoids needing a goja event loop for promises. Lock this in before someone
+   reaches for `goja_nodejs`.
+4. **J4 — Settle whether `Policy` gates `init.js`.** It runs in-process, so this is a real decision.
+   **Recommendation: route JS `invoke` through `Bridge.HandleRequest`**, where the ACL is enforced
+   (`runtime/bridge.go`, ~line 121). The capability check then applies for free and cannot drift; a
+   second path into the handler map is precisely how an ACL gets bypassed later unnoticed.
+5. **J5 — Generate `init.d.ts`.** `goleo generate types` already emits typed `invoke()` overloads for
+   the frontend from `KnownCommands`; the same generator and source can emit a backend declaration
+   file. Note what it would have prevented: with a generated `.d.ts`, the phantom `bridge` object would
+   have shown as undefined the moment anyone opened the file.
+6. **J6 — Assert the docs against the VM.** A test that every global named in the scaffold's comment
+   block exists in the runtime, and the reverse. This is the guard whose absence let a fabricated API
+   ship — the same declaration-with-no-consumer shape as the microphone defect, the unread iOS usage
+   descriptions, and the stale `goleo.d.ts`.
+
+### Suggested order across both tracks
+
+- **Now, independent of everything:** J1.
+- **Next, cheap and visible:** T3 and T1 — the two users notice, neither needing a design debate.
+- **Then the decision:** J2. Unblocking, and it costs a conversation rather than a sprint. If the
+  answer is "scripting layer", J3–J6 follow and J5 pays back immediately.
+- **Only then:** T5/T6 with a written scope model, and T11 after them.
+
+> Tauri details reflect 2.x as known on 2026-08-13; its plugin workspace moves quickly, so spot-check
+> anything before acting on it.
