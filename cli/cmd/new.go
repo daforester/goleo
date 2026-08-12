@@ -72,6 +72,55 @@ type projectConfig struct {
 	// @goleo/bridge. Must stay in lockstep with GoleoVersion — the two sides
 	// share a wire contract. See scaffoldBridgeVersion.
 	BridgeVersion string
+	// MobileID is the Android package name and the iOS bundle identifier, derived
+	// from Name. Both were hardcoded to "com.goleo.app" for EVERY scaffolded project
+	// while the desktop bundle identifier next to them already interpolated the name
+	// — so two goleo apps could not be installed side by side (the second silently
+	// replaced the first), and the default was a value that must never ship: an
+	// Android package name is permanent once a Play listing exists, and both it and
+	// an iOS bundle ID are globally unique, so the first person to publish with the
+	// default would claim it for everyone.
+	//
+	// Deliberately "com.example.<name>", matching bundle.identifier: it reads as a
+	// placeholder rather than something plausible enough to ship unchanged, and
+	// checkMobileIDPlaceholder warns while it is still there.
+	MobileID string
+}
+
+// mobileIDSegment turns a project name into ONE valid Android package segment.
+//
+// Reuses javaKeywords from android_package.go rather than carrying its own copy — that
+// list is the one validateAndroidPackageName enforces, and two copies would drift.
+//
+// The rules are Java's, not reverse-DNS's, and they are stricter than they look: a
+// segment must match [A-Za-z_][A-Za-z0-9_]* and must not be a keyword. `goleo new
+// my-app` would otherwise produce "com.example.my-app", which Gradle rejects — the
+// desktop bundle identifier gets away with the same interpolation because a hyphen is
+// legal there, which is exactly why copying that pattern verbatim would not work.
+func mobileIDSegment(name string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(strings.TrimSpace(name)) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		default:
+			// Hyphens, dots, spaces and anything else collapse away rather than
+			// becoming underscores: "my-app" reads better as "myapp" than "my_app".
+		}
+	}
+	s := b.String()
+	// A segment may not start with a digit, and must not be empty (a name of only
+	// punctuation would leave nothing at all).
+	if s == "" {
+		return "app"
+	}
+	if s[0] >= '0' && s[0] <= '9' {
+		s = "app" + s
+	}
+	if javaKeywords[s] {
+		s += "app"
+	}
+	return s
 }
 
 func runNew(cmd *cobra.Command, args []string) error {
@@ -87,6 +136,7 @@ func runNew(cmd *cobra.Command, args []string) error {
 		ModuleName:    fmt.Sprintf("goleo/%s", name),
 		GoleoVersion:  scaffoldGoleoVersion(),
 		BridgeVersion: scaffoldBridgeVersion(),
+		MobileID:      "com.example." + mobileIDSegment(name),
 	}
 
 	template, err := chooseTemplate()

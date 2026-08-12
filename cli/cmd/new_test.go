@@ -370,3 +370,62 @@ func TestWarnStaleBridgePinOnlyForIncompatibleMinors(t *testing.T) {
 		t.Errorf("dev CLI should not warn about pins, got:\n%s", out)
 	}
 }
+
+// Every scaffolded project used to get the SAME Android package name and iOS bundle
+// identifier — "com.goleo.app" — while the desktop bundle.identifier right beside them
+// already interpolated the project name.
+//
+// Three consequences, in increasing severity: two goleo apps could not coexist on a
+// device (installing the second silently replaced the first, observed on an emulator); a
+// signed release AAB would carry it; and an Android package name is PERMANENT once a Play
+// listing exists, while both identifiers are globally unique — so the first person to
+// publish with the default would claim it for every other goleo user.
+//
+// Nothing warned, on any path, and validateAndroidPackageName accepted it because it is
+// perfectly VALID. It was only wrong by being shared.
+func TestScaffoldDerivesADistinctMobileIDPerProject(t *testing.T) {
+	// The two names must not collide, which is the whole point.
+	a, b := mobileIDSegment("alpha"), mobileIDSegment("beta")
+	if a == b {
+		t.Fatalf("two different project names produced the same segment: %q", a)
+	}
+
+	// And the result must be a package name the existing validator accepts — a hyphen is
+	// legal in the desktop identifier and a hard Gradle error here, which is exactly why
+	// the desktop pattern could not simply be copied.
+	for _, name := range []string{
+		"myapp", "my-app", "My App", "my.app", "123app", "new", "class", "a-b-c",
+		"café", "app!!", "  spaced  ",
+	} {
+		id := "com.example." + mobileIDSegment(name)
+		if err := validateAndroidPackageName(id); err != nil {
+			t.Errorf("goleo new %q produced %q, which the validator rejects: %v", name, id, err)
+		}
+	}
+
+	// A name that survives sanitising to nothing must still yield something usable.
+	if got := mobileIDSegment("!!!"); got == "" {
+		t.Error(`a name of only punctuation produced an empty segment`)
+	}
+	// Java keywords are a compile error as a package segment, not merely ugly.
+	if got := mobileIDSegment("new"); javaKeywords[got] {
+		t.Errorf("mobileIDSegment(%q) = %q, still a Java keyword", "new", got)
+	}
+}
+
+// Both scaffolds must carry the derived id, not the old constant. The demo template is a
+// verbatim token substitution rather than text/template (its .vue files are full of
+// `{{ }}`), so it needs its own token and is easy to leave behind.
+func TestNeitherScaffoldShipsTheSharedMobileID(t *testing.T) {
+	if strings.Contains(tmplGoleoJSON, "com.goleo.app") {
+		t.Error("the minimal scaffold's goleo.json still hardcodes com.goleo.app")
+	}
+	demo := readDemoGoleoJSON(t)
+	if strings.Contains(demo, "com.goleo.app") {
+		t.Error("the demo scaffold's goleo.json still hardcodes com.goleo.app")
+	}
+	if !strings.Contains(demo, demoMobileIDToken) {
+		t.Errorf("the demo goleo.json should use %s so extractDemoTemplate can substitute it",
+			demoMobileIDToken)
+	}
+}

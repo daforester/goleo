@@ -741,11 +741,11 @@ var tmplGoleoJSON = `{
   "mobile": {
     "android": {
       "min_sdk": 24,
-      "package_name": "com.goleo.app"
+      "package_name": "{{.MobileID}}"
     },
     "ios": {
       "deployment_target": "15.4",
-      "bundle_identifier": "com.goleo.app"
+      "bundle_identifier": "{{.MobileID}}"
     }
   }
 }

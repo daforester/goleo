@@ -159,6 +159,17 @@ const demoVersionToken = "__GOLEO_VERSION__"
 // even though both resolve from this binary's version. See scaffoldBridgeVersion.
 const demoBridgeVersionToken = "__GOLEO_BRIDGE_VERSION__"
 
+// demoMobileIDToken is the placeholder for the Android package name and iOS bundle
+// identifier. Separate from demoAppNameToken because the two are not interchangeable:
+// the app name is free text, while this has to be a valid Java package segment, so
+// `goleo new my-app` needs "com.example.myapp" here and "my-app" there.
+//
+// Both were hardcoded to "com.goleo.app" in every scaffolded project, which meant no
+// two goleo apps could be installed on the same device and the default was a value
+// that must never ship — an Android package name is permanent once a Play listing
+// exists, and both identifiers are globally unique.
+const demoMobileIDToken = "__GOLEO_MOBILE_ID__"
+
 // extractDemoTemplate writes the full-featured "demo" project (the goleo new
 // demo template, embedded under templates/demo) into destDir, substituting the
 // project name and restoring on-disk names the embed can't hold as-is: `*.tmpl`
@@ -186,6 +197,7 @@ func extractDemoTemplate(destDir, appName string) error {
 			return err
 		}
 		content := strings.ReplaceAll(string(data), demoAppNameToken, appName)
+		content = strings.ReplaceAll(content, demoMobileIDToken, "com.example."+mobileIDSegment(appName))
 		content = strings.ReplaceAll(content, demoVersionToken, scaffoldGoleoVersion())
 		content = strings.ReplaceAll(content, demoBridgeVersionToken, scaffoldBridgeVersion())
 		target := filepath.Join(destDir, rel)
@@ -221,11 +233,21 @@ func extractMobileTemplate(templateDir, outputDir string, cfg *mobileConfig) err
 			return nil
 		}
 
-		// Replace package path in relative path
-		pkgPath := strings.ReplaceAll(cfg.PackageName, ".", string(filepath.Separator))
+		// Move the Java sources into a directory matching their package.
+		//
+		// Done on SLASH-separated paths on purpose. filepath.Rel returns backslashes on
+		// Windows, so searching for the literal "com/goleo/app" never matched there and the
+		// rewrite silently did nothing — MainActivity.java stayed under com/goleo/app while
+		// declaring `package com.example.myapp;`. That was invisible for as long as every
+		// project's package name WAS com.goleo.app, which made the replacement a no-op by
+		// definition; it only started to matter once `goleo new` derived a distinct id per
+		// project. AGP tolerates the mismatch, so the build still worked — it is the
+		// generated project a developer opens in Android Studio that looked wrong.
+		rel = filepath.ToSlash(rel)
+		pkgPath := strings.ReplaceAll(cfg.PackageName, ".", "/")
 		rel = strings.ReplaceAll(rel, "com/goleo/app", pkgPath)
 
-		target := filepath.Join(outputDir, rel)
+		target := filepath.Join(outputDir, filepath.FromSlash(rel))
 
 		if d.IsDir() {
 			return os.MkdirAll(target, 0755)

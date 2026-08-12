@@ -22,11 +22,11 @@
   "mobile": {
     "android": {
       "min_sdk": 24,
-      "package_name": "com.goleo.app"
+      "package_name": "__GOLEO_MOBILE_ID__"
     },
     "ios": {
       "deployment_target": "15.4",
-      "bundle_identifier": "com.goleo.app"
+      "bundle_identifier": "__GOLEO_MOBILE_ID__"
     }
   }
 }
