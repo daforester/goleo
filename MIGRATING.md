@@ -911,10 +911,11 @@ than reviving the desktop subprocesses.
 windows keep working unchanged. Read this if you want the new capability, or if you maintain
 an `init.js` and want to know what it can now reach.
 
-> **0.11.1 was never published.** It was tagged locally and superseded by this release before
-> being pushed, so `0.11.0` → `0.12.0` is the real sequence on npm. The 0.11.1 fixes (the
-> scaffold's shared `com.goleo.app` identity, double-printed CLI errors, the unusable keystore
-> hint) are all included here.
+> **0.11.1 shipped normally** — `0.11.0` → `0.11.1` → `0.12.0` is the sequence on npm. Its
+> fixes (the scaffold's shared `com.goleo.app` identity, errors printed twice by every failing
+> command, and a keystore hint that could not be pasted) are already released; nothing about
+> them is new here. 0.11.1 has no entry of its own because none of it needed a migration
+> step — this file lists only changes that can break a working app.
 
 ### What is new
 
