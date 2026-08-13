@@ -17,6 +17,11 @@ type JSRuntime struct {
 	port   int
 	win    *WebviewWindow
 	onStop []func()
+
+	// Go -> JS call machinery. The VM is owned by a single goroutine once Run() has
+	// finished, because goja is not goroutine-safe and bridge handlers run one goroutine
+	// per request. See jsruntime_call.go.
+	loopFields
 }
 
 func NewJSRuntime(cfg Config, app *App) *JSRuntime {
@@ -78,14 +83,22 @@ func (jsr *JSRuntime) Run() error {
 		if explicit {
 			return fmt.Errorf("loading init script %s: %w", jsr.config.InitJS, err)
 		}
-		// No default init script: use the built-in startup path.
+		// No default init script: use the built-in startup path. The loop still starts, so
+		// App.JS().Call reports "function not defined" rather than "runtime unavailable" —
+		// the caller's mistake is naming a function, not the absence of a file.
+		jsr.startLoop()
 		return nil
 	}
 
+	// The init script runs INLINE on this goroutine, before the loop takes ownership.
+	// It has to: createWindow is thread-affine and the window must be created on the
+	// thread Run() was called from (App.Run holds LockOSThread for exactly this).
 	if _, err := jsr.vm.RunScript(path, jsContent); err != nil {
 		return fmt.Errorf("executing %s: %w", path, err)
 	}
 
+	// From here the VM belongs to one goroutine and every access goes through submit().
+	jsr.startLoop()
 	return nil
 }
 
@@ -120,6 +133,9 @@ func (jsr *JSRuntime) loadInitScript(candidates []string) (content, path string,
 }
 
 func (jsr *JSRuntime) Stop() {
+	// Release the VM's owning goroutine first, so a Call() racing shutdown gets
+	// ErrJSUnavailable instead of blocking on a runtime that is being torn down.
+	jsr.stopLoop()
 	for _, fn := range jsr.onStop {
 		fn()
 	}

@@ -1,11 +1,22 @@
 // init.js — Goleo startup script.
 //
-// Runs inside the Go backend (embedded JS engine) before any window is shown, so
-// it can decide how many windows to open and how each one is configured. That is
-// its whole job: a window bootstrapper, not a general scripting layer.
+// Runs inside the Go backend (embedded JS engine) before any window is shown. Two
+// jobs: it decides how many windows to open and how each is configured, and any
+// function it defines can be called from Go — so app logic you want to change
+// without a rebuild can live here.
 //
-// THE COMPLETE API. These three globals are everything the engine defines — there
-// is nothing else in scope here.
+//   // in init.js
+//   function priceOrder(o) { return o.qty * o.unit * 1.2 }
+//
+//   // in backend/app/app.go
+//   total, err := a.JS().Call(ctx, "priceOrder", order)
+//
+// Calls are serialised onto one goroutine (the JS engine is not thread-safe), take
+// a context so a runaway script cannot wedge the app, and cross as JSON. A JS throw
+// comes back as a Go error.
+//
+// THE COMPLETE API available TO this script. These three globals are everything the
+// engine defines — there is nothing else in scope here.
 //
 //   getConfig()
 //     -> { title, width, height, devMode, devServer, port, url }

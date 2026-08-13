@@ -635,20 +635,51 @@ of the 60 bridge commands, registering a handler, and `Quit`.
    to describe the three real globals; delete the fabricated `bridge.invoke` section. Independent of
    every decision below and worth doing alone — a developer's first hour currently goes to debugging a
    `ReferenceError` against documentation we wrote. ~30 minutes.
-2. **J2 — Decide what `init.js` is for.** The blocking decision, and a product call rather than a
-   technical one. *Window bootstrapper* → the surface is already right, say so, and J3–J4 disappear.
-   *Scripting layer* → bind the missing APIs and J4 becomes real. Note the file is opt-in: deleting it
-   falls back to `runtime.Config`, so the blast radius of choosing "bootstrapper" is small.
-3. **J3 — Bind the missing API.** `JSRuntime` already holds `app *App`, so everything is reachable —
-   only the bindings are unwritten. By value: `bridge.invoke`, then `emit`/`on`, then `setMenu`,
-   `quit`, `closeWindow`, `listWindows`.
-   **Make `invoke` synchronous** — bridge handlers are synchronous in Go, so a blocking call returns
-   the result directly and avoids needing a goja event loop for promises. Lock this in before someone
-   reaches for `goja_nodejs`.
-4. **J4 — Settle whether `Policy` gates `init.js`.** It runs in-process, so this is a real decision.
-   **Recommendation: route JS `invoke` through `Bridge.HandleRequest`**, where the ACL is enforced
-   (`runtime/bridge.go`, ~line 121). The capability check then applies for free and cannot drift; a
-   second path into the handler map is precisely how an ACL gets bypassed later unnoticed.
+2. **J2 — DECIDED (2026-08-13): both.** `init.js` stays a window bootstrapper *and* gains a
+   scripting layer, with the primary direction **Go → JS**: Go code calls JS functions the script
+   defined. That is the opposite of what J3 originally assumed (JS reaching into the bridge), and it
+   changes the design — see J3 below, which is rewritten for it. The bootstrapper role is unaffected;
+   `createWindow`/`getConfig` keep working exactly as they do now.
+3. **J3 — Go → JS invocation (rewritten for the J2 decision).**
+
+   **The constraint that dictates the design: `goja.Runtime` is NOT goroutine-safe, and
+   `jsruntime.go` has no locking at all.** That is safe today only because `Run()` is called once,
+   from one goroutine, during startup. Bridge handlers run one goroutine per request, so the first
+   `app.JS().Call(...)` from a handler is a data race — not a subtle one.
+
+   So the VM gets a **single owning goroutine** and callers submit jobs to it over a channel,
+   replying on a per-call channel. A plain mutex is the tempting alternative and is wrong: JS
+   calling back into Go which calls JS again deadlocks a non-reentrant mutex, and that re-entry is
+   exactly what a scripting layer invites.
+
+   Shape:
+
+   - `app.JS().Call(ctx, "fnName", args...) (any, error)` — call a global function defined by the
+     init script. Returns a Go value, or an error carrying the JS exception.
+   - **Marshal via JSON**, not goja's native struct mapping. Same lesson as the gomobile providers:
+     a predictable JSON boundary beats a reflective one that silently omits what it cannot map.
+   - **Every call takes a context.** A runaway script (`while(true){}`) would otherwise wedge the
+     owning goroutine forever; `vm.Interrupt()` is the escape and needs a deadline to fire on.
+   - **A JS exception is a Go error**, never a panic crossing the boundary.
+   - `Stop()` must drain and refuse queued calls rather than leaving callers blocked forever.
+
+   Deliberately NOT in this step: `emit`/`on`, `setMenu`, `quit`, `closeWindow`, `listWindows`, and
+   JS→Go `bridge.invoke`. They are the reverse direction, each is a new bridge surface, and J4
+   applies to them rather than to Go → JS.
+4. **J4 — `Policy` and the two directions.** These are not the same question, and conflating them
+   is how an ACL gets holed.
+
+   **Go → JS (J3) is not a bridge surface and needs no ACL.** Go already has unrestricted access to
+   everything `Policy` protects; calling a JS function it chose to call adds no capability. Gating it
+   would be theatre.
+
+   **JS → Go (a later step) absolutely does.** When `bridge.invoke` is eventually bound, route it
+   through `Bridge.HandleRequest` (`runtime/bridge.go`, ~line 121) rather than the handler map, so
+   the capability check applies for free and cannot drift. A second path into that map is precisely
+   how an ACL gets bypassed later unnoticed.
+
+   The asymmetry is worth stating in the code: init.js is app-author code, same trust level as
+   `backend/app/app.go`, so it is not the thing `Policy` defends against — the frontend is.
 5. **J5 — Generate `init.d.ts`.** `goleo generate types` already emits typed `invoke()` overloads for
    the frontend from `KnownCommands`; the same generator and source can emit a backend declaration
    file. Note what it would have prevented: with a generated `.d.ts`, the phantom `bridge` object would
