@@ -34,6 +34,7 @@ in sub-docs it links to, each with a "read this before touching X" trigger:
 |---|---|
 | `docs/agents/webview.md` | `runtime/webview*.go`, the glaze dependency/fork, window modes, multi-window |
 | `docs/agents/host-features.md` | a `runtime/<feature>/` package, a mobile provider, generated entry points |
+| `docs/agents/cli.md` | a `goleo` command or build target — what each produces, refuses, and needs configured |
 | `docs/agents/external-binaries.md` | anything that shells out to a third-party binary, or a feature you assume works on Linux |
 | `docs/agents/desktop-subsystems.md` | windowing/lifecycle, native IPC, scheme assets, OS integration, bundling |
 | `docs/store-submission.md` | anything touching the Play / Apple / Microsoft developer accounts |
