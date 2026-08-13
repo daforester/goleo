@@ -188,11 +188,27 @@ func TestGeneratedInitDTSMatchesTheVM(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := string(raw)
-	i := strings.Index(body, "const initDTS = ")
+	// Anchored on initDTSHeader, the template the generator renders. It was `initDTS` until
+	// the overloads became generated from KnownCommands; this test broke on the rename, which
+	// is the right kind of breakage — it means the anchor is load-bearing rather than decorative.
+	i := strings.Index(body, "const initDTSHeader = ")
 	if i < 0 {
-		t.Fatal("initDTS is gone from generate.go — backend/init.js would have no types again")
+		t.Fatal("initDTSHeader is gone from generate.go — backend/init.js would have no types again")
 	}
 	dts := body[i:]
+
+	// The per-command overloads are generated, not literal, so assert the seam exists rather
+	// than looking for a specific command in the template.
+	if !strings.Contains(dts, "__GOLEO_INVOKE_OVERLOADS__") {
+		t.Error("the invoke-overload placeholder is gone, so goleo.invoke would lose its " +
+			"per-command typing and every mistyped command name would type-check again")
+	}
+	// A catch-all taking a plain string matches every typo and makes the overloads
+	// decorative. It was there in the first cut and silently defeated the whole point.
+	if strings.Contains(dts, "invoke(method: string") {
+		t.Error("init.d.ts declares a catch-all invoke(method: string, ...) overload — that " +
+			"accepts every mistyped command, which is what the per-command overloads exist to catch")
+	}
 
 	for _, real := range []string{"declare function getConfig()", "declare function createWindow(", "declare const goleo"} {
 		if !strings.Contains(dts, real) {
