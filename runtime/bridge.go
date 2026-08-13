@@ -117,6 +117,22 @@ func (b *Bridge) Emit(event string, data any) {
 }
 
 func (b *Bridge) HandleRequest(req InvokeRequest) InvokeResponse {
+	return b.HandleRequestContext(context.Background(), req)
+}
+
+// HandleRequestContext is HandleRequest with a caller-supplied context, passed through to
+// the handler.
+//
+// Added for the JS runtime, and the reason is worth stating because it is not obvious: the
+// embedded engine owns its VM on a single goroutine, so a script calling into Go runs the
+// handler ON that goroutine. If the handler then calls back into JS, the goroutine would be
+// waiting on itself — a deadlock. jsruntime_call.go marks its context so a nested call runs
+// inline instead of queueing, and that marker can only reach the handler if the context
+// does. HandleRequest kept context.Background() and therefore could not carry it.
+//
+// Every transport that does NOT have that constraint (HTTP, WebSocket, native IPC) should
+// keep calling HandleRequest.
+func (b *Bridge) HandleRequestContext(ctx context.Context, req InvokeRequest) InvokeResponse {
 	b.mu.RLock()
 	pol := b.policy
 	fn, ok := b.handlers[req.Method]
@@ -138,7 +154,7 @@ func (b *Bridge) HandleRequest(req InvokeRequest) InvokeResponse {
 		}
 	}
 
-	result, err := fn(context.Background(), req.Args)
+	result, err := fn(ctx, req.Args)
 	if err != nil {
 		return InvokeResponse{
 			ID:    req.ID,

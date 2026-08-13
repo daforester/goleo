@@ -16,7 +16,7 @@
 // a context so a runaway script cannot wedge the app, and cross as JSON. A JS throw
 // comes back as a Go error.
 //
-// THE COMPLETE API available TO this script. These three globals are everything the
+// THE COMPLETE API available TO this script. These four globals are everything the
 // engine defines — there is nothing else in scope here.
 //
 //   getConfig()
@@ -34,11 +34,20 @@
 //
 //   console.log / console.info / console.warn / console.error
 //
-// There is NO bridge object here, and no way to call goleo:* commands from this
-// file. Those are the FRONTEND's API: import them from @goleo/bridge in
-// frontend/src, where every call is checked against the Policy ACL. For backend
-// logic, write Go — register a handler with a.Bridge().Handle(...) in
-// backend/app/app.go.
+//   goleo.invoke(method, args)
+//     -> the command's result, or THROWS on failure (including "permission denied"
+//        when a Policy is set). Reaches the same bridge commands the frontend uses:
+//          goleo.invoke("goleo:notify", { title: "Done" })
+//        Synchronous — Go's handlers are, so there is no Promise here. A slow handler
+//        blocks the script while it runs.
+//
+//   goleo.emit(event, payload)
+//     -> pushes an event to the FRONTEND (backend -> frontend). Not the same direction
+//        as Go's app.On, which receives events coming FROM the frontend.
+//
+// goleo.invoke goes through the same Policy ACL the frontend does, so a script cannot
+// reach a command the app has not allowed. For heavier backend logic, write Go — register
+// a handler with a.Bridge().Handle(...) in backend/app/app.go and call it from here.
 //
 // Delete this file (and its embed line in main.go) to fall back to the
 // built-in window setup from runtime.Config.

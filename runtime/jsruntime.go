@@ -201,6 +201,9 @@ func (jsr *JSRuntime) provideAPI() {
 	console.Set("warn", logFn(" WARN:"))
 	console.Set("error", logFn(" ERROR:"))
 	jsr.vm.Set("console", console)
+
+	// JS -> Go. Installed last so the bridge object cannot be shadowed by anything above.
+	jsr.provideBridgeAPI()
 }
 
 // serverURL is the address the window should load: the Vite dev server in

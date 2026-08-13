@@ -36,6 +36,12 @@ import (
 // script defined any functions, or the runtime has been stopped.
 var ErrJSUnavailable = errors.New("goleo: JS runtime unavailable")
 
+// jsInlineKey marks a context as already running on the VM's owning goroutine, so a nested
+// Call executes inline instead of deadlocking on the queue. Set only by the JS -> Go
+// binding in provideAPI; a caller cannot forge it usefully, since the worst it could do is
+// run their own call on their own goroutine.
+type jsInlineKey struct{}
+
 // jsJob is one unit of work for the owning goroutine.
 type jsJob struct {
 	fn    func(vm *goja.Runtime) (any, error)
@@ -85,6 +91,14 @@ func (jsr *JSRuntime) startLoop() {
 func (jsr *JSRuntime) submit(ctx context.Context, fn func(vm *goja.Runtime) (any, error)) (any, error) {
 	if jsr == nil || jsr.jobs == nil {
 		return nil, ErrJSUnavailable
+	}
+	// Re-entry: we are already ON the owning goroutine, because a script called into Go
+	// (goleo.invoke) and that handler is now calling back into JS. Queueing here would
+	// block the goroutine waiting for itself — a deadlock, and the single hazard the
+	// one-goroutine design introduces. Running inline is safe for exactly the reason the
+	// queue exists: nothing else can be touching the VM while this goroutine holds it.
+	if ctx.Value(jsInlineKey{}) != nil {
+		return fn(jsr.vm)
 	}
 	reply := make(chan jsResult, 1)
 	select {
@@ -244,4 +258,67 @@ func (jsr *JSRuntime) stopLoop() {
 			close(jsr.done)
 		}
 	})
+}
+
+// provideBridgeAPI installs the JS -> Go direction: a `goleo` global whose methods reach
+// the same bridge commands the frontend uses.
+//
+// Routed through Bridge.HandleRequestContext, NOT the handler map, and that is the whole
+// security design. HandleRequestContext is where Policy is enforced (bridge.go), so the
+// capability check applies here for free and cannot drift out of sync. A second path into
+// the handler map is precisely how an ACL gets bypassed later without anyone noticing.
+//
+// Synchronous on purpose: Go's bridge handlers are synchronous, so invoke returns the
+// result directly and the engine needs no event loop or Promise machinery. That does mean
+// a slow handler blocks the script — and, while it runs, any Go -> JS call queued behind
+// it. For init.js, which is app-author code, that is the right trade; it is not a
+// general-purpose async runtime and does not pretend to be.
+func (jsr *JSRuntime) provideBridgeAPI() {
+	if jsr.app == nil || jsr.app.bridge == nil {
+		return // no app (tests, or a runtime constructed standalone)
+	}
+
+	obj := jsr.vm.NewObject()
+
+	obj.Set("invoke", func(call goja.FunctionCall) goja.Value {
+		method := call.Argument(0).String()
+		if method == "" {
+			panic(jsr.vm.ToValue("goleo.invoke needs a method name"))
+		}
+
+		var args json.RawMessage
+		if a := call.Argument(1); !goja.IsUndefined(a) && !goja.IsNull(a) {
+			b, err := json.Marshal(a.Export())
+			if err != nil {
+				panic(jsr.vm.ToValue(fmt.Sprintf("goleo.invoke(%s): arguments are not encodable: %v", method, err)))
+			}
+			args = b
+		}
+
+		// The marker is what lets a handler call back into JS without deadlocking on the
+		// goroutine it is already running on. See submit().
+		ctx := context.WithValue(context.Background(), jsInlineKey{}, true)
+		resp := jsr.app.bridge.HandleRequestContext(ctx, InvokeRequest{Method: method, Args: args})
+		if resp.Error != "" {
+			// Surfaces in JS as a throw, so a script can try/catch it like any other error
+			// — including "permission denied" from the Policy check.
+			panic(jsr.vm.ToValue(resp.Error))
+		}
+		return jsr.vm.ToValue(resp.Result)
+	})
+
+	obj.Set("emit", func(call goja.FunctionCall) goja.Value {
+		event := call.Argument(0).String()
+		if event == "" {
+			panic(jsr.vm.ToValue("goleo.emit needs an event name"))
+		}
+		var payload any
+		if p := call.Argument(1); !goja.IsUndefined(p) && !goja.IsNull(p) {
+			payload = p.Export()
+		}
+		jsr.app.Emit(event, payload)
+		return goja.Undefined()
+	})
+
+	jsr.vm.Set("goleo", obj)
 }
