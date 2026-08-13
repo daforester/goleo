@@ -145,6 +145,52 @@ app.Quit()   // idempotent: unblocks Run → closes windows → OnShutdown → s
 ```
 Also exposed as `goleo:quit` / `@goleo/bridge`'s `quitApp()`.
 
+## Scripting in JavaScript (`backend/init.js`)
+
+`backend/init.js` runs inside the Go backend's embedded JS engine before any window opens.
+It sets up windows, and it is a place to put logic you want to change without recompiling —
+pricing rules, formatting, per-customer tweaks.
+
+**Go calls into it:**
+
+```js
+// backend/init.js
+function priceOrder(o) { return o.qty * o.unit * 1.2 }
+```
+
+```go
+// backend/app/app.go
+total, err := a.JS().Call(ctx, "priceOrder", order)          // -> any
+err = a.JS().CallJSON(ctx, "priceOrder", &out, order)        // decode into a struct
+if a.JS().Has(ctx, "priceOrder") { /* optional hook */ }
+```
+
+**And it calls back out:**
+
+```js
+goleo.invoke("goleo:notify", { title: "Done" })   // any bridge command
+goleo.emit("job:finished", { id: 7 })             // push an event to the frontend
+```
+
+Four things worth knowing before you lean on it:
+
+- **Every call takes a context, and you should give it a deadline.** A script with an
+  accidental infinite loop would otherwise wedge the engine for the life of the process. With
+  a deadline it is interrupted and the runtime survives for the next call.
+- **`goleo.invoke` is synchronous and goes through the same `Policy` ACL as the frontend.**
+  If a policy is set and does not allow the command, the script gets a
+  `permission denied` throw — catchable with `try`/`catch`.
+- **A JS exception becomes a Go error**, so a broken script fails the call rather than the app.
+- **Arguments and results cross as JSON**, so pass plain data. A Go struct works; a channel,
+  function or `chan`-bearing type does not.
+
+Run `goleo generate types` to refresh `backend/init.d.ts`, which gives your editor
+autocomplete for `getConfig`, `createWindow` and `goleo`, and flags anything else as
+undefined.
+
+Delete `init.js` (and its `//go:embed` line in the generated `main.go`) to fall back to plain
+`runtime.Config` window setup.
+
 ---
 
 Next: [RPC in depth →](07-rpc.md)

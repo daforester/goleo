@@ -605,7 +605,27 @@ API.
 
 ---
 
-## Track J — Make the JS backend usable (planned 2026-08-13)
+## Track J — Make the JS backend usable (planned 2026-08-13, DONE 2026-08-13)
+
+> **Status: complete.** J1, J2, J3, J4, J5 and J6 all shipped. What landed differs from
+> what was planned in one important way — see J2. Kept as written, with outcomes marked,
+> because the reasoning is the point of the entry.
+>
+> | Item | Outcome |
+> |---|---|
+> | J1 | done — both scaffolds document the real API; the fabricated `bridge.invoke` block is gone |
+> | J2 | **decided: both.** Bootstrapper *and* scripting layer, primary direction Go → JS |
+> | J3 | done, both directions — `app.JS().Call` and `goleo.invoke`/`goleo.emit` |
+> | J4 | done — the two directions were split; Go → JS needs no ACL, JS → Go routes through `Bridge.HandleRequestContext` |
+> | J5 | done — `goleo generate types` emits `backend/init.d.ts`; verified with `tsc` |
+> | J6 | done — three guards hold the VM, both comment blocks and the `.d.ts` to one global set |
+>
+> The finding worth carrying forward: **goja is not goroutine-safe and `jsruntime.go` had no
+> locking at all**, which was safe only because `Run()` was called once at startup. The VM now
+> has one owning goroutine. Its single hazard — JS → Go → JS deadlocking on that goroutine —
+> is closed by a context marker that makes a nested call run inline; removing it makes the
+> test hang rather than fail, so it is guarded by a timeout.
+
 
 ### The defect that prompted this
 

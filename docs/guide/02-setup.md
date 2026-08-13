@@ -33,7 +33,8 @@ my-app/
 ├── backend/
 │   ├── app/app.go          # ★ The one file you edit: startup, config, commands
 │   ├── commands/commands.go# Your backend commands (RPC handlers)
-│   ├── init.js             # Optional JS startup (window creation) — advanced
+│   ├── init.js             # Optional JS: window setup + scripting callable from Go
+│   ├── init.d.ts           # GENERATED types for init.js (goleo generate types)
 │   ├── main.go             # GENERATED (do not edit; gitignored)
 │   └── gomobile/           # GENERATED mobile entry points (gitignored)
 └── frontend/

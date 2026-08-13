@@ -107,6 +107,15 @@ WebView / WKWebView) and loads the Go server, so mobile entry points use
 Window creation can also be scripted from `init.js` through the embedded JS
 engine (`createWindow`/`getConfig`); see `runtime/jsruntime.go`.
 
+`init.js` is no longer only a bootstrapper: Go calls into it with
+`app.JS().Call(ctx, name, args...)` and it calls back out with `goleo.invoke` /
+`goleo.emit` (`runtime/jsruntime_call.go`). Relevant here because of the
+threading: the init script runs **inline on the startup goroutine**, before the
+VM's owning goroutine takes over, precisely so `createWindow` happens on the
+thread `App.Run` locked. Moving that onto the loop would create the window on
+the wrong thread — a silent failure on macOS and Linux, which are
+main-thread-only.
+
 ### Multi-window (desktop)
 
 Native OS webviews are single-window and own the GUI thread, so **additional

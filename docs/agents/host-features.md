@@ -23,6 +23,12 @@
 - Back in `tmplInitJS` in `templates.go`, `new.go` files map, and `create-app.ts` files map
 - Embedded via `//go:embed init.js` in main.go template alongside `//go:embed all:frontend/dist`
 
+> **Currency note (2026-08-13):** `init.js` is now a scripting layer as well as a window
+> bootstrapper. Go calls its functions with `app.JS().Call`, and it reaches bridge commands
+> with `goleo.invoke` — through `Bridge.HandleRequestContext`, so the `Policy` ACL applies to
+> scripts too. `create-app.ts` referenced above no longer exists (scaffolding is
+> single-source in `cli/cmd`). See `AGENTS.md` and `runtime/jsruntime_call.go`.
+
 ### Host Features via Bridge
 - Architectured a permission-gated host features system (like Tauri/Electron capabilities)
 - Each feature is a `runtime/<feature>/` sub-package with platform-specific implementations behind build tags
