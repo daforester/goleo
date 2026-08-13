@@ -902,3 +902,87 @@ location** — significant-change monitoring, geofencing — is not reachable. I
 reachable before either: no mobile shell ever registered a location provider. If you need it,
 that is the one case that justifies a real native provider in the shells; open an issue rather
 than reviving the desktop subprocesses.
+
+---
+
+## 0.12.0 — `backend/init.js` becomes a scripting layer (additive)
+
+**Affects:** nothing existing. Every API below is new, and `init.js` files that only create
+windows keep working unchanged. Read this if you want the new capability, or if you maintain
+an `init.js` and want to know what it can now reach.
+
+> **0.11.1 was never published.** It was tagged locally and superseded by this release before
+> being pushed, so `0.11.0` → `0.12.0` is the real sequence on npm. The 0.11.1 fixes (the
+> scaffold's shared `com.goleo.app` identity, double-printed CLI errors, the unusable keystore
+> hint) are all included here.
+
+### What is new
+
+`backend/init.js` used to do one job — create windows. It now also runs as a scripting layer
+in both directions.
+
+**Go calls the functions your script defines:**
+
+```js
+// backend/init.js
+function priceOrder(o) { return o.qty * o.unit * 1.2 }
+```
+
+```go
+// backend/app/app.go
+total, err := a.JS().Call(ctx, "priceOrder", order)
+err = a.JS().CallJSON(ctx, "priceOrder", &out, order)   // decode into a struct
+if a.JS().Has(ctx, "priceOrder") { /* optional hook */ }
+```
+
+**And your script reaches the bridge:**
+
+```js
+goleo.invoke("goleo:notify", { title: "Done" })   // any bridge command
+goleo.emit("job:finished", { id: 7 })             // push an event to the frontend
+```
+
+New public API on `runtime`: `App.JS()`, `JSRuntime.Call`, `CallJSON`, `Has`,
+`ErrJSUnavailable`, and `Bridge.HandleRequestContext`.
+
+### Things to know before relying on it
+
+- **Pass a context with a deadline.** A script with an accidental infinite loop would
+  otherwise hold the engine for the life of the process. With a deadline it is interrupted
+  and the runtime survives for the next call.
+- **`goleo.invoke` goes through the same `Policy` ACL as the frontend.** If you set a policy
+  and it does not allow the command, the script gets a `permission denied` throw. That is
+  deliberate: the call routes through `Bridge.HandleRequestContext`, the single place the ACL
+  is enforced, rather than reaching the handler map directly.
+- **Calls are serialised.** The JS engine is not goroutine-safe, so one goroutine owns it and
+  calls queue. A slow handler invoked from a script blocks the script and anything queued
+  behind it. This is app-author code, not a general async runtime.
+- **Arguments and results cross as JSON.** Pass plain data; a Go struct is fine, a channel or
+  func is not. A JS exception becomes a Go error rather than a panic.
+
+### `Bridge.HandleRequestContext`
+
+`HandleRequest` previously called handlers with `context.Background()`. It now delegates to
+`HandleRequestContext(ctx, req)` and behaves identically, so **no change is needed** unless
+you call it yourself and want to pass a context through. Custom transports should keep using
+`HandleRequest`.
+
+### `goleo generate types` also writes `backend/init.d.ts`
+
+If a `backend/` directory exists, `goleo generate types` now emits declarations for the
+script globals alongside the frontend types, and `goleo new` writes the file so a scaffolded
+project has it immediately. Both scaffolds' `init.js` open with a `/// <reference>` to it.
+
+Harmless if you do not want it: delete the file and the reference line. Nothing depends on
+it at runtime — it exists so your editor resolves `getConfig`, `createWindow` and `goleo`,
+and flags anything else as undefined.
+
+### If you have an existing `init.js`
+
+Nothing breaks. Two things are worth doing when convenient:
+
+1. Run `goleo generate types` to get `backend/init.d.ts`, and add
+   `/// <reference path="./init.d.ts" />` at the top of your `init.js`.
+2. **Check for `bridge.invoke(...)` calls.** Scaffolds before 0.12.0 shipped a comment block
+   documenting a `bridge` object that never existed — any code written against it was failing
+   with `ReferenceError` at runtime. The working call is `goleo.invoke(...)`.
