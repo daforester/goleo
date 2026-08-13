@@ -549,7 +549,30 @@ architecture and philosophy but carries no feature table). Capability claims bel
 | cgo-free cross-compile | **no** | yes | goleo's side of the ledger |
 | PWA as a build target | **no** | yes | |
 
-### Tier 1 — self-contained, no new security model
+> **Correction (2026-08-13), before anyone starts Tier 1.** "Self-contained" was written
+> without checking the dependency, and it is only half true. glaze exposes `SetSize` and
+> `SetTitle` and **no geometry getters, no `SetPosition`** — so T2 and T3 cannot be done
+> through the webview binding at all.
+>
+> They are still possible: `WebviewWindow.NativeHandle()` already returns the native window
+> (HWND / NSWindow / GtkWindow*), and `runtime/menu_windows.go` is the precedent for driving
+> it with purego — it takes that handle and calls user32 directly. So T2/T3 are **three
+> per-platform implementations each** (Win32 `GetWindowRect`/`SetWindowPos`, NSWindow
+> `frame`/`setFrame:`, `gtk_window_get_position`/`move`), not a storage exercise. T1 and T4
+> are the same shape: OS APIs via purego, no glaze involvement.
+>
+> **Only Windows is verifiable from the current dev machine.** That matters more than it
+> looks, because the repo has just been through this: geolocation shipped as
+> Windows-native + macOS-if-you-brew-installed-something + Linux-nothing, and 0.11.0 deleted
+> the whole thing in favour of the web API precisely because one-platform-of-six native
+> coverage was a maintenance cost with no user. Landing a third of T1/T3 would repeat that.
+>
+> Recommendation: do each of these as a complete set with a way to verify macOS and Linux
+> (the `glaze-verify.yml` runners can exercise Linux and macOS headlessly for build+smoke,
+> but interactive geometry needs eyes), or leave them until that exists. Do not start one
+> expecting it to be small.
+
+### Tier 1 — needs per-platform native work (was "self-contained")
 
 - **T1 — Global shortcuts.** System-wide hotkeys that fire when unfocused; the natural companion to
   the existing tray support, since a tray-resident app is otherwise only reachable by aiming at a
