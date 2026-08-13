@@ -36,6 +36,9 @@ type App struct {
 	// mainWin is the primary window (set by runWebview); used to marshal native
 	// menu-bar updates onto the GUI main thread. See menu_darwin.go.
 	mainWin *WebviewWindow
+	// rememberWindowState is set by RememberWindowState; shutdown() saves geometry when it
+	// is on, before CloseAll destroys the window it would have to read.
+	rememberWindowState bool
 }
 
 type Config struct {
@@ -466,6 +469,12 @@ func (a *App) serverURL(port int) string {
 func (a *App) shutdown() error {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
+
+	// Before OnShutdown and before CloseAll: the window has to still exist for its geometry
+	// to be readable, and CloseAll destroys it. Opted in by RememberWindowState.
+	if a.rememberWindowState {
+		_ = a.SaveWindowState()
+	}
 
 	if a.config.OnShutdown != nil {
 		a.config.OnShutdown(shutdownCtx)
