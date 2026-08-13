@@ -987,3 +987,51 @@ Nothing breaks. Two things are worth doing when convenient:
 2. **Check for `bridge.invoke(...)` calls.** Scaffolds before 0.12.0 shipped a comment block
    documenting a `bridge` object that never existed — any code written against it was failing
    with `ReferenceError` at runtime. The working call is `goleo.invoke(...)`.
+
+---
+
+## 0.12.1 — seven bridge commands gained types, and `init.d.ts` lost its catch-all
+
+**Affects:** almost nobody. No runtime behaviour changed — this is types only. Read the last
+section if you adopted `backend/init.d.ts` in 0.12.0 *and* call your own commands from
+`init.js`.
+
+### Seven commands are now typed
+
+`goleo generate types` builds its overloads from one list, and seven registered commands were
+missing from it. They always worked; they had no typed overload, so calls fell through to a
+generic signature with no argument checking and no autocomplete:
+
+| Command | What it does |
+|---|---|
+| `goleo:windowOpen` / `windowClose` / `windowList` | the multi-window API |
+| `goleo:setMenu` | set the native menu bar |
+| `goleo:capabilities` | which desktop subsystems this platform supports |
+| `goleo:microphonePermission` / `microphoneRequestPermission` | microphone permission state |
+
+Re-run `goleo generate types` to pick them up. Nothing to change in your code — calls that
+worked still work, they are now checked.
+
+### `backend/init.d.ts` types each command individually
+
+In 0.12.0 it declared a single `invoke(method: string, args?: unknown): any`, so
+`goleo.invoke("goleo:notifyy", …)` — typo included — type-checked on the backend while the
+same typo failed on the frontend. Now both sides get per-command overloads from the same
+source.
+
+### The one thing that may need action
+
+That generic overload is **gone**, deliberately: a signature accepting any string matches
+every typo, which makes the per-command overloads decorative. If your `init.js` calls a
+command your own app registered with `Bridge.Handle`, TypeScript will now flag it.
+
+Declare it once in a file the generator does not overwrite — `backend/custom.d.ts`:
+
+```ts
+interface GoleoAPI {
+  invoke(method: 'app:priceOrder', args: { id: string }): number
+}
+```
+
+`GoleoAPI` is a global interface, so this merges with the generated one. Runtime behaviour is
+unchanged either way: the call worked before and still works — only the type checking is new.

@@ -57,7 +57,7 @@
 - `runtime/fs/` — file system access (read/write text+binary, list dir, delete, app/home dirs) with path traversal protection
 - **geolocation has NO Go package** — it is a pure web feature (`bridge/src/geolocation.ts` calls `navigator.geolocation` directly on every platform). `runtime.RegisterGeolocation` still exists and must still be called, but it installs no handler: it is the declaration the manifest scanner reads to emit `ACCESS_FINE_LOCATION` / `NSLocationWhenInUseUsageDescription`, without which the WebView's own request is denied. See `runtime/geolocation_reexport.go`.
 - `bridge/src/clipboard.ts`, `dialogs.ts`, `fs.ts`, `geolocation.ts` — TS convenience wrappers with browser API fallbacks, all exported from `@goleo/bridge` (`geolocation.ts` is browser-*only*, not a fallback)
-- `cli/cmd/generate.go` — `goleo generate types` command that generates `frontend/src/goleo.d.ts` with typed `invoke()` overloads for all 48+ built-in commands
+- `cli/cmd/generate.go` — `goleo generate types` generates `frontend/src/goleo.d.ts` **and** `backend/init.d.ts`, both with typed `invoke()` overloads for every command in `KnownCommands` (67 as of 0.12.1). Do not quote a count elsewhere — `TestEveryRegisteredCommandIsInKnownCommands` keeps the list honest against `runtime/`, and a number in prose only goes stale
 
 ### Complete Host Feature Set (15 features)
 All 15 features in `featureRegistry` (`cli/cmd/scan.go`) implemented with Go sub-packages +
