@@ -69,6 +69,22 @@ var KnownCommands = []CommandDecl{
 	// Lifecycle
 	{Method: "goleo:quit", ReturnType: "void", Description: "Request a graceful app shutdown (desktop)"},
 
+	// Windowing (desktop). Registered by registerWindowCommands in runtime/app.go.
+	{Method: "goleo:windowOpen", Args: "{ title?: string; width?: number; height?: number; url?: string; path?: string; exitOnClose?: boolean }", ReturnType: "{ id: number }", Description: "Open an additional window (child process)"},
+	{Method: "goleo:windowClose", Args: "{ id: number }", ReturnType: "void", Description: "Close a window by id"},
+	{Method: "goleo:windowList", ReturnType: "{ ids: number[] }", Description: "List open window ids"},
+
+	// Native menu bar (desktop). Leaf items emit a `menu:<id>` event when clicked.
+	{Method: "goleo:setMenu", Args: "{ items: MenuItemSpec[] }", ReturnType: "void", Description: "Set the application menu"},
+
+	// Capability query — which desktop subsystems this build/platform supports.
+	{Method: "goleo:capabilities", ReturnType: "{ windowing: boolean; tray: boolean; menu: boolean }", Description: "Report supported desktop capabilities"},
+
+	// Microphone permission (feature: Microphone / goleo_microphone). Recording itself is
+	// getUserMedia in the WebView; only the permission state needs a native call.
+	{Method: "goleo:microphonePermission", ReturnType: "{ granted: boolean }", Description: "Check microphone permission", Feature: "Microphone"},
+	{Method: "goleo:microphoneRequestPermission", ReturnType: "{ status: string }", Description: "Request microphone permission", Feature: "Microphone"},
+
 	// Autostart (launch on login, desktop)
 	{Method: "goleo:autostartEnable", ReturnType: "void", Description: "Register the app to launch on login"},
 	{Method: "goleo:autostartDisable", ReturnType: "void", Description: "Remove the launch-on-login entry"},

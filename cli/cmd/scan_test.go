@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -249,4 +251,60 @@ func slicesContains(hay []string, needle string) bool {
 		}
 	}
 	return false
+}
+
+// Every bridge command registered in runtime/ must appear in KnownCommands.
+//
+// KnownCommands drives `goleo generate types`, so a command missing from it gets no typed
+// overload on either side — the frontend's goleo.d.ts and the backend's init.d.ts are both
+// generated from this one list. The command still WORKS; it is simply invisible, which is
+// why the gap survives: nothing fails, users just have no autocomplete and no argument
+// checking, and eventually someone concludes the feature does not exist.
+//
+// It had drifted by seven when this test was written — the whole multi-window API
+// (windowOpen/Close/List), setMenu, capabilities, and both microphone permission commands.
+// AGENTS.md's advice to "grep runtime/ for Handle( rather than trusting a list here, which
+// has drifted before" is that warning; this test is the reason it no longer has to be.
+func TestEveryRegisteredCommandIsInKnownCommands(t *testing.T) {
+	documented := map[string]bool{}
+	for _, c := range KnownCommands {
+		documented[c.Method] = true
+	}
+
+	// RegisterSampleCommands is opt-in demo scaffolding, not part of the shipped API.
+	skip := map[string]bool{
+		"goleo:example:hello": true,
+		"goleo:example:echo":  true,
+		"goleo:example:ping":  true,
+	}
+
+	root := filepath.Join("..", "..", "runtime")
+	var missing []string
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return err
+		}
+		src, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		for _, m := range regexp.MustCompile(`\.Handle\(\s*"(goleo:[^"]+)"`).FindAllStringSubmatch(string(src), -1) {
+			method := m[1]
+			if documented[method] || skip[method] {
+				continue
+			}
+			missing = append(missing, method+"  ("+filepath.Base(path)+")")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		t.Errorf("these bridge commands are registered but absent from KnownCommands, so "+
+			"`goleo generate types` emits no overload for them on either side:\n  %s",
+			strings.Join(missing, "\n  "))
+	}
 }
