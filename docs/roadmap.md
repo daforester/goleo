@@ -593,7 +593,8 @@ Do **not** start these before the scope model is written. That two of them alrea
 - **T9 — Utility plugins**: CLI arg parsing, log, positioner, upload, websocket client. Each small;
   none is why anyone picks a framework.
 - **T10 — Mobile: biometric, barcode scanner.** Both fit the existing `Provider` pattern; both need a
-  device.
+  device. **The barcode half is superseded by P2** (Track P) — plan it there, not here; T10 is now
+  biometric only.
 - **T11 — Security depth: scopes and the isolation pattern.** The honest structural gap. Research
   before implementation, and it should **follow** T5/T6 — those will show what the scope model needs
   to express.
@@ -667,3 +668,94 @@ of the 60 bridge commands, registering a handler, and `Quit`.
 
 > Tauri details reflect 2.x as known on 2026-08-13; its plugin workspace moves quickly, so spot-check
 > anything before acting on it.
+
+---
+
+## Track P — native push and barcode scanning (planned 2026-08-13, from an external proposal)
+
+Origin: a `TASK.md` gap analysis produced by another agent. Two of its three items are real gaps
+and are planned below. The rest was assessed and **rejected**; the verdicts are recorded here so
+the same proposal does not get re-litigated.
+
+### Assessment of the source proposal
+
+| Claim | Reality | Verdict |
+|---|---|---|
+| Remote push (APNs/FCM) missing | `runtime/push` is **Web Push** — `Subscribe(serverKey)` → `PushSubscription`, i.e. VAPID. Device-token push genuinely absent | **valid — P1** |
+| Barcode/QR scanning missing | `camera.Provider` is `CapturePhoto`/`StartStream`/`StopStream` only | **valid — P2** |
+| Transparent webview for a native scan overlay | No transparency support today | **valid — prerequisite of P2, = T2** |
+| `goleo init`, `goleo mobile init` | `goleo new` exists; native shells are generated into `.goleo/{android,ios}` on every build | already built |
+| `goleo build desktop --os=`, `goleo build mobile --target=` | `goleo build windows\|linux\|darwin\|android\|ios` | already built |
+| "inject asset bundles into the native asset directory" | Deliberately not done: the frontend is embedded in the Go library and served over loopback, because `file:///android_asset` is not a secure context and a native copy duplicated the whole frontend into every artifact | contradicts a solved problem |
+
+**Rejected outright, with reasons:**
+
+- **CGO bindings** ("Go-Mobile/CGO bindings", "CGO/Objective-C wrapping `UNUserNotificationCenter`").
+  Violates the core invariant — `CGO_ENABLED=0` everywhere, every desktop target cross-compilable
+  from one machine — and is unnecessary. Mobile providers live in the native Swift/Java shell and
+  are registered via gomobile reverse bindings; nine already work that way. APNs registration
+  belongs beside `GoleoNotifier` in `AppDelegate.swift`.
+- **A `permissions` block in `goleo.json`.** Android permissions are DERIVED from the `Register*`
+  calls the scanner finds. A hand-written list is exactly what that design replaced, and it
+  reintroduces the defect where every app declared thirteen permissions it did not use.
+- **`window.__goleo.*` as a new global.** Bypasses `@goleo/bridge` and, critically,
+  `Bridge.HandleRequest` — the one place the `Policy` ACL is enforced — and collides with the
+  existing `window.__goleoRecv` / `__goleoOnMessage` / `__goleoDrain` native-IPC internals.
+- **The proposed `goleo.json` schema** (`name`, `appID`, `frontend.dist`, `devURL`) is incompatible
+  with the shipped one (`app_name`, `bundle.identifier`, `frontend.directory`/`dist_dir`,
+  `mobile.android.package_name`). Adopting it breaks every existing project.
+- **Replacing the push `Provider` interface.** The proposal swaps `Subscribe`/`Unsubscribe`/
+  `GetSubscription` for `RegisterRemote`/`GetToken`/… That is a breaking change to a shipped API
+  with live bridge commands and a TS wrapper. Native push is ADDITIVE (P1), not a replacement.
+
+### P1 — native remote push (device-token), alongside Web Push
+
+Web Push already works and stays. This adds the device-token path that mobile stores actually use.
+
+- **Additive interface.** A separate `RemoteProvider` in `runtime/push/`, not a rewrite of
+  `Provider`. Existing `Subscribe`/`Unsubscribe`/`GetSubscription` and the three `goleo:push*`
+  bridge commands are unchanged.
+- **New commands** follow the existing naming: `goleo:pushRegisterRemote`,
+  `goleo:pushGetDeviceToken`. Token-refresh and notification-received are **events**
+  (`app.Emit`), matching how the rest of the runtime pushes to the frontend — not callbacks
+  injected into a new JS global.
+- **iOS**: `registerForRemoteNotifications()` + `didRegisterForRemoteNotificationsWithDeviceToken`
+  in `AppDelegate.swift`, registered like the other nine providers. **No cgo.** Needs the
+  `aps-environment` entitlement, which the generated project does not currently emit — that is
+  the real work, and it needs a **paid** Apple membership to test, so it is blocked on the same
+  account as everything else in `docs/store-submission.md`.
+- **Android**: FCM via the Gradle template + a `GoleoPushProvider` in the shell. Requires
+  `google-services.json` from the app developer, so it needs a config path and a clear error when
+  absent.
+- **Permissions**: `POST_NOTIFICATIONS` is already core. FCM adds nothing on modern Android, but
+  check the derived manifest against a real build (`aapt2 dump permissions`) rather than the
+  template — the manifest merger adds entries goleo never declares.
+- **Desktop**: out of scope. The proposal lists "FCM for Desktop"; there is no such thing outside
+  Chrome. Desktop keeps Web Push.
+
+### P2 — barcode / QR scanning
+
+Supersedes the barcode half of **T10**. Camera scanning is the higher-value half; biometric stays
+in T10.
+
+- **Additive interface** again: `ScanProvider` alongside `camera.Provider`, so `CapturePhoto` and
+  the stream methods keep working.
+- **Desktop and PWA**: `BarcodeDetector` where available, and state plainly that it is
+  **Chromium-only** — Safari and Firefox do not ship it, so the honest fallback is
+  `ErrUnsupported` and a JS-side decoder chosen by the app, not a promise goleo cannot keep.
+- **Mobile**: native scanners (ML Kit on Android, `AVCaptureMetadataOutput` on iOS) in the shells.
+  Both are genuinely better than a canvas loop, which is the proposal's one solid technical point.
+- **Blocked on T2 (window chrome).** A native preview layer behind a transparent WebView needs
+  transparency support, which does not exist. Do T2 first, or ship a full-screen native scan view
+  with no web overlay as a simpler first cut.
+- **Verify on a device.** Neither scanner can be checked from a non-Mac, non-device host — the same
+  constraint as every other mobile feature.
+
+### Sequencing
+
+P2 before P1: barcode scanning is self-contained, has a real desktop story, and needs no developer
+accounts. P1's iOS half is blocked on a paid Apple membership and its Android half needs a Firebase
+project, so it should not be started until someone can actually test it end to end.
+
+Neither belongs in Tier 1 of Track T — both are larger than the four items there, and both need a
+device to verify.
