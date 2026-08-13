@@ -1,3 +1,4 @@
+/// <reference path="./init.d.ts" />
 // init.js — Goleo startup script.
 //
 // Runs inside the Go backend (embedded JS engine) before any window is shown. Two

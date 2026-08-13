@@ -202,6 +202,16 @@ func runNew(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Both templates' init.js opens with `/// <reference path="./init.d.ts" />`, so the
+	// file has to exist from the first `goleo new` — a dangling reference in a freshly
+	// scaffolded project is exactly the kind of broken-out-of-the-box detail that sends a
+	// developer looking for a mistake they did not make. Written here rather than in
+	// either branch so minimal and demo cannot diverge. `goleo generate types` rewrites it.
+	if err := os.WriteFile(filepath.Join(dir, "backend", "init.d.ts"), []byte(initDTS), 0644); err != nil {
+		return fmt.Errorf("failed to write backend/init.d.ts: %w", err)
+	}
+	fmt.Println("  created backend/init.d.ts")
+
 	fmt.Println()
 
 	fmt.Println("  Resolving Go dependencies...")

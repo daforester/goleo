@@ -165,6 +165,46 @@ func TestScaffoldInitJSDoesNotClaimABridge(t *testing.T) {
 	}
 }
 
+// Third face of the same contract: the generated init.d.ts. The VM, the scaffold comment
+// block and this file all describe the same three globals, and any two of them agreeing
+// while the third drifts is how the fabricated `bridge` survived. Editors read the .d.ts,
+// so it is the one a developer actually feels.
+func TestGeneratedInitDTSMatchesTheVM(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "cli", "cmd", "generate.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(raw)
+	i := strings.Index(body, "const initDTS = ")
+	if i < 0 {
+		t.Fatal("initDTS is gone from generate.go — backend/init.js would have no types again")
+	}
+	dts := body[i:]
+
+	for _, real := range []string{"declare function getConfig()", "declare function createWindow("} {
+		if !strings.Contains(dts, real) {
+			t.Errorf("init.d.ts does not declare %q, which the engine defines", real)
+		}
+	}
+	// Declaring console would be a "cannot redeclare block-scoped variable" error in any
+	// project including the DOM or ES libs, so its absence is deliberate and load-bearing.
+	if strings.Contains(dts, "declare const console") || strings.Contains(dts, "declare var console") {
+		t.Error("init.d.ts declares console — TypeScript's own lib already does, and redeclaring it " +
+			"breaks any project that includes lib.dom or lib.es")
+	}
+	// The same fabrication guard as the comment block: types are documentation an editor
+	// enforces, so a phantom here is worse than a phantom in prose.
+	for _, claim := range []string{"declare const bridge", "declare function invoke", "goleo:getOS"} {
+		if strings.Contains(dts, claim) {
+			t.Errorf("init.d.ts declares %q, which the engine does not provide", claim)
+		}
+	}
+	// createWindow returns false in browser mode — the gotcha the original docs missed.
+	if !strings.Contains(dts, "): boolean") {
+		t.Error("createWindow's declared return type is not boolean; browser mode returns false")
+	}
+}
+
 // Go -> JS calls. The scripting layer's whole point: init.js defines functions, Go calls them.
 func newScriptedRuntime(t *testing.T, script string) *JSRuntime {
 	t.Helper()

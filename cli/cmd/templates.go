@@ -133,7 +133,8 @@ func main() {
 }
 `
 
-var tmplInitJS = `// init.js — Goleo startup script.
+var tmplInitJS = `/// <reference path="./init.d.ts" />
+// init.js — Goleo startup script.
 //
 // Runs inside the Go backend (embedded JS engine) before any window is shown. Two
 // jobs: it decides how many windows to open and how each is configured, and any
