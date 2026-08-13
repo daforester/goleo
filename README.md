@@ -135,6 +135,12 @@ a = runtime.New(runtime.Config{
                                           // macOS/Linux: share the primary's run loop)
     SingleInstance:   true,               // a second launch focuses the running one
     URLScheme:        "myapp",            // register myapp:// deep links
+    Chrome: runtime.WindowChrome{         // decorations / resizable / always-on-top /
+        Decorations: runtime.Bool(false), // fullscreen. nil = the OS default, which is
+    },                                    // not the same as false
+    OnStartup: func(ctx context.Context) {
+        a.RememberWindowState()           // restore last size + position, save on quit
+    },
     Background:       true,               // headless controller (window(s) on demand)
     Tray: &runtime.TrayConfig{            // optional system tray
         Tooltip: "My App",

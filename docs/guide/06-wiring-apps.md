@@ -56,6 +56,51 @@ func New() *goleo.App {
 | `SingleInstance`, `AppID` | Allow only one instance; forward args to the running one |
 | `URLScheme` | Register a `myapp://` deep-link scheme |
 | `InProcessWindows` | Open extra windows in-process (vs child processes) |
+| `Chrome` | Decorations, resizability, always-on-top, fullscreen — see below |
+
+## Window chrome and remembered geometry (desktop)
+
+```go
+a = runtime.New(runtime.Config{
+    Title:  "My App",
+    Chrome: runtime.WindowChrome{
+        Decorations: runtime.Bool(false), // frameless
+        Resizable:   runtime.Bool(false),
+        AlwaysOnTop: runtime.Bool(true),
+        // Fullscreen left nil — untouched. On Windows, true maximizes.
+    },
+    OnStartup: func(ctx context.Context) {
+        a.RememberWindowState() // restore last size/position, save it on quit
+    },
+})
+```
+
+Each field is a `*bool`, and **leaving one nil is not the same as setting it false**: nil
+means "whatever the OS does by default", which for all four is the on side — a window is
+resizable and decorated unless you say otherwise. `runtime.Bool` is there to keep the
+literal readable.
+
+`Config.Chrome` is also the default for every window you open later; `OpenWindow` and
+`createWindow()` override it one field at a time:
+
+```go
+a.OpenWindow(runtime.WindowOptions{Path: "/preview", Chrome: runtime.WindowChrome{
+    AlwaysOnTop: runtime.Bool(false), // this window only; decorations still inherited
+}})
+```
+
+```ts
+import { openWindow } from '@goleo/bridge'
+await openWindow({ path: '/preview', chrome: { decorations: false } })
+```
+
+To change a window after it is open, use `a.MainWindow().SetChrome(...)`, and
+`Rect()`/`SetRect()` for geometry. `RememberWindowState()` clamps a restored window back
+onto a screen that still exists, so unplugging the monitor it was saved on does not leave
+the app starting invisibly off-screen.
+
+Fullscreen on Windows maximizes rather than going borderless, and window **transparency is
+not supported** on any platform.
 
 ## Registering commands (backend → callable from JS)
 

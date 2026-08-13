@@ -70,7 +70,7 @@ var KnownCommands = []CommandDecl{
 	{Method: "goleo:quit", ReturnType: "void", Description: "Request a graceful app shutdown (desktop)"},
 
 	// Windowing (desktop). Registered by registerWindowCommands in runtime/app.go.
-	{Method: "goleo:windowOpen", Args: "{ title?: string; width?: number; height?: number; url?: string; path?: string; exitOnClose?: boolean }", ReturnType: "{ id: number }", Description: "Open an additional window (child process)"},
+	{Method: "goleo:windowOpen", Args: "{ title?: string; width?: number; height?: number; url?: string; path?: string; exitOnClose?: boolean; chrome?: { resizable?: boolean; alwaysOnTop?: boolean; fullscreen?: boolean; decorations?: boolean } }", ReturnType: "{ id: number }", Description: "Open an additional window (child process)"},
 	{Method: "goleo:windowClose", Args: "{ id: number }", ReturnType: "void", Description: "Close a window by id"},
 	{Method: "goleo:windowList", ReturnType: "{ ids: number[] }", Description: "List open window ids"},
 

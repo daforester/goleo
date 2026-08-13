@@ -91,17 +91,39 @@ func (a *App) RestoreWindowState() (bool, error) {
 	return true, nil
 }
 
-// RememberWindowState restores the saved geometry now and arranges to save it on shutdown.
+// RememberWindowState restores the saved geometry and arranges to save it on shutdown.
 //
-// Call it from OnStartup, after the window exists:
+// Call it from OnStartup:
 //
 //	OnStartup: func(ctx context.Context) { a.RememberWindowState() }
+//
+// THE WINDOW DOES NOT EXIST YET AT THAT POINT, which is why the restore is deferred
+// rather than done here. OnStartup runs inside StartServer, and the primary window is
+// created afterwards in runWebview; the first cut restored inline, found a nil window,
+// swallowed the error it is documented to swallow, and left every app that called this
+// silently starting at Config's default size forever. runWebview applies the restore as
+// soon as the window is there (restoreSavedWindowState).
+//
+// Calling it later — from OnReady, or after OpenWindow — still works: the window exists
+// by then and the restore happens immediately.
 //
 // Errors are swallowed on purpose. Every failure mode here is benign — no saved state on
 // first run, a platform with no geometry support, a monitor that has gone away — and none
 // of them is a reason to interrupt startup or shutdown. Call SaveWindowState or
 // RestoreWindowState directly if you want to see them.
 func (a *App) RememberWindowState() {
-	_, _ = a.RestoreWindowState()
 	a.rememberWindowState = true
+	a.restoreSavedWindowState()
+}
+
+// restoreSavedWindowState applies the saved geometry once, if it was asked for and the
+// window exists. Called both by RememberWindowState (late callers) and by runWebview
+// (the OnStartup case, where the window is created after the call). The once-only flag
+// is what makes calling it from both safe.
+func (a *App) restoreSavedWindowState() {
+	if !a.rememberWindowState || a.windowStateRestored || a.mainWin == nil {
+		return
+	}
+	a.windowStateRestored = true
+	_, _ = a.RestoreWindowState()
 }

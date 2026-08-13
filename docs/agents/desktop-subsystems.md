@@ -23,6 +23,12 @@ Added on top of the core bridge/feature system. Full rationale + status in
   `runtime/app.go`) rather than getting their own. All implement `windowSpawner`.
 - API: `App.OpenWindow/CloseWindow/ListWindows`, bridge `goleo:window{Open,Close,List}`,
   `bridge/src/window.ts`; `WindowOptions.ExitOnClose` quits the app when that window closes.
+- **Geometry, chrome and state:** `Config.Chrome` / `WindowOptions.Chrome` /
+  `WebviewWindow.{Rect,SetRect,SetChrome}` / `App.RememberWindowState` (`runtime/windowgeom*.go`,
+  `runtime/windowstate.go`). glaze has no API for any of it — it is purego against the native
+  handle, per platform. **Read `docs/agents/webview.md` before changing it**: the `*bool` fields,
+  the four surfaces they must stay in sync across, and why the state restore happens in
+  `runWebview` rather than where it is called are all recorded there.
 
 ### Lifecycle
 - `App.Quit()` — single idempotent shutdown funnel (unblocks the run loop → `CloseAll` →

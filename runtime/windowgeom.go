@@ -35,11 +35,50 @@ type WindowRect struct {
 
 // WindowChrome is the set of window decorations and behaviours T2 covers. A nil field
 // means "leave as-is", so a caller can change one property without restating the others.
+//
+// The pointers are the point. Every one of these has a non-false OS default (a window is
+// resizable and decorated unless told otherwise), so plain bools would make the zero
+// value — which every existing Config has — mean "undecorated, non-resizable". Nil is
+// the only honest encoding of "the app did not say", and it is the same distinction the
+// JS side needs, where an absent property must not read as false.
 type WindowChrome struct {
 	Resizable   *bool `json:"resizable,omitempty"`
 	AlwaysOnTop *bool `json:"alwaysOnTop,omitempty"`
 	Fullscreen  *bool `json:"fullscreen,omitempty"`
 	Decorations *bool `json:"decorations,omitempty"`
+}
+
+// Bool returns a pointer to v, for populating WindowChrome in a Config literal:
+//
+//	Chrome: runtime.WindowChrome{Resizable: runtime.Bool(false)}
+func Bool(v bool) *bool { return &v }
+
+// isZero reports that nothing was requested, so callers can skip the native call
+// entirely rather than loading OS libraries to apply nothing.
+func (c WindowChrome) isZero() bool {
+	return c.Resizable == nil && c.AlwaysOnTop == nil && c.Fullscreen == nil && c.Decorations == nil
+}
+
+// mergeChrome layers over on top of base, field by field: a field set in over wins, one
+// left nil inherits base. This is how Config.Chrome becomes the default for windows opened
+// later — the same inheritance Title/Width/Height already have in resolveWindowOptions,
+// and the same rule that lets `createWindow({ resizable: false })` change one property
+// without silently re-decorating a frameless app.
+func mergeChrome(base, over WindowChrome) WindowChrome {
+	out := base
+	if over.Resizable != nil {
+		out.Resizable = over.Resizable
+	}
+	if over.AlwaysOnTop != nil {
+		out.AlwaysOnTop = over.AlwaysOnTop
+	}
+	if over.Fullscreen != nil {
+		out.Fullscreen = over.Fullscreen
+	}
+	if over.Decorations != nil {
+		out.Decorations = over.Decorations
+	}
+	return out
 }
 
 var errNoWindow = errors.New("goleo: no native window (browser or mobile mode)")

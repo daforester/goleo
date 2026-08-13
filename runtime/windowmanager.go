@@ -31,27 +31,46 @@ type WindowOptions struct {
 	// ExitOnClose quits the whole app when this window closes (via App.Quit).
 	// Default false: closing just closes the window; the app keeps running.
 	ExitOnClose bool `json:"exitOnClose"`
+	// Chrome overrides Config.Chrome for this window, field by field: decorations,
+	// resizability, always-on-top, fullscreen. Fields left nil inherit the app's,
+	// the same way an unset Width inherits Config.Width.
+	Chrome WindowChrome `json:"chrome"`
+}
+
+// resolvedWindow is what a WindowOptions becomes once app defaults are applied: the
+// values all three window managers need to create a window. A struct rather than five
+// return values, which is where this was heading.
+type resolvedWindow struct {
+	URL    string
+	Title  string
+	Width  int
+	Height int
+	Chrome WindowChrome
 }
 
 // resolveWindowOptions fills in defaults from the app config.
-func resolveWindowOptions(app *App, opts WindowOptions) (url, title string, width, height int) {
-	url = opts.URL
-	if url == "" {
-		url = app.serverURL(app.port) + opts.Path
+func resolveWindowOptions(app *App, opts WindowOptions) resolvedWindow {
+	r := resolvedWindow{
+		URL:    opts.URL,
+		Title:  opts.Title,
+		Width:  opts.Width,
+		Height: opts.Height,
+		// Config.Chrome is the app-wide default; this window's own fields win.
+		Chrome: mergeChrome(app.config.Chrome, opts.Chrome),
 	}
-	title = opts.Title
-	if title == "" {
-		title = app.config.Title
+	if r.URL == "" {
+		r.URL = app.serverURL(app.port) + opts.Path
 	}
-	width = opts.Width
-	if width == 0 {
-		width = app.config.Width
+	if r.Title == "" {
+		r.Title = app.config.Title
 	}
-	height = opts.Height
-	if height == 0 {
-		height = app.config.Height
+	if r.Width == 0 {
+		r.Width = app.config.Width
 	}
-	return
+	if r.Height == 0 {
+		r.Height = app.config.Height
+	}
+	return r
 }
 
 // --- Multi-process window manager (default, cross-platform) ---
@@ -84,16 +103,22 @@ func (wm *WindowManager) Open(opts WindowOptions) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("locate executable: %w", err)
 	}
-	url, title, width, height := resolveWindowOptions(wm.app, opts)
+	r := resolveWindowOptions(wm.app, opts)
 
 	cmd := exec.Command(exe)
 	cmd.Env = append(os.Environ(),
 		envWindowChild+"=1",
-		envWindowURL+"="+url,
-		envWindowTitle+"="+title,
-		envWindowWidth+"="+strconv.Itoa(width),
-		envWindowHeight+"="+strconv.Itoa(height),
+		envWindowURL+"="+r.URL,
+		envWindowTitle+"="+r.Title,
+		envWindowWidth+"="+strconv.Itoa(r.Width),
+		envWindowHeight+"="+strconv.Itoa(r.Height),
 	)
+	// Chrome crosses the process boundary as JSON in one variable rather than four
+	// tri-state ones: "unset", "true" and "false" are three values an env var models
+	// badly, and WindowChrome already marshals with omitempty.
+	if enc, err := encodeChromeEnv(r.Chrome); err == nil && enc != "" {
+		cmd.Env = append(cmd.Env, envWindowChrome+"="+enc)
+	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
@@ -188,7 +213,7 @@ func newInProcWindowManager(app *App) *inProcWindowManager {
 }
 
 func (m *inProcWindowManager) Open(opts WindowOptions) (int, error) {
-	url, title, width, height := resolveWindowOptions(m.app, opts)
+	r := resolveWindowOptions(m.app, opts)
 
 	m.mu.Lock()
 	m.next++
@@ -202,13 +227,14 @@ func (m *inProcWindowManager) Open(opts WindowOptions) (int, error) {
 	go func() {
 		runtime.LockOSThread()
 		w := NewWebviewWindow(windowConfig{
-			Title:    title,
-			Width:    width,
-			Height:   height,
+			Title:    r.Title,
+			Width:    r.Width,
+			Height:   r.Height,
 			Center:   true,
-			URL:      url,
+			URL:      r.URL,
 			DevTools: m.app.config.DevMode,
 			OnInit:   m.app.nativeOnInit(),
+			Chrome:   r.Chrome,
 		})
 		// Native IPC: this in-process window shares the app's Bridge, so give it
 		// its own native channel + event pump (torn down when the window closes)

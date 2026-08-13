@@ -541,7 +541,8 @@ architecture and philosophy but carries no feature table). Capability claims bel
 | Deep link, single-instance, autostart, store | yes | yes | store is **plaintext JSON** |
 | Capability ACL | yes | **partial** | `Policy` enforces methods + `FSRoots`; `HTTPHosts`/`ShellPrograms` are reserved and gate nothing |
 | Global shortcuts | yes | **none** | no hits anywhere in the tree |
-| Window chrome | yes | **none** | title/width/height only — no decorations, always-on-top, fullscreen, resizable |
+| Window chrome | yes | **yes** (2026-08-13, T2) | decorations, resizable, always-on-top, fullscreen via `Config.Chrome` / `createWindow` / `WindowOptions`. **No transparency** — see T2's outcome |
+| Window state persistence | yes | **yes** (2026-08-13, T3) | `App.RememberWindowState()`; clamped to the visible screen on restore |
 | HTTP / shell plugins | yes | **none** | Policy fields exist; no plugin behind them |
 | Sidecar binaries | yes | **none** | |
 | Isolation pattern | yes | **none** | no sandboxed IPC hop |
@@ -583,11 +584,36 @@ architecture and philosophy but carries no feature table). Capability claims bel
   Two API requirements: the OS grants a combination **first-come**, so registration can fail and must
   report that rather than silently no-op; and there is **no web equivalent**, so unlike most goleo
   features there is no browser fallback. New `runtime/shortcut/`. Needs a GUI session to verify.
-- **T2 — Window chrome options.** The most immediately noticeable absence. Add to both `Config` and
-  `createWindow` opts so the JS path stays level with the Go path. The real work is auditing what the
-  pinned glaze fork supports — a dependency question before a code one.
-- **T3 — Window state persistence.** Cheapest item here; `runtime/store` is the obvious backing. Care
-  needed on multi-monitor: a saved position on a monitor that is now gone must clamp on-screen.
+- **T2 — Window chrome options. DONE 2026-08-13.** The dependency audit the entry asked for came back
+  empty: glaze exposes `SetTitle`/`SetSize` and nothing else, so chrome is applied through
+  `WebviewWindow.NativeHandle()` per platform (`runtime/windowgeom_*.go`), not through the binding.
+  `WindowChrome{Resizable, AlwaysOnTop, Fullscreen, Decorations}` reaches all four surfaces —
+  `Config.Chrome`, `createWindow` opts, `WindowOptions.Chrome` (so `goleo:windowOpen` and
+  `openWindow()` too), and `WebviewWindow.SetChrome` at runtime — with `Config.Chrome` as the
+  per-field default for windows opened later.
+  **Every field is a `*bool` and that is load-bearing**: each of these defaults to the *true* side at
+  the OS (a window is resizable and decorated), so plain bools would make every existing zero-value
+  Config mean "frameless, fixed-size". nil = "not stated"; a `false` from JS is not the same as an
+  absent property, and there is a test per surface saying so.
+  **Two deliberate gaps.** Windows "fullscreen" **maximizes** rather than doing a true borderless
+  state change (real fullscreen needs an exact save/restore of the pre-fullscreen placement; getting
+  it wrong strands a window with no frame and no way back). And there is **no transparency**, which
+  is what P2 wanted from this item — see the note under P2.
+  Verified on real Windows: created frameless/fixed/topmost, style bits read back off the HWND
+  (`caption=false thickframe=false maximizebox=false popup=true topmost=true`), then toggled back
+  at runtime with geometry undisturbed. macOS and Linux compile only.
+- **T3 — Window state persistence. DONE 2026-08-13** (geometry landed with T2's plumbing; the restore
+  path was fixed on delivery). `runtime/store` backs it, and a restored rect is clamped to the visible
+  screen — the unplugged-second-monitor case, where an unclamped restore is indistinguishable from a
+  crash.
+  **The defect worth recording:** `RememberWindowState` is documented to be called from `OnStartup`,
+  and `OnStartup` runs inside `StartServer` — *before* `runWebview` creates the window. The first cut
+  restored inline, found `a.mainWin == nil`, and swallowed the error it is documented to swallow, so
+  every app that called it silently started at `Config`'s default size forever, with nothing in any
+  log. It was invisible to the unit tests because they exercise `clampToVisible`, which was never the
+  broken part. The restore is now deferred to `runWebview` and verified end-to-end through a real
+  `App.Run` on Windows: move to 300,220 640x480 → quit → relaunch → window comes back at exactly that
+  rect. Same shape as the repo's recurring defect class — a declaration whose consumer never runs.
 - **T4 — Context menus.** Shares the descriptor type with `SetMenu`; the per-platform popup call is
   the new part.
 
@@ -734,8 +760,11 @@ of the 60 bridge commands, registering a handler, and `Quit`.
 
 ### Suggested order across both tracks
 
-- **Now, independent of everything:** J1.
+- **Now, independent of everything:** J1. *(done)*
 - **Next, cheap and visible:** T3 and T1 — the two users notice, neither needing a design debate.
+  *(T3 done 2026-08-13, along with T2, which turned out to be the same per-platform native work.
+  **T1 is what remains of that pairing** and is the larger half: three unrelated OS APIs plus a
+  Wayland portal, and unlike T2/T3 a failed registration must be reported rather than swallowed.)*
 - **Then the decision:** J2. Unblocking, and it costs a conversation rather than a sprint. If the
   answer is "scripting layer", J3–J6 follow and J5 pays back immediately.
 - **Only then:** T5/T6 with a written scope model, and T11 after them.
@@ -819,8 +848,14 @@ in T10.
   `ErrUnsupported` and a JS-side decoder chosen by the app, not a promise goleo cannot keep.
 - **Mobile**: native scanners (ML Kit on Android, `AVCaptureMetadataOutput` on iOS) in the shells.
   Both are genuinely better than a canvas loop, which is the proposal's one solid technical point.
-- **Blocked on T2 (window chrome).** A native preview layer behind a transparent WebView needs
-  transparency support, which does not exist. Do T2 first, or ship a full-screen native scan view
+- **Still blocked, and T2 did NOT unblock it (2026-08-13).** T2 shipped decorations, resizability,
+  always-on-top and fullscreen — not transparency, so this bullet stands as written. Transparency is
+  not another `WindowChrome` field: it needs the *webview* to render on a transparent backing, and
+  glaze exposes no control over that (setting the native window's alpha leaves WebView2 painting an
+  opaque page behind it). It is an upstream glaze change or a fork carry, in the same category as the
+  permission hook, and should be planned as one rather than assumed to be a day's work here.
+  A native preview layer behind a transparent WebView needs
+  transparency support, which does not exist. Do that first, or ship a full-screen native scan view
   with no web overlay as a simpler first cut.
 - **Verify on a device.** Neither scanner can be checked from a non-Mac, non-device host — the same
   constraint as every other mobile feature.

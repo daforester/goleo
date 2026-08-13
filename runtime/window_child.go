@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"encoding/json"
 	"os"
 	"strconv"
 )
@@ -26,7 +27,40 @@ const (
 	envWindowTitle  = "GOLEO_WINDOW_TITLE"
 	envWindowWidth  = "GOLEO_WINDOW_WIDTH"
 	envWindowHeight = "GOLEO_WINDOW_HEIGHT"
+	// envWindowChrome carries WindowChrome as JSON. One variable rather than four,
+	// because each field is tri-state (unset / true / false) and a JSON object with
+	// omitempty already encodes exactly that, while "" versus "false" in an env var
+	// does not.
+	envWindowChrome = "GOLEO_WINDOW_CHROME"
 )
+
+// encodeChromeEnv renders chrome for envWindowChrome, returning "" when there is
+// nothing to say so the parent does not set an empty variable.
+func encodeChromeEnv(c WindowChrome) (string, error) {
+	if c.isZero() {
+		return "", nil
+	}
+	b, err := json.Marshal(c)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+// decodeChromeEnv parses envWindowChrome. A malformed value yields the zero chrome —
+// the parent wrote it, so the failure is a goleo bug rather than user input, and a
+// window with default decorations is a better outcome than a child that refuses to
+// start.
+func decodeChromeEnv(s string) WindowChrome {
+	if s == "" {
+		return WindowChrome{}
+	}
+	var c WindowChrome
+	if err := json.Unmarshal([]byte(s), &c); err != nil {
+		return WindowChrome{}
+	}
+	return c
+}
 
 // isWindowChild reports whether this process was spawned to host a single
 // webview window (see WindowManager.Open).
@@ -46,6 +80,7 @@ func (a *App) runWindowChild() error {
 		Center:   true,
 		URL:      os.Getenv(envWindowURL),
 		DevTools: a.config.DevMode,
+		Chrome:   decodeChromeEnv(os.Getenv(envWindowChrome)),
 	}
 
 	win := NewWebviewWindow(cfg)

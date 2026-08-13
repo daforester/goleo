@@ -69,7 +69,7 @@ func (m *mainLoopWindowManager) Open(opts WindowOptions) (int, error) {
 	id := m.next
 	m.mu.Unlock()
 
-	url, title, width, height := resolveWindowOptions(m.app, opts)
+	r := resolveWindowOptions(m.app, opts)
 
 	// GUI object creation is main-thread-only, so build the window inside a
 	// Dispatch onto the primary's loop and wait for it. NewWebviewWindow does NOT
@@ -77,13 +77,14 @@ func (m *mainLoopWindowManager) Open(opts WindowOptions) (int, error) {
 	done := make(chan *WebviewWindow, 1)
 	primary.Dispatch(func() {
 		w := NewWebviewWindow(windowConfig{
-			Title:    title,
-			Width:    width,
-			Height:   height,
+			Title:    r.Title,
+			Width:    r.Width,
+			Height:   r.Height,
 			Center:   true,
-			URL:      url,
+			URL:      r.URL,
 			DevTools: m.app.config.DevMode,
 			OnInit:   m.app.nativeOnInit(),
+			Chrome:   r.Chrome,
 		})
 		done <- &w
 	})

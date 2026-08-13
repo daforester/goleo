@@ -312,6 +312,14 @@ The invariants, which hold whether or not you read that file:
 - Additional windows are **child processes** by default because native webviews own the GUI
   thread. macOS and Linux are main-thread-only, so extra in-process windows there share the
   primary run loop — reimplementing that as per-thread loops deadlocks on macOS.
+- **Window geometry and chrome go through the native handle, not glaze** (`runtime/windowgeom*.go`,
+  purego per platform): glaze has `SetTitle`/`SetSize` and no geometry getters, no `SetPosition`,
+  no decoration control. `WindowChrome`'s fields are `*bool` because every one of them defaults
+  to the *true* side at the OS — plain bools would make every zero-value `Config` mean "frameless
+  and fixed-size", and an absent JS property must not read as `false`. Adding a field means
+  updating all four surfaces plus `schema.go`, `generate.go`, both scaffolds and
+  `bridge/src/window.ts`; a test enforces it. No transparency support, and Windows "fullscreen"
+  maximizes.
 
 ## Host features via the bridge
 

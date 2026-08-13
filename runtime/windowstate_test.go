@@ -2,6 +2,34 @@ package runtime
 
 import "testing"
 
+// RememberWindowState is documented to be called from OnStartup, and OnStartup runs inside
+// StartServer — BEFORE runWebview creates the window. The first cut restored inline, found
+// a nil mainWin, swallowed the error it is documented to swallow, and left every app that
+// called it silently starting at Config's default size forever. The restore is therefore
+// deferred until the window exists, and this asserts that the deferral is not consumed
+// early: nothing may mark the restore done while there is no window to restore onto.
+func TestRememberWindowStateDefersUntilTheWindowExists(t *testing.T) {
+	app := New(Config{Title: "geom-defer"})
+
+	app.RememberWindowState() // the OnStartup case: no window yet
+
+	if !app.rememberWindowState {
+		t.Fatal("RememberWindowState did not arm the save-on-shutdown path")
+	}
+	if app.windowStateRestored {
+		t.Fatal("the restore was marked done with no window — this is exactly the bug: the " +
+			"attempt is spent before runWebview creates the window, so geometry never comes back")
+	}
+
+	// Once the window exists, runWebview calls this. The window has no native backend in a
+	// test, so the restore itself fails; what matters is that the attempt happens now, once.
+	app.mainWin = &WebviewWindow{}
+	app.restoreSavedWindowState()
+	if !app.windowStateRestored {
+		t.Error("the deferred restore did not run once mainWin existed")
+	}
+}
+
 // clampToVisible is the part of window-state restore that is worth testing without a
 // window: the geometry maths is platform-independent, and the failure it prevents is the
 // one users actually hit — save a window on a second monitor, unplug it, relaunch, and the

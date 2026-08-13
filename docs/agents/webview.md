@@ -116,6 +116,51 @@ thread `App.Run` locked. Moving that onto the loop would create the window on
 the wrong thread — a silent failure on macOS and Linux, which are
 main-thread-only.
 
+### Window geometry, chrome and state (T2/T3)
+
+**glaze has no API for any of this.** It exposes `SetTitle` and `SetSize` — no geometry
+getters, no `SetPosition`, no decoration control. So `runtime/windowgeom*.go` drives the
+**native handle** (`WebviewWindow.NativeHandle()`) per platform with purego, exactly as
+`menu_windows.go` does: Win32 `GetWindowRect`/`SetWindowPos`/`SetWindowLongPtrW`, NSWindow
+`frame`/`setFrame:`, GTK3 `gtk_window_move`/`resize`. Unsupported builds get
+`windowgeom_stub.go` returning `errors.ErrUnsupported`. Do not go looking for the glaze call
+that does this — the audit was done and there isn't one.
+
+- **`WindowRect` is top-left origin on EVERY platform**, including macOS, whose NSWindow
+  frame is bottom-left with Y up. `windowgeom_darwin.go` converts. A rect that means
+  different things per OS defeats the point of saving one.
+- **`WindowChrome`'s fields are `*bool`, and that is load-bearing.** Every one of them
+  (`Resizable`, `AlwaysOnTop`, `Fullscreen`, `Decorations`) defaults to the *true* side at
+  the OS, so plain bools would make every zero-value `Config` mean "frameless and
+  fixed-size". nil = "not stated". The same distinction holds in JS: an absent
+  `createWindow` property must not read as `false` (`chromeFromJS`, not `getJSBool`).
+- **One type, four surfaces:** `Config.Chrome` (primary window), `createWindow` opts
+  (init.js), `WindowOptions.Chrome` (`OpenWindow`, `goleo:windowOpen`, `openWindow()`), and
+  `WebviewWindow.SetChrome` at runtime. `Config.Chrome` is the per-field default for the
+  others (`mergeChrome`), the way `Title`/`Width`/`Height` already are. Child-process
+  windows carry it as JSON in `GOLEO_WINDOW_CHROME` — one variable, because each field is
+  tri-state and an env var models "unset vs false" badly.
+- **Adding a chrome field means touching all of them**, plus `cli/cmd/schema.go` (the
+  `goleo:windowOpen` arg type), `cli/cmd/generate.go` (`GoleoWindowOptions` in init.d.ts),
+  both scaffolds' init.js comment blocks and `bridge/src/window.ts`.
+  `TestChromeOptionsAreDocumentedEverywhereTheyAreRead` fails if you miss one.
+- **Windows "fullscreen" maximizes**, deliberately — true borderless fullscreen needs an
+  exact save/restore of the pre-fullscreen placement, and getting it wrong strands a window
+  with no frame and no way back. **There is no transparency support** (P2 in the roadmap
+  wants it; it needs a glaze change, not another field).
+- **Window state (`RememberWindowState`) restores LATE, on purpose.** It is documented to be
+  called from `OnStartup`, which runs inside `StartServer` — *before* `runWebview` creates
+  the window. Restoring inline there finds a nil window and swallows the error, which is how
+  it shipped broken and silent; `runWebview` now applies it via `restoreSavedWindowState`
+  once `mainWin` exists. A restored rect is always clamped to the visible screen: the
+  unplugged-second-monitor case produces a window at x=3000 that never appears, which reads
+  exactly like a crash.
+- **Verification status:** Windows verified against real windows (style bits read back off
+  the HWND; save→quit→relaunch→restore end to end). **macOS and Linux compile and nothing
+  more.** Linux additionally cannot move windows under Wayland — `gtk_window_move` is a
+  no-op there by design, so a restored window returns at the right size in a
+  compositor-chosen position.
+
 ### Multi-window (desktop)
 
 Native OS webviews are single-window and own the GUI thread, so **additional

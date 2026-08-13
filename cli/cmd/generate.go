@@ -202,6 +202,17 @@ interface GoleoWindowOptions {
   devTools?: boolean
   /** default: the app's own URL */
   url?: string
+  // Window chrome. Each falls back to Config.Chrome, then to the OS default — omitting
+  // one is NOT the same as passing false, so a script that never mentions decorations
+  // keeps its title bar.
+  /** default: Config.Chrome.Resizable, else the OS default (resizable) */
+  resizable?: boolean
+  /** default: Config.Chrome.AlwaysOnTop, else the OS default (not on top) */
+  alwaysOnTop?: boolean
+  /** default: Config.Chrome.Fullscreen, else the OS default (windowed). Maximizes on Windows */
+  fullscreen?: boolean
+  /** default: Config.Chrome.Decorations, else the OS default (title bar and border) */
+  decorations?: boolean
 }
 
 declare function getConfig(): GoleoConfig

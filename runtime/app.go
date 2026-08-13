@@ -39,6 +39,9 @@ type App struct {
 	// rememberWindowState is set by RememberWindowState; shutdown() saves geometry when it
 	// is on, before CloseAll destroys the window it would have to read.
 	rememberWindowState bool
+	// windowStateRestored keeps the restore to once, since it can be triggered either by
+	// RememberWindowState itself or by runWebview once mainWin exists.
+	windowStateRestored bool
 }
 
 type Config struct {
@@ -112,6 +115,17 @@ type Config struct {
 	// When empty, init.js then backend/init.js are tried; if neither exists
 	// the window is created from this Config directly.
 	InitJS string
+	// Chrome sets the primary window's decorations and behaviour at creation:
+	// resizable, always-on-top, fullscreen, decorations. Each field is a *bool, so
+	// leaving one nil keeps the OS default rather than forcing it false — see
+	// WindowChrome, and runtime.Bool for the literal:
+	//
+	//	Chrome: runtime.WindowChrome{Resizable: runtime.Bool(false)}
+	//
+	// It is also the default for every window opened later (OpenWindow, init.js
+	// createWindow), which override it per field. Desktop only; the mobile shell owns
+	// its window, and in browser mode there is no native window to configure.
+	Chrome WindowChrome
 	// Menu is the native application menu bar, supported on all three desktops:
 	// NSMenu on macOS, a user32 HMENU on Windows, and GtkMenuBar (GTK3) or
 	// GtkPopoverMenuBar (GTK4) on Linux. When empty, macOS installs
@@ -353,6 +367,7 @@ func (a *App) runWebview(port int) error {
 			Center: true,
 			URL:    a.serverURL(port),
 			OnInit: a.nativeOnInit(),
+			Chrome: a.config.Chrome,
 		}
 		if scheme, serve, ok := a.schemeAssets(); ok {
 			cfg.AssetScheme = scheme
@@ -364,6 +379,10 @@ func (a *App) runWebview(port int) error {
 	}
 
 	a.mainWin = win
+
+	// Saved geometry (T3), if RememberWindowState was called — which is documented to
+	// happen in OnStartup, i.e. before this window existed. No-op otherwise.
+	a.restoreSavedWindowState()
 
 	// On macOS/Linux the primary window owns the single main-thread run loop that
 	// every in-process window shares; hand it to the manager so OpenWindow can

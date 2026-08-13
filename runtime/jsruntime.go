@@ -42,6 +42,10 @@ type windowConfig struct {
 	Center    bool
 	URL       string
 	DevTools  bool
+	// Chrome is applied by NewWebviewWindow once the native window exists, since
+	// the glaze binding has no chrome API — see windowgeom.go. Zero value = leave
+	// every decoration at the OS default.
+	Chrome WindowChrome
 	// OnInit, if set, runs against the window after the webview is created but
 	// before its first navigation — the point at which init scripts and JS
 	// bindings must be registered. Used to install the native IPC bridge
@@ -160,6 +164,10 @@ func (jsr *JSRuntime) provideAPI() {
 			DevTools:  getJSBool(obj, "devTools", jsr.config.DevMode),
 			URL:       getJSString(obj, "url", jsr.serverURL()),
 			OnInit:    jsr.app.nativeOnInit(),
+			// Config.Chrome is the default; properties named here override it one at a
+			// time. An absent property must stay nil rather than becoming false — see
+			// chromeFromJS.
+			Chrome: mergeChrome(jsr.config.Chrome, chromeFromJS(obj)),
 		}
 
 		win := NewWebviewWindow(cfg)
@@ -235,6 +243,32 @@ func getJSInt(obj *goja.Object, key string, def int) int {
 		return def
 	}
 	return int(v.ToInteger())
+}
+
+// chromeFromJS reads the WindowChrome properties of a createWindow() options object.
+//
+// The distinction it exists to preserve: a property the script did not write must stay
+// nil ("leave the OS default"), which is NOT the same as writing false. Reading these
+// with getJSBool and a false default would silently strip the frame off every window
+// created by a script that never mentioned decorations.
+func chromeFromJS(obj *goja.Object) WindowChrome {
+	return WindowChrome{
+		Resizable:   getJSBoolPtr(obj, "resizable"),
+		AlwaysOnTop: getJSBoolPtr(obj, "alwaysOnTop"),
+		Fullscreen:  getJSBoolPtr(obj, "fullscreen"),
+		Decorations: getJSBoolPtr(obj, "decorations"),
+	}
+}
+
+// getJSBoolPtr returns nil when the property is absent, null or undefined, and a
+// pointer to its truthiness otherwise.
+func getJSBoolPtr(obj *goja.Object, key string) *bool {
+	v := obj.Get(key)
+	if v == nil || goja.IsUndefined(v) || goja.IsNull(v) {
+		return nil
+	}
+	b := v.ToBoolean()
+	return &b
 }
 
 func getJSBool(obj *goja.Object, key string, def bool) bool {

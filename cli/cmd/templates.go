@@ -166,6 +166,9 @@ var tmplInitJS = `/// <reference path="./init.d.ts" />
 //          height     Config.Height       minWidth   0 (no minimum)
 //          minHeight  0 (no minimum)      center     true
 //          devTools   Config.DevMode      url        the app's own URL
+//        window chrome, each falling back to Config.Chrome and then to the OS
+//        default — OMITTING one is not the same as passing false:
+//          resizable  alwaysOnTop         fullscreen  decorations
 //
 //   console.log / console.info / console.warn / console.error
 //

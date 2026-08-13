@@ -1,5 +1,24 @@
 import { invoke } from './index.js'
 
+/**
+ * A window's decorations and behaviour.
+ *
+ * Every property is optional and OMITTING ONE IS NOT THE SAME AS PASSING FALSE: an
+ * omitted property keeps the app's Config.Chrome value, and failing that the OS default —
+ * which for all four is the on/true-ish one (windows are resizable and decorated). Pass
+ * false explicitly to turn one off.
+ */
+export interface WindowChrome {
+  /** Whether the user can resize the window. */
+  resizable?: boolean
+  /** Keep the window above other applications' windows. */
+  alwaysOnTop?: boolean
+  /** Open fullscreen. Maximizes rather than going borderless on Windows. */
+  fullscreen?: boolean
+  /** Title bar and border. false gives a frameless window. */
+  decorations?: boolean
+}
+
 /** Options for opening an additional native window. */
 export interface WindowOptions {
   title?: string
@@ -11,6 +30,8 @@ export interface WindowOptions {
   path?: string
   /** Quit the whole app when this window closes (default false). */
   exitOnClose?: boolean
+  /** Decorations and behaviour; each property falls back to the app's Config.Chrome. */
+  chrome?: WindowChrome
 }
 
 /** Request a graceful app shutdown (desktop). */

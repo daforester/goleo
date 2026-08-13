@@ -63,6 +63,18 @@ func NewWebviewWindow(cfg windowConfig) WebviewWindow {
 
 	win := WebviewWindow{w: w, cfg: cfg, url: cfg.URL}
 
+	// Chrome (Config.Chrome / createWindow opts / WindowOptions.Chrome). glaze has no
+	// API for any of this, so it goes through the native handle — which exists only
+	// now, after the view is created. Applied before the first navigation so the window
+	// is never briefly shown with the wrong frame. A failure here is not fatal: the
+	// window is usable, just decorated the way the OS chose, so it is logged rather
+	// than returned.
+	if !cfg.Chrome.isZero() {
+		if err := win.SetChrome(cfg.Chrome); err != nil {
+			log.Printf("Goleo window chrome: %v", err)
+		}
+	}
+
 	// OnInit must run before the first navigation (native IPC shim + Bind).
 	if cfg.OnInit != nil {
 		cfg.OnInit(&win)
