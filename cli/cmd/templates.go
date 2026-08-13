@@ -135,48 +135,33 @@ func main() {
 
 var tmplInitJS = `// init.js — Goleo startup script.
 //
-// Runs inside the Go backend (embedded JS engine) before any window is
-// shown, giving you full control over window creation. Available API:
+// Runs inside the Go backend (embedded JS engine) before any window is shown, so
+// it can decide how many windows to open and how each one is configured. That is
+// its whole job: a window bootstrapper, not a general scripting layer.
 //
-//   getConfig()       -> { title, width, height, devMode, devServer, port, url }
-//   createWindow(opts) - opts: title, width, height, minWidth, minHeight,
-//                        center, devTools, url (defaults to the app's own URL)
-//   console.log/info/warn/error
+// THE COMPLETE API. These three globals are everything the engine defines — there
+// is nothing else in scope here.
 //
-// Available bridge commands (call via bridge.invoke("goleo:xxx", { ... })):
+//   getConfig()
+//     -> { title, width, height, devMode, devServer, port, url }
+//        Values from runtime.Config, plus the resolved port and the app's own URL.
 //
-//   Core:
-//     goleo:getOS                          -> OSInfo
-//     goleo:getPlatform                    -> PlatformInfo
-//     goleo:getArch                        -> string
-//     goleo:getEnv({ key })                -> string
-//     goleo:openURL({ url })               -> void
-//     goleo:notify({ title, body? })       -> void
-//     goleo:showMessage({ title, message }) -> void
+//   createWindow(opts)
+//     -> true if a native window was created; false in browser mode (goleo dev,
+//        goleo emulate, mobile), where there is no native window to create.
+//        opts, with the default each falls back to:
+//          title      Config.Title        width      Config.Width
+//          height     Config.Height       minWidth   0 (no minimum)
+//          minHeight  0 (no minimum)      center     true
+//          devTools   Config.DevMode      url        the app's own URL
 //
-//   Clipboard:
-//     goleo:clipboardReadText              -> { text }
-//     goleo:clipboardWriteText({ text })   -> void
+//   console.log / console.info / console.warn / console.error
 //
-//   Dialogs:
-//     goleo:dialogOpenFile({ ... })        -> string[]
-//     goleo:dialogSaveFile({ ... })        -> string
-//     goleo:dialogSelectFolder({ ... })    -> string
-//     goleo:dialogShowMessage({ ... })     -> { button }
-//     goleo:dialogShowPrompt({ ... })      -> string
-//
-//   File System:
-//     goleo:fsReadTextFile({ path })       -> string
-//     goleo:fsWriteTextFile({ path, content }) -> void
-//     goleo:fsReadBinaryFile({ path })     -> { data }
-//     goleo:fsWriteBinaryFile({ path, data }) -> void
-//     goleo:fsListDir({ path })            -> FileEntry[]
-//     goleo:fsDelete({ path })             -> void
-//     goleo:fsAppDataDir({ appName? })     -> string
-//     goleo:fsHomeDir                      -> string
-//
-//   Geolocation:
-//     goleo:geolocationGetCurrentPosition({ ... }) -> Position
+// There is NO bridge object here, and no way to call goleo:* commands from this
+// file. Those are the FRONTEND's API: import them from @goleo/bridge in
+// frontend/src, where every call is checked against the Policy ACL. For backend
+// logic, write Go — register a handler with a.Bridge().Handle(...) in
+// backend/app/app.go.
 //
 // Delete this file (and its embed line in main.go) to fall back to the
 // built-in window setup from runtime.Config.
